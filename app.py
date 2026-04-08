@@ -1,341 +1,292 @@
-# ============================================================
-# SAS to R Converter — Streamlit App
-# Converted from Google Colab by Claude
-# ============================================================
+# SAS to R Converter - Streamlit App
+# Features: LLM conversion + R execution + SAS vs R comparison
 
-import os
-import re
-import subprocess
-import tempfile
-
+import os, re, subprocess, tempfile, io
 import pandas as pd
 import streamlit as st
 
-# ── API clients ──────────────────────────────────────────────
+st.set_page_config(page_title="SAS to R Converter", page_icon="🔄", layout="wide")
+
 from google import genai
 from groq import Groq
 
-# Load keys — works both on Streamlit Cloud (st.secrets) and locally (env vars)
 def get_secret(key):
-    try:
-        return st.secrets[key]
-    except Exception:
-        return os.environ.get(key, "")
+    try: return st.secrets[key]
+    except Exception: return os.environ.get(key, "")
 
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 GROQ_API_KEY   = get_secret("GROQ_API_KEY")
 
-# Show clear error if keys are missing BEFORE trying to create clients
 if not GEMINI_API_KEY or not GROQ_API_KEY:
-    st.set_page_config(page_title="SAS to R Converter", page_icon="=")
-    st.error("API keys missing! Go to Streamlit Cloud -> App Settings -> Secrets and add:")
-    st.code('GEMINI_API_KEY = "your_gemini_key"\nGROQ_API_KEY = "your_groq_key"', language="toml")
-    st.info("Get Gemini key: https://aistudio.google.com  |  Groq key: https://console.groq.com")
+    st.error("API keys missing! Go to Streamlit Cloud App Settings -> Secrets and add:")
+    st.code('GEMINI_API_KEY = "your_key"\nGROQ_API_KEY = "your_key"', language="toml")
     st.stop()
 
-# Only create clients after confirming keys exist
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 groq_client   = Groq(api_key=GROQ_API_KEY)
 
-# Always use Rscript subprocess (rpy2 not compatible with Python 3.14)
-USE_RPY2 = False
-
-
-# ============================================================
-# YOUR ORIGINAL HELPER FUNCTIONS (unchanged)
-# ============================================================
-
 def clean_r_code(text):
     if "```" in text:
-        code_blocks = re.findall(r"```(?:r|python|R)?\n(.*?)\n```", text, re.DOTALL)
-        if code_blocks:
-            text = "\n".join(code_blocks)
-
-    def fix_all_args(text):
-        result = ""
-        stack = 0
-        i = 0
-        while i < len(text):
-            char = text[i]
-            if char == '(':
-                stack += 1
-                result += char
-            elif char == ')':
-                stack -= 1
-                result += char
-            elif stack > 0 and text[i:i+2] == '<-':
-                result += '='
-                i += 1
-            else:
-                result += char
+        blocks = re.findall(r"```(?:r|python|R)?\n(.*?)\n```", text, re.DOTALL)
+        if blocks: text = "\n".join(blocks)
+    def fix_args(t):
+        res, stack, i = "", 0, 0
+        while i < len(t):
+            c = t[i]
+            if c == '(': stack += 1; res += c
+            elif c == ')': stack -= 1; res += c
+            elif stack > 0 and t[i:i+2] == '<-': res += '='; i += 1
+            else: res += c
             i += 1
-        return result
-
-    text = fix_all_args(text)
-
-    lines = text.split("\n")
-    code_lines = []
+        return res
+    text = fix_args(text)
+    lines, out = text.split("\n"), []
     for line in lines:
         line = line.strip()
-        if not line or line.startswith(('#', '```', 'library', 'print', 'display')):
-            continue
-        if any(x in line.lower() for x in ["explanation:", "sas code:", "run;", "data.frame()"]):
-            continue
-        if "(" not in line and "=" not in line:
-            line = re.sub(r'\s+=\s+', ' <- ', line)
-        code_lines.append(line)
-
-    cleaned = "\n".join(code_lines)
-    if "df" not in cleaned.split()[-1:]:
-        cleaned += "\ndf"
+        if not line or line.startswith(('#','```','library','print','display')): continue
+        if any(x in line.lower() for x in ["explanation:","sas code:","run;","data.frame()"]): continue
+        if "(" not in line and "=" not in line: line = re.sub(r'\s+=\s+',' <- ',line)
+        out.append(line)
+    cleaned = "\n".join(out)
+    if "df" not in cleaned.split()[-1:]: cleaned += "\ndf"
     return cleaned
 
-
 def enforce_df_usage(code, df_cols):
-    if not code.strip():
-        return "df"
-    lines = code.split("\n")
+    if not code.strip(): return "df"
     out = []
-    for line in lines:
-        if line.strip() == "df":
-            out.append(line)
-            continue
+    for line in code.split("\n"):
+        if line.strip() == "df": out.append(line); continue
         temp = line
         for col in df_cols:
             temp = re.sub(rf"(?<!df\$)\b{col}\b", f"df${col}", temp)
         if "<-" in temp:
-            parts = temp.split("<-", 1)
-            lhs = parts[0]
-            rhs = parts[1]
-            if "df$" not in lhs and lhs.strip() not in ["df"]:
+            parts = temp.split("<-",1); lhs, rhs = parts[0], parts[1]
+            if "df$" not in lhs and lhs.strip() != "df":
                 temp = f"df${lhs.strip()} <- {rhs.strip()}"
         out.append(temp)
     return "\n".join(out)
 
-
 def call_llm_api(step, df_cols):
-    is_proc      = 'proc ' in step.lower()
-    is_transpose = 'transpose' in step.lower()
-
-    prompt = (
-        f"TASK: Convert SAS to Base R. Input data is 'df'. "
-        f"Final line MUST be 'df'. NO EXPLANATIONS. SAS:\n{step}"
-    )
-
-    if is_transpose:
-        prompt += """\nCRITICAL: If SAS contains PREFIX= or SUFFIX=, the R code MUST:
-1. Store the unique levels of the ID/Time variable in a vector BEFORE calling reshape().
-2. Perform reshape().
-3. Use those stored levels to rename columns using paste0(PREFIX, levels, SUFFIX).
-4. Arguments inside reshape() MUST use '='.
-"""
-
+    is_proc = 'proc ' in step.lower()
+    is_trans = 'transpose' in step.lower()
+    prompt = f"TASK: Convert SAS to Base R. Input data is 'df'. Final line MUST be 'df'. NO EXPLANATIONS. SAS:\n{step}"
+    if is_trans:
+        prompt += "\nCRITICAL: For PREFIX=/SUFFIX=: store unique ID levels, reshape(), rename with paste0(). Use '=' inside reshape() args."
     try:
-        raw = gemini_client.models.generate_content(
-            model='gemini-2.0-flash', contents=prompt
-        ).text
+        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=prompt).text
     except Exception:
-        res = groq_client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': prompt}],
-            temperature=0
-        )
+        res = groq_client.chat.completions.create(model='llama-3.3-70b-versatile',
+              messages=[{'role':'user','content':prompt}], temperature=0)
         raw = res.choices[0].message.content
-
     cleaned = clean_r_code(raw)
     return cleaned if is_proc else enforce_df_usage(cleaned, df_cols)
 
+def run_r_subprocess(r_code, input_df):
+    with tempfile.TemporaryDirectory() as d:
+        inp = os.path.join(d,"input.csv"); out = os.path.join(d,"output.csv"); scr = os.path.join(d,"s.R")
+        input_df.to_csv(inp, index=False)
+        with open(scr,"w") as f:
+            f.write(f'df <- read.csv("{inp}", stringsAsFactors=FALSE)\n{r_code}\nwrite.csv(df,"{out}",row.names=FALSE)\n')
+        res = subprocess.run(["Rscript",scr], capture_output=True, text=True, timeout=30)
+        if res.returncode != 0: raise RuntimeError(res.stderr)
+        return pd.read_csv(out)
 
-def run_r_code_subprocess(r_code: str, input_df: pd.DataFrame) -> pd.DataFrame:
-    with tempfile.TemporaryDirectory() as tmpdir:
-        input_csv  = os.path.join(tmpdir, "input.csv")
-        output_csv = os.path.join(tmpdir, "output.csv")
-        r_script   = os.path.join(tmpdir, "script.R")
+def compare_dfs(sas_df, r_df, tol=1e-3):
+    sas_df = sas_df.reset_index(drop=True)
+    r_df   = r_df.reset_index(drop=True)
+    if sas_df.shape != r_df.shape:
+        return {"match":False,"details":f"Shape mismatch: SAS{sas_df.shape} vs R{r_df.shape}","mismatches":[]}
+    sas_df.columns = sas_df.columns.str.upper()
+    r_df.columns   = r_df.columns.str.upper()
+    sc, rc = set(sas_df.columns), set(r_df.columns)
+    if sc != rc:
+        return {"match":False,"details":f"Column mismatch. Missing:{sc-rc} Extra:{rc-sc}","mismatches":[]}
+    r_df = r_df[sas_df.columns]
+    mismatches = []
+    for col in sas_df.columns:
+        for i in range(len(sas_df)):
+            sv, rv = sas_df[col].iloc[i], r_df[col].iloc[i]
+            try:
+                if abs(float(sv)-float(rv)) > tol: mismatches.append({"col":col,"row":i,"sas":sv,"r":rv})
+            except (ValueError,TypeError):
+                if str(sv).strip().upper() != str(rv).strip().upper(): mismatches.append({"col":col,"row":i,"sas":sv,"r":rv})
+    match = len(mismatches)==0
+    return {"match":match,"details":"All values match!" if match else f"{len(mismatches)} value(s) differ","mismatches":mismatches}
 
-        input_df.to_csv(input_csv, index=False)
-
-        full_r = f"""
-df <- read.csv("{input_csv}", stringsAsFactors=FALSE)
-{r_code}
-write.csv(df, "{output_csv}", row.names=FALSE)
-"""
-        with open(r_script, "w") as f:
-            f.write(full_r)
-
-        result = subprocess.run(
-            ["Rscript", r_script],
-            capture_output=True, text=True, timeout=30
-        )
-
-        if result.returncode != 0:
-            raise RuntimeError(result.stderr)
-
-        return pd.read_csv(output_csv)
-
-
-def run_pipeline(sas_code, sas_outputs, log_fn=None):
-    steps = re.findall(
-        r"((?:data|proc)\s+.*?;.*?run;)",
-        sas_code, re.DOTALL | re.IGNORECASE
-    )
-    env = {}
-
+def run_pipeline_validate(sas_code, sas_outputs):
+    steps = re.findall(r"((?:data|proc)\s+.*?;.*?run;)", sas_code, re.DOTALL|re.IGNORECASE)
+    env, results = {}, []
     for step in steps:
-        name_match = re.search(r"(?:^data\s+|out\s*=\s*)(\w+)", step, re.I)
-        if not name_match:
-            continue
-        name = name_match.group(1)
-        if name not in sas_outputs:
-            continue
+        m = re.search(r"(?:^data\s+|out\s*=\s*)(\w+)", step, re.I)
+        if not m: continue
+        name = m.group(1).upper()
+        res = {"name":name,"step":step,"r_code":None,"r_output":None,
+               "sas_output":sas_outputs.get(name),"comparison":None,"error":None}
         if 'datalines' in step.lower():
-            env[name] = sas_outputs[name]
-            continue
-
+            if name in sas_outputs:
+                env[name] = sas_outputs[name]
+                res["r_output"] = sas_outputs[name]
+                res["comparison"] = {"match":True,"details":"Datalines — using SAS output directly","mismatches":[]}
+            results.append(res); continue
         inp = list(env.values())[-1] if env else None
         if inp is None:
-            continue
-
-        r_code = call_llm_api(step, inp.columns.tolist())
-
-        if log_fn:
-            log_fn(name, r_code)
-
+            res["error"] = "No input DataFrame for this step"; results.append(res); continue
         try:
-            if USE_RPY2:
-                ro.globalenv['df'] = pandas2ri.py2rpy(inp)
-                out = pandas2ri.rpy2py(ro.r(f"local({{ {r_code} }})"))
-            else:
-                out = run_r_code_subprocess(r_code, inp)
-
-            env[name] = out
-
+            r_code = call_llm_api(step, inp.columns.tolist())
+            res["r_code"] = r_code
         except Exception as e:
-            if log_fn:
-                log_fn(name, r_code, error=str(e))
+            res["error"] = f"LLM error: {e}"; results.append(res); continue
+        try:
+            r_out = run_r_subprocess(r_code, inp)
+            res["r_output"] = r_out; env[name] = r_out
+        except Exception as e:
+            res["error"] = f"R execution error: {e}"; results.append(res); continue
+        if name in sas_outputs and sas_outputs[name] is not None:
+            res["comparison"] = compare_dfs(sas_outputs[name], r_out)
+        results.append(res)
+    return results
 
-    return env
+# ── UI ────────────────────────────────────────────────────────
 
-
-# ============================================================
-# STREAMLIT UI
-# ============================================================
-
-st.set_page_config(
-    page_title="SAS to R Converter",
-    page_icon="=",
-    layout="wide"
-)
-
-st.title("SAS to R Converter")
-st.caption(
-    "Powered by Gemini 2.0 Flash with Groq / Llama 3.3 70B as fallback  "
-    f"| R engine: {'rpy2 (fast)' if USE_RPY2 else 'Rscript subprocess'}"
-)
+st.title("🔄 SAS to R Converter")
+st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
 st.divider()
 
-col_left, col_right = st.columns([1, 1], gap="large")
+mode = st.radio("Mode", ["Convert Only", "Convert + Execute + Validate"], horizontal=True)
+st.divider()
 
-with col_left:
-    st.subheader("Input: SAS Code")
-    sas_input = st.text_area(
-        label="Paste your SAS code here",
-        height=400,
-        placeholder="""data LABS;
-    input patient_id $ glucose age;
-    datalines;
-101 110 45
-102 140 62
-;
-run;
+st.subheader("📋 SAS Code")
+sas_input = st.text_area("sas", height=250, label_visibility="collapsed",
+    placeholder="Paste your SAS code here...")
 
-data LAB_RESULTS;
-    set LABS;
-    adj_glucose = glucose + (age * 0.1);
-    if adj_glucose > 130 then status = 'HIGH';
-    else status = 'NORMAL';
-run;
-""",
-        label_visibility="collapsed"
-    )
+sas_outputs = {}
 
-    convert_btn = st.button("Convert to R", type="primary", use_container_width=True)
+if mode == "Convert + Execute + Validate":
+    st.divider()
+    st.subheader("📊 Expected SAS Outputs")
+    st.caption("Upload one CSV per dataset — filename must match the SAS dataset name (e.g. LAB_RESULTS.csv)")
 
-with col_right:
-    st.subheader("Output: Generated R Code")
-    st.empty()
+    uploaded = st.file_uploader("Upload CSVs", type=["csv"], accept_multiple_files=True)
+    if uploaded:
+        cols = st.columns(min(len(uploaded), 3))
+        for i, f in enumerate(uploaded):
+            name = os.path.splitext(f.name)[0].upper()
+            df = pd.read_csv(f)
+            sas_outputs[name] = df
+            with cols[i % 3]:
+                st.markdown(f"**{name}** ({df.shape[0]}r × {df.shape[1]}c)")
+                st.dataframe(df, use_container_width=True, height=140)
 
-if convert_btn:
+    with st.expander("Or paste CSV text manually"):
+        manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
+        manual_csv  = st.text_area("Paste CSV here", height=100)
+        if manual_name and manual_csv:
+            try:
+                df = pd.read_csv(io.StringIO(manual_csv))
+                sas_outputs[manual_name.upper()] = df
+                st.success(f"Loaded {manual_name.upper()} — {df.shape}")
+                st.dataframe(df)
+            except Exception as e:
+                st.error(f"Parse error: {e}")
+
+st.divider()
+run_btn = st.button("⚡ Run", type="primary", use_container_width=True)
+
+if run_btn:
     if not sas_input.strip():
-        st.warning("Please paste some SAS code first.")
+        st.warning("Paste some SAS code first."); st.stop()
+    st.divider()
+
+    if mode == "Convert Only":
+        st.subheader("Generated R Code")
+        steps = re.findall(r"((?:data|proc)\s+.*?;.*?run;)", sas_input, re.DOTALL|re.IGNORECASE)
+        if not steps: st.error("No valid SAS steps found."); st.stop()
+        all_r = []
+        for i, step in enumerate(steps, 1):
+            m = re.search(r"(?:^data\s+|out\s*=\s*)(\w+)", step, re.I)
+            sname = m.group(1) if m else f"Step{i}"
+            with st.expander(f"Step {i}: {sname}", expanded=True):
+                t1, t2 = st.tabs(["SAS", "Generated R"])
+                with t1: st.code(step.strip(), language="sas")
+                with t2:
+                    with st.spinner(f"Converting {sname}..."):
+                        try:
+                            rc = call_llm_api(step, [])
+                            st.code(rc, language="r"); all_r.append(f"# --- {sname} ---\n{rc}")
+                            st.success(f"✅ {sname} converted")
+                        except Exception as e: st.error(f"❌ {e}")
+        if all_r:
+            st.divider(); full = "\n\n".join(all_r)
+            st.subheader("📥 Full R Script"); st.code(full, language="r")
+            st.download_button("⬇️ Download .R", data=full, file_name="converted.R", mime="text/plain", use_container_width=True)
+
     else:
-        steps = re.findall(
-            r"((?:data|proc)\s+.*?;.*?run;)",
-            sas_input, re.DOTALL | re.IGNORECASE
-        )
+        st.subheader("Conversion + Execution + Validation")
+        with st.spinner("Running pipeline: LLM → R execution → comparison..."):
+            results = run_pipeline_validate(sas_input, sas_outputs)
+        if not results: st.error("No steps processed."); st.stop()
 
-        if not steps:
-            st.error("No valid SAS DATA or PROC steps found. Check your code format.")
-        else:
-            st.divider()
-            st.subheader("Conversion Results")
+        all_r = []
+        for res in results:
+            cmp   = res["comparison"]
+            match = cmp["match"] if cmp else None
+            badge = "✅ MATCH" if match is True else ("❌ MISMATCH" if match is False else "⚙️ NO VALIDATION")
 
-            all_r_code_parts = []
+            with st.expander(f"{badge}  —  {res['name']}", expanded=True):
+                t1,t2,t3,t4,t5 = st.tabs(["SAS Code","Generated R","R Output","SAS Expected","Comparison"])
+                with t1: st.code(res["step"].strip(), language="sas")
+                with t2:
+                    if res["r_code"]: st.code(res["r_code"], language="r"); all_r.append(f"# --- {res['name']} ---\n{res['r_code']}")
+                    elif res["error"]: st.error(res["error"])
+                    else: st.info("Datalines step — no R code generated")
+                with t3:
+                    if res["r_output"] is not None: st.dataframe(res["r_output"], use_container_width=True)
+                    elif res["error"]: st.error(res["error"])
+                    else: st.info("R not executed")
+                with t4:
+                    if res["sas_output"] is not None: st.dataframe(res["sas_output"], use_container_width=True)
+                    else: st.info("No SAS expected output provided")
+                with t5:
+                    if cmp is None: st.info("No SAS expected output uploaded — cannot compare")
+                    elif cmp["match"]: st.success(f"✅ MATCH — {cmp['details']}")
+                    else:
+                        st.error(f"❌ MISMATCH — {cmp['details']}")
+                        if cmp["mismatches"]: st.dataframe(pd.DataFrame(cmp["mismatches"]), use_container_width=True)
 
-            for i, step in enumerate(steps, 1):
-                name_match = re.search(r"(?:^data\s+|out\s*=\s*)(\w+)", step, re.I)
-                step_name  = name_match.group(1) if name_match else f"Step {i}"
+        st.divider(); st.subheader("📊 Summary")
+        total   = len([r for r in results if r["comparison"]])
+        matched = len([r for r in results if r["comparison"] and r["comparison"]["match"]])
+        c1,c2,c3 = st.columns(3)
+        c1.metric("Steps Validated", total)
+        c2.metric("Matched ✅", matched)
+        c3.metric("Mismatched ❌", total - matched)
 
-                with st.expander(f"Step {i}: {step_name}", expanded=True):
-                    tab_sas, tab_r = st.tabs(["SAS Input", "Generated R"])
-
-                    with tab_sas:
-                        st.code(step.strip(), language="sas")
-
-                    with tab_r:
-                        with st.spinner(f"Converting {step_name} via LLM..."):
-                            try:
-                                r_code = call_llm_api(step, [])
-                                st.code(r_code, language="r")
-                                all_r_code_parts.append(f"# --- {step_name} ---\n{r_code}")
-                                st.success(f"{step_name} converted successfully")
-                            except Exception as e:
-                                st.error(f"LLM error: {e}")
-
-            if all_r_code_parts:
-                st.divider()
-                full_r_script = "\n\n".join(all_r_code_parts)
-
-                st.subheader("Full R Script")
-                st.code(full_r_script, language="r")
-
-                st.download_button(
-                    label="Download R Script (.R)",
-                    data=full_r_script,
-                    file_name="converted_script.R",
-                    mime="text/plain",
-                    use_container_width=True
-                )
+        if all_r:
+            st.divider(); full = "\n\n".join(all_r)
+            st.subheader("📥 Full R Script"); st.code(full, language="r")
+            st.download_button("⬇️ Download .R", data=full, file_name="converted.R", mime="text/plain", use_container_width=True)
 
 with st.sidebar:
     st.header("How to use")
     st.markdown("""
-1. Paste your SAS code in the left panel
-2. Click **Convert to R**
-3. View generated R code step-by-step
-4. Download the full R script
+**Convert Only:**
+1. Paste SAS code → Run
+2. Download R script
 
 ---
-**Supported SAS steps:**
-- DATA step with SET, IF/ELSE, derived columns
+**Convert + Validate:**
+1. Paste SAS code
+2. Upload expected CSVs
+   - filename = dataset name
+   - e.g. `LAB_RESULTS.csv`
+   - Or paste CSV manually
+3. Run → see ✅ MATCH / ❌ MISMATCH
+
+---
+**Supported SAS:**
+- DATA step (SET, IF/ELSE)
 - PROC SORT
-- PROC TRANSPOSE (with PREFIX/SUFFIX)
-- PROC MEANS
-- PROC FREQ
-
----
-**R execution:**
-- rpy2 is used if installed
-- Falls back to Rscript (subprocess) automatically
+- PROC TRANSPOSE
+- PROC MEANS / FREQ
 """)
-    st.divider()
-    st.caption("Built with Gemini 2.0 Flash + Groq")
+    st.caption("Built with Gemini + Groq + Rscript")
