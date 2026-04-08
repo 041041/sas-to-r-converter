@@ -70,14 +70,22 @@ def clean_r_code(text):
 
 def call_llm_api(step, df_cols, env_names=None):
     """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
-    env_info = f"\nOther available tables in R environment: {', '.join(env_names)}" if env_names else ""
+    env_info = f"\nAvailable tables in R environment: {', '.join(env_names)}" if env_names else ""
+    
+    # SMART PROMPT ADJUSTMENT FOR CONVERT ONLY MODE
+    if not df_cols:
+        input_context = "Assume 'df' is the primary input table. IF the SAS code uses DATALINES/CARDS, ignore input and CREATE a fresh 'df' from scratch using the raw data."
+    else:
+        input_context = f"A dataframe named 'df' with columns: {df_cols}"
+        
     prompt = (
         f"TASK: Convert this SAS step to Base R code.\n"
-        f"INPUT: A dataframe named 'df' with columns: {df_cols}{env_info}\n"
-        f"OUTPUT: Your code must manipulate 'df'. The last line MUST be exactly 'df'.\n"
+        f"INPUT CONTEXT: {input_context}{env_info}\n"
+        f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
         f"STRICT: No explanations, no markdown, no comments. Just executable R code.\n\n"
         f"SAS STEP:\n{step}"
     )
+    
     try:
         raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=prompt).text
     except Exception:
@@ -306,7 +314,6 @@ if mode == "Convert + Execute + Validate":
             except Exception as e:
                 st.error(f"Failed to load {name}: {str(e)}")
 
-    # Restored Manual Paste Option
     with st.expander("Or paste CSV text manually"):
         manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
         manual_csv  = st.text_area("Paste CSV here", height=100)
@@ -333,7 +340,7 @@ if run_btn:
         if not steps: st.error("No valid SAS steps found."); st.stop()
         
         all_r = []
-        known_tables = [] # <--- NEW: We will track table names here
+        known_tables = [] # Track tables created in Convert Only mode
         
         for i, step in enumerate(steps, 1):
             m = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
@@ -344,19 +351,17 @@ if run_btn:
                 with t2:
                     with st.spinner(f"Converting {sname}..."):
                         try:
-                            # <--- NEW: Pass known_tables to the LLM so it knows what exists
-                            rc = call_llm_api(step, ["unknown_cols"], known_tables)
+                            # Pass an empty list for columns so it triggers the smart DATALINES logic
+                            rc = call_llm_api(step, [], known_tables)
                             st.code(rc, language="r")
                             all_r.append(f"# --- {sname} ---\n{rc}")
                             
-                            # <--- NEW: Add the newly created table to our list
                             if sname not in known_tables:
-                                known_tables.append(sname) 
+                                known_tables.append(sname)
                                 
                             st.success(f"✅ {sname} converted")
                         except Exception as e: st.error(f"❌ {e}")
         
-        # Restored Download Button
         if all_r:
             st.divider(); full = "\n\n".join(all_r)
             st.subheader("📥 Full R Script"); st.code(full, language="r")
@@ -424,7 +429,6 @@ if run_btn:
         c2.metric("Validated Steps", len(valid_steps))
         c3.metric("Matched ✅", len(matches))
 
-        # Restored Download Button for Execute mode
         if all_r:
             st.divider(); full = "\n\n".join(all_r)
             st.subheader("📥 Full R Script"); st.code(full, language="r")
