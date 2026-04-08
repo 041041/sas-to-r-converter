@@ -18,24 +18,27 @@ from groq import Groq
 # Load keys — works both on Streamlit Cloud (st.secrets) and locally (env vars)
 def get_secret(key):
     try:
-        return st.secrets[key]          # Streamlit Cloud / secrets.toml
+        return st.secrets[key]
     except Exception:
-        return os.environ.get(key, "")  # Local machine
+        return os.environ.get(key, "")
 
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 GROQ_API_KEY   = get_secret("GROQ_API_KEY")
 
+# Show clear error if keys are missing BEFORE trying to create clients
+if not GEMINI_API_KEY or not GROQ_API_KEY:
+    st.set_page_config(page_title="SAS to R Converter", page_icon="=")
+    st.error("API keys missing! Go to Streamlit Cloud -> App Settings -> Secrets and add:")
+    st.code('GEMINI_API_KEY = "your_gemini_key"\nGROQ_API_KEY = "your_groq_key"', language="toml")
+    st.info("Get Gemini key: https://aistudio.google.com  |  Groq key: https://console.groq.com")
+    st.stop()
+
+# Only create clients after confirming keys exist
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 groq_client   = Groq(api_key=GROQ_API_KEY)
 
-# ── R execution mode: rpy2 (preferred) or subprocess fallback ─
-try:
-    import rpy2.robjects as ro
-    from rpy2.robjects import pandas2ri
-    pandas2ri.activate()
-    USE_RPY2 = True
-except ImportError:
-    USE_RPY2 = False
+# Always use Rscript subprocess (rpy2 not compatible with Python 3.14)
+USE_RPY2 = False
 
 
 # ============================================================
@@ -144,10 +147,6 @@ def call_llm_api(step, df_cols):
 
 
 def run_r_code_subprocess(r_code: str, input_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Run R code via subprocess (works even without rpy2).
-    Writes input CSV → runs R script → reads output CSV.
-    """
     with tempfile.TemporaryDirectory() as tmpdir:
         input_csv  = os.path.join(tmpdir, "input.csv")
         output_csv = os.path.join(tmpdir, "output.csv")
@@ -175,9 +174,6 @@ write.csv(df, "{output_csv}", row.names=FALSE)
 
 
 def run_pipeline(sas_code, sas_outputs, log_fn=None):
-    """
-    Main pipeline. log_fn is an optional callable for streaming logs to UI.
-    """
     steps = re.findall(
         r"((?:data|proc)\s+.*?;.*?run;)",
         sas_code, re.DOTALL | re.IGNORECASE
@@ -225,35 +221,22 @@ def run_pipeline(sas_code, sas_outputs, log_fn=None):
 # ============================================================
 
 st.set_page_config(
-    page_title="SAS → R Converter",
-    page_icon="🔄",
+    page_title="SAS to R Converter",
+    page_icon="=",
     layout="wide"
 )
 
-# ── Header ───────────────────────────────────────────────────
-st.title("🔄 SAS to R Converter")
+st.title("SAS to R Converter")
 st.caption(
-    "Powered by **Gemini 2.0 Flash** with **Groq / Llama 3.3 70B** as fallback  "
+    "Powered by Gemini 2.0 Flash with Groq / Llama 3.3 70B as fallback  "
     f"| R engine: {'rpy2 (fast)' if USE_RPY2 else 'Rscript subprocess'}"
 )
 st.divider()
 
-# ── API key check ─────────────────────────────────────────────
-if not GEMINI_API_KEY or not GROQ_API_KEY:
-    st.error(
-        "⚠️ API keys not found. Set them in your terminal before running:\n\n"
-        "```bash\n"
-        "export GEMINI_API_KEY='your_key'\n"
-        "export GROQ_API_KEY='your_key'\n"
-        "```"
-    )
-    st.stop()
-
-# ── Two-column layout ─────────────────────────────────────────
 col_left, col_right = st.columns([1, 1], gap="large")
 
 with col_left:
-    st.subheader("📋 Input: SAS Code")
+    st.subheader("Input: SAS Code")
     sas_input = st.text_area(
         label="Paste your SAS code here",
         height=400,
@@ -275,13 +258,12 @@ run;
         label_visibility="collapsed"
     )
 
-    convert_btn = st.button("⚡ Convert to R", type="primary", use_container_width=True)
+    convert_btn = st.button("Convert to R", type="primary", use_container_width=True)
 
 with col_right:
-    st.subheader("📤 Output: Generated R Code")
-    output_placeholder = st.empty()
+    st.subheader("Output: Generated R Code")
+    st.empty()
 
-# ── On button click ───────────────────────────────────────────
 if convert_btn:
     if not sas_input.strip():
         st.warning("Please paste some SAS code first.")
@@ -295,16 +277,15 @@ if convert_btn:
             st.error("No valid SAS DATA or PROC steps found. Check your code format.")
         else:
             st.divider()
-            st.subheader("🔄 Conversion Results")
+            st.subheader("Conversion Results")
 
             all_r_code_parts = []
 
-            # ── Step-by-step conversion display ──────────────
             for i, step in enumerate(steps, 1):
                 name_match = re.search(r"(?:^data\s+|out\s*=\s*)(\w+)", step, re.I)
                 step_name  = name_match.group(1) if name_match else f"Step {i}"
 
-                with st.expander(f"Step {i}: `{step_name}`", expanded=True):
+                with st.expander(f"Step {i}: {step_name}", expanded=True):
                     tab_sas, tab_r = st.tabs(["SAS Input", "Generated R"])
 
                     with tab_sas:
@@ -313,33 +294,30 @@ if convert_btn:
                     with tab_r:
                         with st.spinner(f"Converting {step_name} via LLM..."):
                             try:
-                                # Use dummy cols for proc steps
                                 r_code = call_llm_api(step, [])
                                 st.code(r_code, language="r")
                                 all_r_code_parts.append(f"# --- {step_name} ---\n{r_code}")
-                                st.success(f"✅ {step_name} converted")
+                                st.success(f"{step_name} converted successfully")
                             except Exception as e:
-                                st.error(f"❌ LLM error: {e}")
+                                st.error(f"LLM error: {e}")
 
-            # ── Combined R script download ────────────────────
             if all_r_code_parts:
                 st.divider()
                 full_r_script = "\n\n".join(all_r_code_parts)
 
-                st.subheader("📥 Full R Script")
+                st.subheader("Full R Script")
                 st.code(full_r_script, language="r")
 
                 st.download_button(
-                    label="⬇️ Download R Script (.R)",
+                    label="Download R Script (.R)",
                     data=full_r_script,
                     file_name="converted_script.R",
                     mime="text/plain",
                     use_container_width=True
                 )
 
-# ── Sidebar: how to use ───────────────────────────────────────
 with st.sidebar:
-    st.header("ℹ️ How to use")
+    st.header("How to use")
     st.markdown("""
 1. Paste your SAS code in the left panel
 2. Click **Convert to R**
@@ -348,17 +326,16 @@ with st.sidebar:
 
 ---
 **Supported SAS steps:**
-- `DATA` step with `SET`, `IF/ELSE`, derived columns
-- `PROC SORT`
-- `PROC TRANSPOSE` (with PREFIX/SUFFIX)
-- `PROC MEANS`
-- `PROC FREQ`
+- DATA step with SET, IF/ELSE, derived columns
+- PROC SORT
+- PROC TRANSPOSE (with PREFIX/SUFFIX)
+- PROC MEANS
+- PROC FREQ
 
 ---
 **R execution:**
 - rpy2 is used if installed
-- Falls back to `Rscript` (subprocess) automatically
+- Falls back to Rscript (subprocess) automatically
 """)
-
     st.divider()
     st.caption("Built with Gemini 2.0 Flash + Groq")
