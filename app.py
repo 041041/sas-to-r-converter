@@ -333,6 +333,8 @@ if run_btn:
         if not steps: st.error("No valid SAS steps found."); st.stop()
         
         all_r = []
+        known_tables = [] # <--- NEW: We will track table names here
+        
         for i, step in enumerate(steps, 1):
             m = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
             sname = m.group(1).split('.')[-1].upper().strip() if m else f"Step{i}"
@@ -342,9 +344,15 @@ if run_btn:
                 with t2:
                     with st.spinner(f"Converting {sname}..."):
                         try:
-                            rc = call_llm_api(step, ["unknown_cols"], [])
+                            # <--- NEW: Pass known_tables to the LLM so it knows what exists
+                            rc = call_llm_api(step, ["unknown_cols"], known_tables)
                             st.code(rc, language="r")
                             all_r.append(f"# --- {sname} ---\n{rc}")
+                            
+                            # <--- NEW: Add the newly created table to our list
+                            if sname not in known_tables:
+                                known_tables.append(sname) 
+                                
                             st.success(f"✅ {sname} converted")
                         except Exception as e: st.error(f"❌ {e}")
         
