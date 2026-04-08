@@ -69,7 +69,7 @@ def clean_r_code(text):
     return cleaned
 
 def call_llm_api(step, df_cols, env_names=None):
-    """Calls Gemini with a Groq fallback."""
+    """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
     env_info = f"\nOther available tables in R environment: {', '.join(env_names)}" if env_names else ""
     prompt = (
         f"TASK: Convert this SAS step to Base R code.\n"
@@ -108,7 +108,7 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
                 mem_path = os.path.join(d, f"{name}.csv")
                 df_mem.to_csv(mem_path, index=False)
                 full_script.append(f'{name} <- read.csv("{mem_path}", stringsAsFactors=FALSE, check.names=FALSE)')
-        
+                
         full_script.append(r_code)
         full_script.append(f'write.csv(df, "{out_path}", row.names=FALSE)')
         
@@ -179,12 +179,10 @@ def parse_datalines(step):
 
 def run_chain_pipeline(sas_code, uploaded_outputs):
     """Processes SAS steps as a continuous chain."""
-    # Updated to capture PROC SQL which ends in QUIT; instead of RUN;
     steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_code, re.DOTALL | re.I)
     work_library = {}
     pipeline_results = []
     
-    # Updated to capture CREATE TABLE from PROC SQL
     all_out_names = re.findall(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", sas_code, re.I)
     final_ds_name = all_out_names[-1].split('.')[-1].upper().strip() if all_out_names else None
 
@@ -192,7 +190,6 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
         out_name_match = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
         target_name = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"STEP_{i+1}"
         
-        # Updated to capture FROM or JOIN statements from PROC SQL
         set_match = re.search(r"(?:set|from|join)\s+([\w.]+)", step, re.I)
         source_name = set_match.group(1).split('.')[-1].upper().strip() if set_match else None
         
@@ -332,13 +329,11 @@ if run_btn:
 
     if mode == "Convert Only":
         st.subheader("Generated R Code")
-        # Updated regex to capture QUIT;
         steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL|re.IGNORECASE)
         if not steps: st.error("No valid SAS steps found."); st.stop()
         
         all_r = []
         for i, step in enumerate(steps, 1):
-            # Updated to support CREATE TABLE and library stripping
             m = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
             sname = m.group(1).split('.')[-1].upper().strip() if m else f"Step{i}"
             with st.expander(f"Step {i}: {sname}", expanded=True):
@@ -347,7 +342,7 @@ if run_btn:
                 with t2:
                     with st.spinner(f"Converting {sname}..."):
                         try:
-                            rc = call_llm_api(step, ["unknown_cols"])
+                            rc = call_llm_api(step, ["unknown_cols"], [])
                             st.code(rc, language="r")
                             all_r.append(f"# --- {sname} ---\n{rc}")
                             st.success(f"✅ {sname} converted")
