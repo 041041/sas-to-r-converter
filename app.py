@@ -68,11 +68,12 @@ def clean_r_code(text):
     if not cleaned.strip().endswith("df"): cleaned += "\ndf"
     return cleaned
 
-def call_llm_api(step, df_cols):
+def call_llm_api(step, df_cols, env_names=None):
     """Calls Gemini with a Groq fallback."""
+    env_info = f"\nOther available tables in R environment: {', '.join(env_names)}" if env_names else ""
     prompt = (
         f"TASK: Convert this SAS step to Base R code.\n"
-        f"INPUT: A dataframe named 'df' with columns: {df_cols}\n"
+        f"INPUT: A dataframe named 'df' with columns: {df_cols}{env_info}\n"
         f"OUTPUT: Your code must manipulate 'df'. The last line MUST be exactly 'df'.\n"
         f"STRICT: No explanations, no markdown, no comments. Just executable R code.\n\n"
         f"SAS STEP:\n{step}"
@@ -88,7 +89,7 @@ def call_llm_api(step, df_cols):
         raw = res.choices[0].message.content
     return clean_r_code(raw)
 
-def run_r_subprocess(r_code, input_df):
+def run_r_subprocess(r_code, input_df, env_dict=None):
     """Executes the generated R code in a controlled environment."""
     with tempfile.TemporaryDirectory() as d:
         inp_path = os.path.join(d, "input.csv")
@@ -98,10 +99,18 @@ def run_r_subprocess(r_code, input_df):
         input_df.to_csv(inp_path, index=False)
         
         full_script = [
-            f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)',
-            r_code,
-            f'write.csv(df, "{out_path}", row.names=FALSE)'
+            f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)'
         ]
+        
+        # Inject the entire Work Library into R for SQL Joins
+        if env_dict:
+            for name, df_mem in env_dict.items():
+                mem_path = os.path.join(d, f"{name}.csv")
+                df_mem.to_csv(mem_path, index=False)
+                full_script.append(f'{name} <- read.csv("{mem_path}", stringsAsFactors=FALSE, check.names=FALSE)')
+        
+        full_script.append(r_code)
+        full_script.append(f'write.csv(df, "{out_path}", row.names=FALSE)')
         
         with open(script_path, "w") as f:
             f.write("\n".join(full_script))
@@ -170,18 +179,21 @@ def parse_datalines(step):
 
 def run_chain_pipeline(sas_code, uploaded_outputs):
     """Processes SAS steps as a continuous chain."""
-    steps = re.findall(r"((?:data|proc)\s+.*?;.*?run;)", sas_code, re.DOTALL | re.I)
+    # Updated to capture PROC SQL which ends in QUIT; instead of RUN;
+    steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_code, re.DOTALL | re.I)
     work_library = {}
     pipeline_results = []
     
-    all_out_names = re.findall(r"(?:^data\s+|out\s*=\s*)([\w.]+)", sas_code, re.I)
+    # Updated to capture CREATE TABLE from PROC SQL
+    all_out_names = re.findall(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", sas_code, re.I)
     final_ds_name = all_out_names[-1].split('.')[-1].upper().strip() if all_out_names else None
 
     for i, step in enumerate(steps):
-        out_name_match = re.search(r"(?:^data\s+|out\s*=\s*)([\w.]+)", step, re.I)
+        out_name_match = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
         target_name = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"STEP_{i+1}"
         
-        set_match = re.search(r"set\s+([\w.]+)", step, re.I)
+        # Updated to capture FROM or JOIN statements from PROC SQL
+        set_match = re.search(r"(?:set|from|join)\s+([\w.]+)", step, re.I)
         source_name = set_match.group(1).split('.')[-1].upper().strip() if set_match else None
         
         if 'datalines' in step.lower() or 'cards' in step.lower():
@@ -212,9 +224,9 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
             else:
                 if active_df is None:
                     raise ValueError(f"Input dataset '{source_name or 'WORK'}' not found.")
-                r_code = call_llm_api(step, active_df.columns.tolist())
+                r_code = call_llm_api(step, active_df.columns.tolist(), list(work_library.keys()))
                 res_entry["r_code"] = r_code
-                out_df = run_r_subprocess(r_code, active_df)
+                out_df = run_r_subprocess(r_code, active_df, work_library)
             
             work_library[target_name] = out_df
             res_entry["r_output"] = out_df
@@ -266,6 +278,7 @@ with st.sidebar:
 - PROC SORT
 - PROC TRANSPOSE
 - PROC MEANS / FREQ
+- PROC SQL (SELECT, JOIN, CREATE TABLE)
 """)
     st.caption("Built with Gemini + Groq + Rscript")
 
@@ -319,13 +332,15 @@ if run_btn:
 
     if mode == "Convert Only":
         st.subheader("Generated R Code")
-        steps = re.findall(r"((?:data|proc)\s+.*?;.*?run;)", sas_script, re.DOTALL|re.IGNORECASE)
+        # Updated regex to capture QUIT;
+        steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL|re.IGNORECASE)
         if not steps: st.error("No valid SAS steps found."); st.stop()
         
         all_r = []
         for i, step in enumerate(steps, 1):
-            m = re.search(r"(?:^data\s+|out\s*=\s*)(\w+)", step, re.I)
-            sname = m.group(1) if m else f"Step{i}"
+            # Updated to support CREATE TABLE and library stripping
+            m = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
+            sname = m.group(1).split('.')[-1].upper().strip() if m else f"Step{i}"
             with st.expander(f"Step {i}: {sname}", expanded=True):
                 t1, t2 = st.tabs(["SAS", "Generated R"])
                 with t1: st.code(step.strip(), language="sas")
