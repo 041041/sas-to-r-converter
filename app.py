@@ -35,11 +35,9 @@ groq_client   = Groq(api_key=GROQ_API_KEY)
 def safe_read_csv(file_obj):
     """Attempts multiple methods to read a CSV gracefully."""
     try:
-        # Attempt 1: Standard UTF-8 comma-separated
         file_obj.seek(0)
         return pd.read_csv(file_obj)
     except Exception:
-        # Attempt 2: Fallback to latin1, auto-detect separator, and skip bad lines
         try:
             file_obj.seek(0)
             return pd.read_csv(file_obj, encoding='latin1', sep=None, engine='python', on_bad_lines='skip')
@@ -48,7 +46,6 @@ def safe_read_csv(file_obj):
 
 def clean_r_code(text):
     """Strips LLM conversational filler and ensures the code returns 'df'."""
-    # Using hex escape \x60 to prevent markdown parser truncation
     backticks = "\x60\x60\x60"
     if backticks in text:
         pattern = backticks + r"(?:r|python|R)?\n(.*?)\n" + backticks
@@ -57,14 +54,12 @@ def clean_r_code(text):
     
     lines = text.split("\n")
     out = []
-    # Keywords often included by LLMs that break raw execution
     forbidden = ["explanation:", "sas code:", "run;", "data.frame()", "library("]
     
     for line in lines:
         clean_line = line.strip()
         if not clean_line or clean_line.startswith(('#', backticks)): continue
         if any(x in clean_line.lower() for x in forbidden): continue
-        # Replace arrow with equals if it's inside a function call (common LLM error)
         if "(" in clean_line and "<-" in clean_line:
             clean_line = clean_line.replace("<-", "=")
         out.append(clean_line)
@@ -102,7 +97,6 @@ def run_r_subprocess(r_code, input_df):
         
         input_df.to_csv(inp_path, index=False)
         
-        # Build the wrapper script
         full_script = [
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)',
             r_code,
@@ -121,23 +115,21 @@ def run_r_subprocess(r_code, input_df):
 def compare_dfs(sas_df, r_df, tol=1e-3):
     """Smart comparison: handles case-sensitivity and whitespace."""
     if sas_df is None or r_df is None: 
-        return {"match": False, "details": "Comparison data missing."}
+        return {"match": False, "details": "Comparison data missing.", "mismatches": []}
     
     s_df = sas_df.copy().reset_index(drop=True)
     r_df_comp = r_df.copy().reset_index(drop=True)
     
-    # Normalize Columns
     s_df.columns = s_df.columns.str.upper().str.strip()
     r_df_comp.columns = r_df_comp.columns.str.upper().str.strip()
 
     if s_df.shape != r_df_comp.shape:
-        return {"match": False, "details": f"Shape mismatch: SAS {s_df.shape} vs R {r_df_comp.shape}"}
+        return {"match": False, "details": f"Shape mismatch: SAS {s_df.shape} vs R {r_df_comp.shape}", "mismatches": []}
 
-    # Ensure column order matches
     try:
         r_df_comp = r_df_comp[s_df.columns]
     except KeyError as e:
-        return {"match": False, "details": f"Missing column in R output: {e}"}
+        return {"match": False, "details": f"Missing column in R output: {e}", "mismatches": []}
 
     mismatches = []
     for col in s_df.columns:
@@ -145,12 +137,10 @@ def compare_dfs(sas_df, r_df, tol=1e-3):
             val_s = s_df[col].iloc[i]
             val_r = r_df_comp[col].iloc[i]
             
-            # Numeric comparison
             try:
                 if abs(float(val_s) - float(val_r)) > tol:
                     mismatches.append({"col": col, "row": i, "sas": val_s, "r": val_r})
             except (ValueError, TypeError):
-                # String comparison
                 if str(val_s).strip().upper() != str(val_r).strip().upper():
                     mismatches.append({"col": col, "row": i, "sas": val_s, "r": val_r})
                     
@@ -181,24 +171,19 @@ def parse_datalines(step):
 def run_chain_pipeline(sas_code, uploaded_outputs):
     """Processes SAS steps as a continuous chain."""
     steps = re.findall(r"((?:data|proc)\s+.*?;.*?run;)", sas_code, re.DOTALL | re.I)
-    work_library = {} # Dictionary to store intermediate DataFrames
+    work_library = {}
     pipeline_results = []
     
-    # Pre-scan for the final dataset name to highlight it
-    # Uses [\\w.]+ to capture library.dataset and splits to get the actual dataset name
     all_out_names = re.findall(r"(?:^data\s+|out\s*=\s*)([\w.]+)", sas_code, re.I)
     final_ds_name = all_out_names[-1].split('.')[-1].upper().strip() if all_out_names else None
 
     for i, step in enumerate(steps):
-        # 1. Identify Target Name (ignores library prefix like 'work.')
         out_name_match = re.search(r"(?:^data\s+|out\s*=\s*)([\w.]+)", step, re.I)
         target_name = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"STEP_{i+1}"
         
-        # 2. Identify Input Source (ignores library prefix like 'work.')
         set_match = re.search(r"set\s+([\w.]+)", step, re.I)
         source_name = set_match.group(1).split('.')[-1].upper().strip() if set_match else None
         
-        # Find the correct DataFrame to pass to the LLM/R
         if 'datalines' in step.lower() or 'cards' in step.lower():
             active_df = None
         elif source_name and source_name in work_library:
@@ -220,7 +205,6 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
             "is_final": (target_name == final_ds_name)
         }
 
-        # 3. Execution Engine
         try:
             if 'datalines' in step.lower() or 'cards' in step.lower():
                 out_df = parse_datalines(step)
@@ -235,10 +219,16 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
             work_library[target_name] = out_df
             res_entry["r_output"] = out_df
             
+            # SMART COMPARISON LOGIC
             if target_name in uploaded_outputs:
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[target_name], out_df)
+            elif target_name == final_ds_name and len(uploaded_outputs) == 1:
+                # AUTO-MAP: If only one CSV was provided, assume it's for the final dataset
+                only_csv_key = list(uploaded_outputs.keys())[0]
+                res_entry["comparison"] = compare_dfs(uploaded_outputs[only_csv_key], out_df)
+                res_entry["comparison"]["details"] = f"(Auto-mapped to '{only_csv_key}') " + res_entry["comparison"]["details"]
             elif target_name == final_ds_name:
-                res_entry["comparison"] = {"match": None, "details": "Final output reached. Upload expected CSV to validate."}
+                res_entry["comparison"] = {"match": None, "details": "Final output reached. Upload expected CSV to validate.", "mismatches": []}
                 
         except Exception as e:
             res_entry["error"] = str(e)
@@ -250,82 +240,148 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
 # --- STREAMLIT UI ---
 
 st.title("🔄 Smart SAS to R Converter")
-st.markdown("Convert complex SAS scripts. **Data chains automatically** between steps.")
+st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
+st.divider()
 
-with st.sidebar:
-    st.header("1. Options")
-    mode = st.radio("Workflow", ["Manual Step-by-Step", "Auto-Chaining Pipeline"])
-    st.divider()
-    st.info("💡 **Chaining Tip:** You don't need to upload CSVs for every step. Uploading just the **final** output CSV is enough.")
+mode = st.radio("Mode", ["Convert Only", "Convert + Execute + Validate"], horizontal=True)
+st.divider()
 
-st.subheader("SAS Source Code")
-sas_script = st.text_area("Paste SAS script here...", height=280, placeholder="DATA A; SET B; ... RUN;")
+st.subheader("📋 SAS Code")
+sas_script = st.text_area("sas", height=250, label_visibility="collapsed", placeholder="Paste your SAS code here...")
 
 uploaded_csvs = {}
-if mode == "Auto-Chaining Pipeline":
+
+if mode == "Convert + Execute + Validate":
     st.divider()
-    st.subheader("Expected Outputs (Optional)")
-    files = st.file_uploader("Upload CSVs (name must match SAS dataset name)", type="csv", accept_multiple_files=True)
-    if files:
-        cols = st.columns(3)
-        for idx, f in enumerate(files):
-            # Clean the uploaded filename by removing extensions and spaces
+    st.subheader("📊 Expected SAS Outputs")
+    st.caption("Upload your final dataset (or intermediate ones). The app will automatically map a single uploaded CSV to the final step.")
+
+    uploaded = st.file_uploader("Upload CSVs", type=["csv"], accept_multiple_files=True)
+    if uploaded:
+        cols = st.columns(min(len(uploaded), 3))
+        for i, f in enumerate(uploaded):
             name = os.path.splitext(f.name)[0].upper().strip()
             try:
-                uploaded_csvs[name] = safe_read_csv(f)
-                with cols[idx % 3]:
-                    st.success(f"Loaded: {name}")
+                df = safe_read_csv(f)
+                uploaded_csvs[name] = df
+                with cols[i % 3]:
+                    st.markdown(f"**{name}** ({df.shape[0]}r × {df.shape[1]}c)")
+                    st.dataframe(df, use_container_width=True, height=140)
             except Exception as e:
-                with cols[idx % 3]:
-                    st.error(f"Failed to load {name}: {str(e)}")
+                st.error(f"Failed to load {name}: {str(e)}")
 
-if st.button("⚡ Run Conversion & Pipeline", type="primary", use_container_width=True):
+    # Restored Manual Paste Option
+    with st.expander("Or paste CSV text manually"):
+        manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
+        manual_csv  = st.text_area("Paste CSV here", height=100)
+        if manual_name and manual_csv:
+            try:
+                df = pd.read_csv(io.StringIO(manual_csv))
+                uploaded_csvs[manual_name.upper().strip()] = df
+                st.success(f"Loaded {manual_name.upper()} — {df.shape}")
+                st.dataframe(df, height=140)
+            except Exception as e:
+                st.error(f"Parse error: {e}")
+
+st.divider()
+run_btn = st.button("⚡ Run", type="primary", use_container_width=True)
+
+if run_btn:
     if not sas_script.strip():
-        st.warning("Please provide SAS code.")
+        st.warning("Paste some SAS code first."); st.stop()
+    st.divider()
+
+    if mode == "Convert Only":
+        st.subheader("Generated R Code")
+        steps = re.findall(r"((?:data|proc)\s+.*?;.*?run;)", sas_script, re.DOTALL|re.IGNORECASE)
+        if not steps: st.error("No valid SAS steps found."); st.stop()
+        
+        all_r = []
+        for i, step in enumerate(steps, 1):
+            m = re.search(r"(?:^data\s+|out\s*=\s*)(\w+)", step, re.I)
+            sname = m.group(1) if m else f"Step{i}"
+            with st.expander(f"Step {i}: {sname}", expanded=True):
+                t1, t2 = st.tabs(["SAS", "Generated R"])
+                with t1: st.code(step.strip(), language="sas")
+                with t2:
+                    with st.spinner(f"Converting {sname}..."):
+                        try:
+                            rc = call_llm_api(step, ["unknown_cols"])
+                            st.code(rc, language="r")
+                            all_r.append(f"# --- {sname} ---\n{rc}")
+                            st.success(f"✅ {sname} converted")
+                        except Exception as e: st.error(f"❌ {e}")
+        
+        # Restored Download Button
+        if all_r:
+            st.divider(); full = "\n\n".join(all_r)
+            st.subheader("📥 Full R Script"); st.code(full, language="r")
+            st.download_button("⬇️ Download .R", data=full, file_name="converted.R", mime="text/plain", use_container_width=True)
+
     else:
-        if mode == "Manual Step-by-Step":
-            steps = re.findall(r"((?:data|proc)\s+.*?;.*?run;)", sas_script, re.DOTALL | re.I)
-            for i, s in enumerate(steps):
-                with st.expander(f"Step {i+1} Conversion"):
-                    st.code(call_llm_api(s, ["unknown_cols"]), language="r")
-        else:
-            with st.spinner("Processing chain: LLM Conversion ➡️ R Execution..."):
-                results = run_chain_pipeline(sas_script, uploaded_csvs)
+        st.subheader("Conversion + Execution + Validation")
+        with st.spinner("Processing chain: LLM Conversion ➡️ R Execution ➡️ Data Flow..."):
+            results = run_chain_pipeline(sas_script, uploaded_csvs)
+        
+        if not results: st.error("No steps processed."); st.stop()
+
+        all_r = []
+        for res in results:
+            cmp = res["comparison"]
+            match = cmp["match"] if cmp else None
             
-            for res in results:
-                status_icon = "⚪"
-                comp = res["comparison"]
-                if res["error"]: status_icon = "⚠️"
-                elif comp:
-                    if comp["match"] is True: status_icon = "✅"
-                    elif comp["match"] is False: status_icon = "❌"
-                    else: status_icon = "🏁"
+            badge = "⚪ INTERMEDIATE"
+            if res["error"]: badge = "⚠️ ERROR"
+            elif res["is_final"] and match is None: badge = "🏁 FINAL (Unvalidated)"
+            elif match is True: badge = "✅ MATCH"
+            elif match is False: badge = "❌ MISMATCH"
+
+            header = f"{badge} — {res['name']}"
+
+            with st.expander(header, expanded=res["is_final"] or res["error"] is not None):
+                if res["error"]:
+                    st.error(f"Pipeline broke here: {res['error']}")
                 
-                header = f"{status_icon} Dataset: {res['name']}"
-                if res["is_final"]: header += " (FINAL)"
+                t1, t2, t3, t4 = st.tabs(["SAS Code", "Generated R", "R Output", "Validation"])
+                
+                with t1:
+                    st.code(res["step"], language="sas")
+                with t2:
+                    if res["r_code"]: 
+                        st.code(res["r_code"], language="r")
+                        all_r.append(f"# --- {res['name']} ---\n{res['r_code']}")
+                    elif not res["error"]: 
+                        st.info("Datalines step — parsed directly without R.")
+                with t3:
+                    if res["r_output"] is not None: 
+                        st.dataframe(res["r_output"], use_container_width=True)
+                    else: 
+                        st.info("No data output for this step.")
+                with t4:
+                    if cmp:
+                        if cmp["match"] is True: 
+                            st.success(cmp["details"])
+                        elif cmp["match"] is False:
+                            st.error(cmp["details"])
+                            if cmp["mismatches"]: 
+                                st.table(pd.DataFrame(cmp["mismatches"]).head(10))
+                        else: 
+                            st.warning(cmp["details"])
+                    else: 
+                        st.info("Intermediate step: Passed to next step automatically.")
 
-                with st.expander(header, expanded=res["is_final"] or res["error"] is not None):
-                    if res["error"]:
-                        st.error(f"Pipeline broke here: {res['error']}")
-                    tab_sas, tab_r, tab_val = st.tabs(["SAS Code", "R Output", "Validation"])
-                    with tab_sas:
-                        st.code(res["step"], language="sas")
-                        if res["r_code"]: st.code(res["r_code"], language="r")
-                    with tab_r:
-                        if res["r_output"] is not None: st.dataframe(res["r_output"], use_container_width=True)
-                    with tab_val:
-                        if comp:
-                            if comp["match"] is True: st.success(comp["details"])
-                            elif comp["match"] is False:
-                                st.error(comp["details"])
-                                if comp["mismatches"]: st.table(pd.DataFrame(comp["mismatches"]).head(10))
-                            else: st.warning(comp["details"])
-                        else: st.info("Intermediate step: No validation CSV provided.")
+        st.divider()
+        st.subheader("📊 Summary")
+        valid_steps = [r for r in results if r["comparison"] and r["comparison"]["match"] is not None]
+        matches = [r for r in valid_steps if r["comparison"]["match"]]
+        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Steps Processed", len(results))
+        c2.metric("Validated Steps", len(valid_steps))
+        c3.metric("Matched ✅", len(matches))
 
-            st.divider()
-            valid_steps = [r for r in results if r["comparison"] and r["comparison"]["match"] is not None]
-            matches = [r for r in valid_steps if r["comparison"]["match"]]
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Total Steps", len(results))
-            c2.metric("Validated", len(valid_steps))
-            c3.metric("Passed ✅", len(matches))
+        # Restored Download Button for Execute mode
+        if all_r:
+            st.divider(); full = "\n\n".join(all_r)
+            st.subheader("📥 Full R Script"); st.code(full, language="r")
+            st.download_button("⬇️ Download .R Script", data=full, file_name="converted_pipeline.R", mime="text/plain", use_container_width=True)
