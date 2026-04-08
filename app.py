@@ -243,6 +243,32 @@ st.title("🔄 Smart SAS to R Converter")
 st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
 st.divider()
 
+with st.sidebar:
+    st.header("How to use")
+    st.markdown("""
+**Convert Only:**
+1. Paste SAS code → Run
+2. Download R script
+
+---
+**Convert + Validate:**
+1. Paste SAS code
+2. Upload expected CSVs
+   - filename = dataset name
+   - e.g. `LAB_RESULTS.csv`
+   - Or paste CSV manually
+   - *Note: App auto-maps a single CSV to the final step!*
+3. Run → see ✅ MATCH / ❌ MISMATCH
+
+---
+**Supported SAS:**
+- DATA step (SET, IF/ELSE)
+- PROC SORT
+- PROC TRANSPOSE
+- PROC MEANS / FREQ
+""")
+    st.caption("Built with Gemini + Groq + Rscript")
+
 mode = st.radio("Mode", ["Convert Only", "Convert + Execute + Validate"], horizontal=True)
 st.divider()
 
