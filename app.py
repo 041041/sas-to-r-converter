@@ -32,6 +32,20 @@ groq_client   = Groq(api_key=GROQ_API_KEY)
 
 # --- CLEANING & UTILS ---
 
+def safe_read_csv(file_obj):
+    """Attempts multiple methods to read a CSV gracefully."""
+    try:
+        # Attempt 1: Standard UTF-8 comma-separated
+        file_obj.seek(0)
+        return pd.read_csv(file_obj)
+    except Exception:
+        # Attempt 2: Fallback to latin1, auto-detect separator, and skip bad lines
+        try:
+            file_obj.seek(0)
+            return pd.read_csv(file_obj, encoding='latin1', sep=None, engine='python', on_bad_lines='skip')
+        except Exception as e:
+            raise RuntimeError(f"Could not parse CSV file. Error: {str(e)}")
+
 def clean_r_code(text):
     """Strips LLM conversational filler and ensures the code returns 'df'."""
     # Using hex escape \x60 to prevent markdown parser truncation
@@ -256,14 +270,12 @@ if mode == "Auto-Chaining Pipeline":
         for idx, f in enumerate(files):
             name = os.path.splitext(f.name)[0].upper()
             try:
-                uploaded_csvs[name] = pd.read_csv(f)
-            except UnicodeDecodeError:
-                # If UTF-8 fails, reset the file pointer and try a common alternative encoding
-                f.seek(0)
-                uploaded_csvs[name] = pd.read_csv(f, encoding='latin1')
-                
-            with cols[idx % 3]:
-                st.success(f"Loaded: {name}")
+                uploaded_csvs[name] = safe_read_csv(f)
+                with cols[idx % 3]:
+                    st.success(f"Loaded: {name}")
+            except Exception as e:
+                with cols[idx % 3]:
+                    st.error(f"Failed to load {name}: {str(e)}")
 
 if st.button("⚡ Run Conversion & Pipeline", type="primary", use_container_width=True):
     if not sas_script.strip():
