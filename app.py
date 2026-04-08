@@ -255,7 +255,13 @@ if mode == "Auto-Chaining Pipeline":
         cols = st.columns(3)
         for idx, f in enumerate(files):
             name = os.path.splitext(f.name)[0].upper()
-            uploaded_csvs[name] = pd.read_csv(f)
+            try:
+                uploaded_csvs[name] = pd.read_csv(f)
+            except UnicodeDecodeError:
+                # If UTF-8 fails, reset the file pointer and try a common alternative encoding
+                f.seek(0)
+                uploaded_csvs[name] = pd.read_csv(f, encoding='latin1')
+                
             with cols[idx % 3]:
                 st.success(f"Loaded: {name}")
 
