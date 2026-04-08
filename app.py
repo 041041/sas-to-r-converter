@@ -113,6 +113,45 @@ def compare_dfs(sas_df, r_df, tol=1e-3):
     match = len(mismatches)==0
     return {"match":match,"details":"All values match!" if match else f"{len(mismatches)} value(s) differ","mismatches":mismatches}
 
+def parse_datalines(step):
+    """Parse SAS datalines block into a pandas DataFrame automatically."""
+    try:
+        # Extract column names from INPUT statement
+        inp_match = re.search(r'input\s+(.*?);', step, re.IGNORECASE|re.DOTALL)
+        if not inp_match: return None
+        raw_cols = inp_match.group(1).split()
+        # Remove SAS type indicators like $ (marks string cols)
+        cols = [c.replace('$','').strip() for c in raw_cols if c.strip() != '$']
+        str_cols = set()
+        i = 0
+        tokens = inp_match.group(1).split()
+        for j, tok in enumerate(tokens):
+            if tok == '$' and j > 0:
+                str_cols.add(tokens[j-1].replace('$','').strip())
+            elif tok.endswith('$'):
+                str_cols.add(tok.replace('$','').strip())
+
+        # Extract datalines block
+        dl_match = re.search(r'datalines\s*;(.*?)\s*;', step, re.IGNORECASE|re.DOTALL)
+        if not dl_match: return None
+        raw_lines = [l.strip() for l in dl_match.group(1).strip().split('\n') if l.strip()]
+
+        rows = []
+        for line in raw_lines:
+            vals = line.split()
+            if len(vals) == len(cols):
+                row = {}
+                for col, val in zip(cols, vals):
+                    if col in str_cols:
+                        row[col] = val
+                    else:
+                        try: row[col] = float(val) if '.' in val else int(val)
+                        except ValueError: row[col] = val
+                rows.append(row)
+        return pd.DataFrame(rows) if rows else None
+    except Exception:
+        return None
+
 def run_pipeline_validate(sas_code, sas_outputs):
     steps = re.findall(r"((?:data|proc)\s+.*?;.*?run;)", sas_code, re.DOTALL|re.IGNORECASE)
     env, results = {}, []
@@ -123,14 +162,24 @@ def run_pipeline_validate(sas_code, sas_outputs):
         res = {"name":name,"step":step,"r_code":None,"r_output":None,
                "sas_output":sas_outputs.get(name),"comparison":None,"error":None}
         if 'datalines' in step.lower():
+            # Try uploaded CSV first, then auto-parse from SAS datalines
             if name in sas_outputs:
-                env[name] = sas_outputs[name]
-                res["r_output"] = sas_outputs[name]
-                res["comparison"] = {"match":True,"details":"Datalines — using SAS output directly","mismatches":[]}
+                seed_df = sas_outputs[name]
+            else:
+                seed_df = parse_datalines(step)
+            if seed_df is not None:
+                env[name] = seed_df
+                res["r_output"] = seed_df
+                if name in sas_outputs:
+                    res["comparison"] = {"match":True,"details":"Datalines — using SAS output directly","mismatches":[]}
+                else:
+                    res["comparison"] = {"match":None,"details":"Datalines parsed from SAS code automatically","mismatches":[]}
+            else:
+                res["error"] = "Could not parse datalines — please upload a CSV for this dataset"
             results.append(res); continue
         inp = list(env.values())[-1] if env else None
         if inp is None:
-            res["error"] = "No input DataFrame for this step"; results.append(res); continue
+            res["error"] = "No input DataFrame for this step — upload a CSV or fix datalines parsing"; results.append(res); continue
         try:
             r_code = call_llm_api(step, inp.columns.tolist())
             res["r_code"] = r_code
