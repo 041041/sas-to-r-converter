@@ -185,17 +185,18 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
     pipeline_results = []
     
     # Pre-scan for the final dataset name to highlight it
-    all_out_names = re.findall(r"(?:^data\s+|out\s*=\s*)(\w+)", sas_code, re.I)
-    final_ds_name = all_out_names[-1].upper() if all_out_names else None
+    # Uses [\\w.]+ to capture library.dataset and splits to get the actual dataset name
+    all_out_names = re.findall(r"(?:^data\s+|out\s*=\s*)([\w.]+)", sas_code, re.I)
+    final_ds_name = all_out_names[-1].split('.')[-1].upper().strip() if all_out_names else None
 
     for i, step in enumerate(steps):
-        # 1. Identify Target Name
-        out_name_match = re.search(r"(?:^data\s+|out\s*=\s*)(\w+)", step, re.I)
-        target_name = out_name_match.group(1).upper() if out_name_match else f"STEP_{i+1}"
+        # 1. Identify Target Name (ignores library prefix like 'work.')
+        out_name_match = re.search(r"(?:^data\s+|out\s*=\s*)([\w.]+)", step, re.I)
+        target_name = out_name_match.group(1).split('.')[-1].upper().strip() if out_name_match else f"STEP_{i+1}"
         
-        # 2. Identify Input Source
-        set_match = re.search(r"set\s+(\w+)", step, re.I)
-        source_name = set_match.group(1).upper() if set_match else None
+        # 2. Identify Input Source (ignores library prefix like 'work.')
+        set_match = re.search(r"set\s+([\w.]+)", step, re.I)
+        source_name = set_match.group(1).split('.')[-1].upper().strip() if set_match else None
         
         # Find the correct DataFrame to pass to the LLM/R
         if 'datalines' in step.lower() or 'cards' in step.lower():
@@ -268,7 +269,8 @@ if mode == "Auto-Chaining Pipeline":
     if files:
         cols = st.columns(3)
         for idx, f in enumerate(files):
-            name = os.path.splitext(f.name)[0].upper()
+            # Clean the uploaded filename by removing extensions and spaces
+            name = os.path.splitext(f.name)[0].upper().strip()
             try:
                 uploaded_csvs[name] = safe_read_csv(f)
                 with cols[idx % 3]:
