@@ -84,7 +84,8 @@ def call_llm_api(step, df_cols, env_names=None):
         f"STRICT RULES:\n"
         f"1. Use ONLY pure Base R (e.g., aggregate, merge, subset).\n"
         f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
-        f"3. No explanations, no markdown. Just executable R code.\n\n"
+        f"3. If a calculation is needed before aggregation (e.g., price * qty), create a new column for it FIRST before calling aggregate().\n"
+        f"4. No explanations, no markdown. Just executable R code.\n\n"
         f"SAS STEP:\n{step}"
     )
     
@@ -242,6 +243,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
             if target_name in uploaded_outputs:
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[target_name], out_df)
             elif target_name == final_ds_name and len(uploaded_outputs) == 1:
+                # AUTO-MAP: If only one CSV was provided, assume it's for the final dataset
                 only_csv_key = list(uploaded_outputs.keys())[0]
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[only_csv_key], out_df)
                 res_entry["comparison"]["details"] = f"(Auto-mapped to '{only_csv_key}') " + res_entry["comparison"]["details"]
@@ -352,6 +354,7 @@ if run_btn:
                 with t2:
                     with st.spinner(f"Converting {sname}..."):
                         try:
+                            # Pass an empty list for columns so it triggers the smart DATALINES logic
                             rc = call_llm_api(step, [], known_tables)
                             st.code(rc, language="r")
                             # Explicitly assign df to the dataset name in the script compilation
