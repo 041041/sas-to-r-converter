@@ -84,8 +84,9 @@ def call_llm_api(step, df_cols, env_names=None):
         f"STRICT RULES:\n"
         f"1. Use ONLY pure Base R (e.g., aggregate, merge, subset).\n"
         f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
-        f"3. If a calculation is needed before aggregation (e.g., price * qty), create a new column for it FIRST before calling aggregate().\n"
-        f"4. No explanations, no markdown. Just executable R code.\n\n"
+        f"3. IF the SAS code aggregates data, you MUST create any calculated columns (like price*qty) as a new column FIRST before calling aggregate().\n"
+        f"4. IF the SAS code is just reading DATALINES/CARDS, ONLY construct the data.frame. DO NOT perform any calculations, renaming, or aggregations on it.\n"
+        f"5. No explanations, no markdown. Just executable R code.\n\n"
         f"SAS STEP:\n{step}"
     )
     
