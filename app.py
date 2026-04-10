@@ -72,17 +72,19 @@ def call_llm_api(step, df_cols, env_names=None):
     """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
     env_info = f"\nAvailable tables in R environment: {', '.join(env_names)}" if env_names else ""
     
-    # SMART PROMPT ADJUSTMENT FOR CONVERT ONLY MODE
     if not df_cols:
         input_context = "Assume 'df' is the primary input table. IF the SAS code uses DATALINES/CARDS, ignore input and CREATE a fresh 'df' from scratch using the raw data."
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
         
     prompt = (
-        f"TASK: Convert this SAS step to Base R code.\n"
+        f"TASK: Convert this SAS step to pure Base R code.\n"
         f"INPUT CONTEXT: {input_context}{env_info}\n"
         f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
-        f"STRICT: No explanations, no markdown, no comments. Just executable R code.\n\n"
+        f"STRICT RULES:\n"
+        f"1. Use ONLY pure Base R (e.g., aggregate, merge, subset).\n"
+        f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
+        f"3. No explanations, no markdown. Just executable R code.\n\n"
         f"SAS STEP:\n{step}"
     )
     
@@ -240,7 +242,6 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
             if target_name in uploaded_outputs:
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[target_name], out_df)
             elif target_name == final_ds_name and len(uploaded_outputs) == 1:
-                # AUTO-MAP: If only one CSV was provided, assume it's for the final dataset
                 only_csv_key = list(uploaded_outputs.keys())[0]
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[only_csv_key], out_df)
                 res_entry["comparison"]["details"] = f"(Auto-mapped to '{only_csv_key}') " + res_entry["comparison"]["details"]
@@ -340,7 +341,7 @@ if run_btn:
         if not steps: st.error("No valid SAS steps found."); st.stop()
         
         all_r = []
-        known_tables = [] # Track tables created in Convert Only mode
+        known_tables = [] 
         
         for i, step in enumerate(steps, 1):
             m = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
@@ -351,10 +352,10 @@ if run_btn:
                 with t2:
                     with st.spinner(f"Converting {sname}..."):
                         try:
-                            # Pass an empty list for columns so it triggers the smart DATALINES logic
                             rc = call_llm_api(step, [], known_tables)
                             st.code(rc, language="r")
-                            all_r.append(f"# --- {sname} ---\n{rc}")
+                            # Explicitly assign df to the dataset name in the script compilation
+                            all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             
                             if sname not in known_tables:
                                 known_tables.append(sname)
@@ -363,7 +364,7 @@ if run_btn:
                         except Exception as e: st.error(f"❌ {e}")
         
         if all_r:
-            st.divider(); full = "\n\n".join(all_r)
+            st.divider(); full = "\n".join(all_r)
             st.subheader("📥 Full R Script"); st.code(full, language="r")
             st.download_button("⬇️ Download .R", data=full, file_name="converted.R", mime="text/plain", use_container_width=True)
 
@@ -398,7 +399,8 @@ if run_btn:
                 with t2:
                     if res["r_code"]: 
                         st.code(res["r_code"], language="r")
-                        all_r.append(f"# --- {res['name']} ---\n{res['r_code']}")
+                        # Explicitly assign df to the dataset name in the script compilation
+                        all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
                     elif not res["error"]: 
                         st.info("Datalines step — parsed directly without R.")
                 with t3:
@@ -430,6 +432,6 @@ if run_btn:
         c3.metric("Matched ✅", len(matches))
 
         if all_r:
-            st.divider(); full = "\n\n".join(all_r)
+            st.divider(); full = "\n".join(all_r)
             st.subheader("📥 Full R Script"); st.code(full, language="r")
             st.download_button("⬇️ Download .R Script", data=full, file_name="converted_pipeline.R", mime="text/plain", use_container_width=True)
