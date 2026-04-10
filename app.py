@@ -70,7 +70,7 @@ def clean_r_code(text):
     if not cleaned.strip().endswith("df"): cleaned += "\ndf"
     return cleaned
 
-def call_llm_api(step, df_cols, env_names=None):
+def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
     env_info = f"\nAvailable tables in R environment: {', '.join(env_names)}" if env_names else ""
     
@@ -79,18 +79,31 @@ def call_llm_api(step, df_cols, env_names=None):
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
         
+    # Dynamically inject rules based on the user's chosen R dialect
+    if dialect == "Modern R (dplyr)":
+        rule_set = (
+            f"1. Use modern R, specifically the tidyverse (dplyr, tidyr).\n"
+            f"2. Use the pipe operator (%>%) for chaining operations.\n"
+            f"3. Start the code block with `library(dplyr)`.\n"
+            f"4. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data.\n"
+            f"5. IF the SAS code reads from an existing table (e.g., FROM SALES, SET WORK.SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
+        )
+    else:
+        rule_set = (
+            f"1. Use ONLY pure Base R.\n"
+            f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
+            f"3. For aggregate(), ALWAYS use the formula interface (e.g., `aggregate(total_qty ~ product, data = df, FUN = sum)`). NEVER use `by = list(...)`.\n"
+            f"4. ABSOLUTELY NO MATH inside aggregate() or cbind(). If SAS does sum(price*qty), do `df$new_col <- df$price * df$qty` BEFORE calling aggregate().\n"
+            f"5. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data.\n"
+            f"6. IF the SAS code reads from an existing table (e.g., FROM SALES), start your code exactly with `df <- SALES`.\n"
+        )
+
     prompt = (
-        f"TASK: Convert this SAS step to pure Base R code.\n"
+        f"TASK: Convert this SAS step to R code.\n"
         f"INPUT CONTEXT: {input_context}{env_info}\n"
         f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
-        f"STRICT RULES:\n"
-        f"1. Use ONLY pure Base R.\n"
-        f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
-        f"3. For aggregate(), ALWAYS use the formula interface (e.g., `aggregate(total_qty ~ product, data = df, FUN = sum)`) to keep clean column names. NEVER use `by = list(...)` which creates ugly names like 'Group.1' and 'x'.\n"
-        f"4. ABSOLUTELY NO MATH inside aggregate() or cbind(). If SAS does sum(price*qty), do `df$new_col <- df$price * df$qty` BEFORE calling aggregate().\n"
-        f"5. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data.\n"
-        f"6. IF the SAS code reads from an existing table (e.g., FROM SALES, SET WORK.SALES), start your code exactly with `df <- SALES`. NEVER generate mock/dummy data.\n"
-        f"7. No explanations, no markdown. Just executable R code.\n\n"
+        f"STRICT RULES:\n{rule_set}"
+        f"FINAL RULE: No explanations, no markdown. Just executable R code.\n\n"
         f"SAS STEP:\n{step}"
     )
     
@@ -114,7 +127,9 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         
         input_df.to_csv(inp_path, index=False)
         
+        # In case dplyr is used, ensure it is loaded in the script
         full_script = [
+            'suppressWarnings(suppressMessages(library(dplyr)))',
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)'
         ]
         
@@ -180,6 +195,7 @@ def parse_datalines(step):
     try:
         inp_match = re.search(r'input\s+(.*?);', step, re.I | re.DOTALL)
         raw_cols = inp_match.group(1).split()
+        # Syntax error fixed below:
         cols = [c.replace('$', '').strip() for c in raw_cols if c.strip() != '$']
         
         dl_match = re.search(r'datalines\s*;(.*?)\s*;', step, re.I | re.DOTALL)
@@ -193,7 +209,7 @@ def parse_datalines(step):
 
 # --- PIPELINE LOGIC ---
 
-def run_chain_pipeline(sas_code, uploaded_outputs):
+def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
     """Processes SAS steps as a continuous chain."""
     steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_code, re.DOTALL | re.I)
     work_library = {}
@@ -237,7 +253,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
             else:
                 if active_df is None:
                     raise ValueError(f"Input dataset '{source_name or 'WORK'}' not found.")
-                r_code = call_llm_api(step, active_df.columns.tolist(), list(work_library.keys()))
+                r_code = call_llm_api(step, active_df.columns.tolist(), list(work_library.keys()), dialect)
                 res_entry["r_code"] = r_code
                 out_df = run_r_subprocess(r_code, active_df, work_library)
             
@@ -248,7 +264,6 @@ def run_chain_pipeline(sas_code, uploaded_outputs):
             if target_name in uploaded_outputs:
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[target_name], out_df)
             elif target_name == final_ds_name and len(uploaded_outputs) == 1:
-                # AUTO-MAP: If only one CSV was provided, assume it's for the final dataset
                 only_csv_key = list(uploaded_outputs.keys())[0]
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[only_csv_key], out_df)
                 res_entry["comparison"]["details"] = f"(Auto-mapped to '{only_csv_key}') " + res_entry["comparison"]["details"]
@@ -295,6 +310,7 @@ with st.sidebar:
 """)
     st.caption("Built with Gemini + Groq + Rscript")
 
+r_dialect = st.radio("R Dialect", ["Base R", "Modern R (dplyr)"], horizontal=True)
 mode = st.radio("Mode", ["Convert Only", "Convert + Execute + Validate"], horizontal=True)
 st.divider()
 
@@ -360,10 +376,13 @@ if run_btn:
                     with st.spinner(f"Converting {sname}..."):
                         try:
                             # Pass an empty list for columns so it triggers the smart DATALINES logic
-                            rc = call_llm_api(step, [], known_tables)
+                            rc = call_llm_api(step, [], known_tables, r_dialect)
                             st.code(rc, language="r")
                             # Explicitly assign df to the dataset name in the script compilation
-                            all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
+                            if "dplyr" in r_dialect:
+                                all_r.append(f"# --- {sname} ---\nlibrary(dplyr)\n{rc}\n{sname} <- df\n")
+                            else:
+                                all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             
                             if sname not in known_tables:
                                 known_tables.append(sname)
@@ -379,7 +398,7 @@ if run_btn:
     else:
         st.subheader("Conversion + Execution + Validation")
         with st.spinner("Processing chain: LLM Conversion ➡️ R Execution ➡️ Data Flow..."):
-            results = run_chain_pipeline(sas_script, uploaded_csvs)
+            results = run_chain_pipeline(sas_script, uploaded_csvs, r_dialect)
         
         if not results: st.error("No steps processed."); st.stop()
 
@@ -408,7 +427,10 @@ if run_btn:
                     if res["r_code"]: 
                         st.code(res["r_code"], language="r")
                         # Explicitly assign df to the dataset name in the script compilation
-                        all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
+                        if "dplyr" in r_dialect:
+                            all_r.append(f"# --- {res['name']} ---\nlibrary(dplyr)\n{res['r_code']}\n{res['name']} <- df\n")
+                        else:
+                            all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
                     elif not res["error"]: 
                         st.info("Datalines step — parsed directly without R.")
                 with t3:
