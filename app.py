@@ -59,7 +59,9 @@ def clean_r_code(text):
     for line in lines:
         clean_line = line.strip()
         if not clean_line or clean_line.startswith(('#', backticks)): continue
-        if any(x in clean_line.lower() for x in forbidden): continue
+        # Only ban data.frame() if it looks like mock data generation
+        if "data.frame(" in clean_line and "c(" in clean_line and "df =" in clean_line.lower(): continue 
+        if any(x in clean_line.lower() for x in forbidden if x != "data.frame()"): continue
         if "(" in clean_line and "<-" in clean_line:
             clean_line = clean_line.replace("<-", "=")
         out.append(clean_line)
@@ -73,7 +75,7 @@ def call_llm_api(step, df_cols, env_names=None):
     env_info = f"\nAvailable tables in R environment: {', '.join(env_names)}" if env_names else ""
     
     if not df_cols:
-        input_context = "Assume 'df' is the primary input table. IF the SAS code uses DATALINES/CARDS, ignore input and CREATE a fresh 'df' from scratch using the raw data."
+        input_context = "Convert this step. You have access to the tables listed below."
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
         
@@ -84,9 +86,10 @@ def call_llm_api(step, df_cols, env_names=None):
         f"STRICT RULES:\n"
         f"1. Use ONLY pure Base R.\n"
         f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
-        f"3. ABSOLUTELY NO MATH inside aggregate() or cbind(). If SAS does sum(price*qty), you MUST do `df$new_col <- df$price * df$qty` BEFORE calling aggregate().\n"
-        f"4. IF the SAS code is just reading DATALINES/CARDS, ONLY construct the data.frame. DO NOT aggregate or calculate anything.\n"
-        f"5. No explanations, no markdown. Just executable R code.\n\n"
+        f"3. ABSOLUTELY NO MATH inside aggregate() or cbind(). If SAS does sum(price*qty), do `df$new_col <- df$price * df$qty` BEFORE calling aggregate().\n"
+        f"4. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data.\n"
+        f"5. IF the SAS code reads from an existing table (e.g., FROM SALES, SET WORK.SALES), start your code exactly with `df <- SALES`. NEVER generate mock/dummy data.\n"
+        f"6. No explanations, no markdown. Just executable R code.\n\n"
         f"SAS STEP:\n{step}"
     )
     
@@ -287,7 +290,7 @@ with st.sidebar:
 - PROC SORT
 - PROC TRANSPOSE
 - PROC MEANS / FREQ
-- PROC SQL (SELECT, JOIN, CREATE TABLE)
+- PROC SQL (SELECT, JOIN, GROUP BY, HAVING)
 """)
     st.caption("Built with Gemini + Groq + Rscript")
 
