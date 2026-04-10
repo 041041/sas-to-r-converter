@@ -82,10 +82,10 @@ def call_llm_api(step, df_cols, env_names=None):
         f"INPUT CONTEXT: {input_context}{env_info}\n"
         f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
         f"STRICT RULES:\n"
-        f"1. Use ONLY pure Base R (e.g., aggregate, merge, subset).\n"
+        f"1. Use ONLY pure Base R.\n"
         f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
-        f"3. IF the SAS code aggregates data, you MUST create any calculated columns (like price*qty) as a new column FIRST before calling aggregate().\n"
-        f"4. IF the SAS code is just reading DATALINES/CARDS, ONLY construct the data.frame. DO NOT perform any calculations, renaming, or aggregations on it.\n"
+        f"3. ABSOLUTELY NO MATH inside aggregate() or cbind(). If SAS does sum(price*qty), you MUST do `df$new_col <- df$price * df$qty` BEFORE calling aggregate().\n"
+        f"4. IF the SAS code is just reading DATALINES/CARDS, ONLY construct the data.frame. DO NOT aggregate or calculate anything.\n"
         f"5. No explanations, no markdown. Just executable R code.\n\n"
         f"SAS STEP:\n{step}"
     )
