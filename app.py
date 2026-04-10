@@ -118,7 +118,6 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         raw = res.choices[0].message.content
     return clean_r_code(raw)
 
-
 def run_r_subprocess(r_code, input_df, env_dict=None):
     """Executes the generated R code in a controlled environment."""
     with tempfile.TemporaryDirectory() as d:
@@ -129,7 +128,6 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         input_df.to_csv(inp_path, index=False)
         
         # --- UPGRADED R SCRIPT INJECTION ---
-        # We now load the entire tidyverse silently so the code never crashes
         full_script = [
             'suppressWarnings(suppressMessages(library(tidyverse)))',
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)'
@@ -196,7 +194,6 @@ def parse_datalines(step):
     try:
         inp_match = re.search(r'input\s+(.*?);', step, re.I | re.DOTALL)
         raw_cols = inp_match.group(1).split()
-        # Syntax error fixed below:
         cols = [c.replace('$', '').strip() for c in raw_cols if c.strip() != '$']
         
         dl_match = re.search(r'datalines\s*;(.*?)\s*;', step, re.I | re.DOTALL)
@@ -284,8 +281,15 @@ st.title("🔄 Smart SAS to R Converter")
 st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
 st.divider()
 
+# --- MOVED CONTROLS TO SIDEBAR ---
 with st.sidebar:
-    st.header("How to use")
+    st.header("⚙️ Settings")
+    mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
+    r_dialect = st.radio("R Dialect", ["Base R", "Modern R (dplyr)"])
+    
+    st.divider()
+    
+    st.header("📖 How to use")
     st.markdown("""
 **Convert Only:**
 1. Paste SAS code → Run
@@ -311,10 +315,7 @@ with st.sidebar:
 """)
     st.caption("Built with Gemini + Groq + Rscript")
 
-r_dialect = st.radio("R Dialect", ["Base R", "Modern R (dplyr)"], horizontal=True)
-mode = st.radio("Mode", ["Convert Only", "Convert + Execute + Validate"], horizontal=True)
-st.divider()
-
+# --- CLEAN MAIN INTERFACE ---
 st.subheader("📋 SAS Code")
 sas_script = st.text_area("sas", height=250, label_visibility="collapsed", placeholder="Paste your SAS code here...")
 
@@ -381,7 +382,7 @@ if run_btn:
                             st.code(rc, language="r")
                             # Explicitly assign df to the dataset name in the script compilation
                             if "dplyr" in r_dialect:
-                                all_r.append(f"# --- {sname} ---\nlibrary(dplyr)\n{rc}\n{sname} <- df\n")
+                                all_r.append(f"# --- {sname} ---\nlibrary(tidyverse)\n{rc}\n{sname} <- df\n")
                             else:
                                 all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             
@@ -429,7 +430,7 @@ if run_btn:
                         st.code(res["r_code"], language="r")
                         # Explicitly assign df to the dataset name in the script compilation
                         if "dplyr" in r_dialect:
-                            all_r.append(f"# --- {res['name']} ---\nlibrary(dplyr)\n{res['r_code']}\n{res['name']} <- df\n")
+                            all_r.append(f"# --- {res['name']} ---\nlibrary(tidyverse)\n{res['r_code']}\n{res['name']} <- df\n")
                         else:
                             all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
                     elif not res["error"]: 
