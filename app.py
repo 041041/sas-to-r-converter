@@ -79,12 +79,12 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
         
-    # Dynamically inject rules based on the user's chosen R dialect
+    # --- UPGRADED DIALECT RULES ---
     if dialect == "Modern R (dplyr)":
         rule_set = (
-            f"1. Use modern R, specifically the tidyverse (dplyr, tidyr).\n"
+            f"1. Use modern R, specifically the tidyverse (dplyr, tidyr, stringr, lubridate).\n"
             f"2. Use the pipe operator (%>%) for chaining operations.\n"
-            f"3. Start the code block with `library(dplyr)`.\n"
+            f"3. Start the code block with `library(tidyverse)`.\n"
             f"4. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data.\n"
             f"5. IF the SAS code reads from an existing table (e.g., FROM SALES, SET WORK.SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
         )
@@ -118,6 +118,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         raw = res.choices[0].message.content
     return clean_r_code(raw)
 
+
 def run_r_subprocess(r_code, input_df, env_dict=None):
     """Executes the generated R code in a controlled environment."""
     with tempfile.TemporaryDirectory() as d:
@@ -127,13 +128,13 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         
         input_df.to_csv(inp_path, index=False)
         
-        # In case dplyr is used, ensure it is loaded in the script
+        # --- UPGRADED R SCRIPT INJECTION ---
+        # We now load the entire tidyverse silently so the code never crashes
         full_script = [
-            'suppressWarnings(suppressMessages(library(dplyr)))',
+            'suppressWarnings(suppressMessages(library(tidyverse)))',
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)'
         ]
         
-        # Inject the entire Work Library into R for SQL Joins
         if env_dict:
             for name, df_mem in env_dict.items():
                 mem_path = os.path.join(d, f"{name}.csv")
