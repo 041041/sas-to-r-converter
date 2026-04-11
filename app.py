@@ -222,8 +222,7 @@ def parse_datalines(step):
 
 def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
     """Processes SAS steps as a continuous chain."""
-    # Now it looks for data, proc, OR %macro
-    steps = re.findall(r"((?:data|proc|%macro)\s+.*?;.*?(?:run|quit|%mend);)", sas_code, re.DOTALL | re.I)
+    steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_code, re.DOTALL | re.I)
     work_library = {}
     pipeline_results = []
     
@@ -382,12 +381,8 @@ if run_btn:
 
     if mode == "Convert Only":
         st.subheader("Generated R Code")
-        # Make sure this says 'sas_script' inside the findall!
-        steps = re.findall(r"((?:data|proc|%macro)\s+.*?;.*?(?:run|quit|%mend);)", sas_script, re.DOTALL|re.IGNORECASE)
-    
-    if not steps: 
-        st.error("No valid SAS steps found.")
-        st.stop()
+        steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL|re.IGNORECASE)
+        if not steps: st.error("No valid SAS steps found."); st.stop()
         
         all_r = []
         known_tables = [] 
