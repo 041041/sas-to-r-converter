@@ -45,7 +45,7 @@ def safe_read_csv(file_obj):
             raise RuntimeError(f"Could not parse CSV file. Error: {str(e)}")
 
 def clean_r_code(text):
-    """Strips LLM conversational filler, fixes dangling pipes, and KILLS INFINITE LOOPS."""
+    """Strips LLM conversational filler, fixes dangling pipes & empty functions, and returns 'df'."""
     backticks = "\x60\x60\x60"
     if backticks in text:
         pattern = backticks + r"(?:r|python|R)?\n(.*?)\n" + backticks
@@ -65,7 +65,6 @@ def clean_r_code(text):
             clean_line = clean_line.replace("<-", "=")
             
         # --- THE INFINITE LOOP KILLER ---
-        # Python will only keep the line if it is NOT the exact same as the line before it
         if not out or clean_line != out[-1]:
             out.append(clean_line)
     
@@ -82,7 +81,6 @@ def clean_r_code(text):
         
     if not cleaned.strip().endswith("df"): cleaned += "\ndf"
     return cleaned
-
 
 def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
@@ -133,7 +131,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         )
         raw = res.choices[0].message.content
     return clean_r_code(raw)
-    
+
 def run_r_subprocess(r_code, input_df, env_dict=None):
     """Executes the generated R code in a controlled environment."""
     with tempfile.TemporaryDirectory() as d:
@@ -228,12 +226,13 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
     work_library = {}
     pipeline_results = []
     
-    all_out_names = re.findall(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", sas_code, re.I)
+    # ADDED re.M (MULTILINE) SO IT CHECKS EVERY LINE FOR THE FINAL DATASET NAME
+    all_out_names = re.findall(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", sas_code, re.I | re.M)
     final_ds_name = all_out_names[-1].split('.')[-1].upper().strip() if all_out_names else None
 
     for i, step in enumerate(steps):
-        # Correctly map PROC SORT in-place operations to the same target name
-        out_name_match = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
+        # ADDED re.M (MULTILINE) HERE AS WELL
+        out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
         sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
         
         if out_name_match:
@@ -243,7 +242,6 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
         else:
             target_name = f"STEP_{i+1}"
         
-        # Look for source datasets using SET, FROM, JOIN, or DATA=
         set_match = re.search(r"(?:set|from|join|data\s*=)\s+([\w.]+)", step, re.I)
         source_name = set_match.group(1).split('.')[-1].upper().strip() if set_match else None
         
@@ -282,7 +280,6 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
             work_library[target_name] = out_df
             res_entry["r_output"] = out_df
             
-            # SMART COMPARISON LOGIC
             if target_name in uploaded_outputs:
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[target_name], out_df)
             elif target_name == final_ds_name and len(uploaded_outputs) == 1:
@@ -391,7 +388,7 @@ if run_btn:
         known_tables = [] 
         
         for i, step in enumerate(steps, 1):
-            out_name_match = re.search(r"(?:^data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I)
+            out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
             sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
             
             if out_name_match:
