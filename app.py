@@ -82,10 +82,9 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         rule_set = (
             f"1. Use modern R, specifically the tidyverse.\n"
             f"2. Use the pipe operator (%>%) for chaining operations.\n"
-            f"3. Start the code block with `library(tidyverse)`.\n"
-            f"4. IF SAS uses DATALINES/CARDS: ONLY create the data.frame using `data.frame(...)`. DO NOT add any extra lines, calculations, or aggregations. STOP immediately after creating it.\n"
-            f"5. IF SAS reads an existing table (e.g., SET SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
-            f"6. CRITICAL: In a DATA step with SET, you MUST keep all original columns. Use `mutate()`. Do not drop columns.\n"
+            f"3. IF SAS uses DATALINES/CARDS: ONLY create the data.frame using `data.frame(...)`. STOP immediately after creating it.\n"
+            f"4. IF SAS reads an existing table (e.g., SET SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
+            f"5. CRITICAL: In a DATA step, retain all original columns by creating new variables inside a populated `mutate(new_col = ...)` call. NEVER write an empty `mutate()`.\n"
         )
     else:
         rule_set = (
@@ -376,10 +375,8 @@ if run_btn:
                         try:
                             rc = call_llm_api(step, [], known_tables, r_dialect)
                             st.code(rc, language="r")
-                            if "dplyr" in r_dialect:
-                                all_r.append(f"# --- {sname} ---\nlibrary(tidyverse)\n{rc}\n{sname} <- df\n")
-                            else:
-                                all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
+                            # Just append the clean code without injecting the library per block
+                            all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             
                             if sname not in known_tables:
                                 known_tables.append(sname)
@@ -388,9 +385,15 @@ if run_btn:
                         except Exception as e: st.error(f"❌ {e}")
         
         if all_r:
-            st.divider(); full = "\n".join(all_r)
-            st.subheader("📥 Full R Script"); st.code(full, language="r")
-            st.download_button("⬇️ Download .R", data=full, file_name="converted.R", mime="text/plain", use_container_width=True)
+            st.divider()
+            # Inject library(tidyverse) ONCE at the very top of the full script
+            full_script_text = "\n".join(all_r)
+            if "dplyr" in r_dialect:
+                full_script_text = "library(tidyverse)\n\n" + full_script_text
+                
+            st.subheader("📥 Full R Script")
+            st.code(full_script_text, language="r")
+            st.download_button("⬇️ Download .R", data=full_script_text, file_name="converted.R", mime="text/plain", use_container_width=True)
 
     else:
         st.subheader("Conversion + Execution + Validation")
@@ -423,10 +426,8 @@ if run_btn:
                 with t2:
                     if res["r_code"]: 
                         st.code(res["r_code"], language="r")
-                        if "dplyr" in r_dialect:
-                            all_r.append(f"# --- {res['name']} ---\nlibrary(tidyverse)\n{res['r_code']}\n{res['name']} <- df\n")
-                        else:
-                            all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
+                        # Just append the clean code without injecting the library per block
+                        all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
                     elif not res["error"]: 
                         st.info("Datalines step — parsed directly without R.")
                 with t3:
@@ -458,6 +459,12 @@ if run_btn:
         c3.metric("Matched ✅", len(matches))
 
         if all_r:
-            st.divider(); full = "\n".join(all_r)
-            st.subheader("📥 Full R Script"); st.code(full, language="r")
-            st.download_button("⬇️ Download .R Script", data=full, file_name="converted_pipeline.R", mime="text/plain", use_container_width=True)
+            st.divider()
+            # Inject library(tidyverse) ONCE at the very top of the full script
+            full_script_text = "\n".join(all_r)
+            if "dplyr" in r_dialect:
+                full_script_text = "library(tidyverse)\n\n" + full_script_text
+                
+            st.subheader("📥 Full R Script")
+            st.code(full_script_text, language="r")
+            st.download_button("⬇️ Download .R Script", data=full_script_text, file_name="converted_pipeline.R", mime="text/plain", use_container_width=True)
