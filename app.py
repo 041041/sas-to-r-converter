@@ -78,13 +78,14 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
         
-    if dialect == "Modern R (dplyr)":
+if dialect == "Modern R (dplyr)":
         rule_set = (
             f"1. Use modern R, specifically the tidyverse.\n"
             f"2. Use the pipe operator (%>%) for chaining operations.\n"
             f"3. IF SAS uses DATALINES/CARDS: ONLY create the data.frame using `data.frame(...)`. STOP immediately after creating it.\n"
-            f"4. IF SAS reads an existing table (e.g., SET SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
-            f"5. CRITICAL: In a DATA step, retain all original columns by creating new variables inside a populated `mutate(new_col = ...)` call. NEVER write an empty `mutate()`.\n"
+            f"4. IF SAS reads existing tables (e.g., SET, FROM): Start the pipeline exactly with `df <- TABLE_NAME %>%`.\n"
+            f"5. FOR DATA STEPS: Create new variables inside a populated `mutate(new_col = ...)` call. NEVER write an empty mutate() or self-assign columns (e.g., x = x).\n"
+            f"6. FOR PROC SQL: Chain multiple tables using `left_join()`, `inner_join()`, etc. Use `select()` at the end to return ONLY the requested columns.\n"
         )
     else:
         rule_set = (
