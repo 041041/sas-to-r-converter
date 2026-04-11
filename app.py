@@ -78,7 +78,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
         
-   if dialect == "Modern R (dplyr)":
+    if dialect == "Modern R (dplyr)":
         rule_set = (
             f"1. Use modern R, specifically the tidyverse.\n"
             f"2. Use the pipe operator (%>%) for chaining operations.\n"
