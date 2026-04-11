@@ -45,7 +45,7 @@ def safe_read_csv(file_obj):
             raise RuntimeError(f"Could not parse CSV file. Error: {str(e)}")
 
 def clean_r_code(text):
-    """Strips LLM conversational filler and ensures the code returns 'df'."""
+    """Strips LLM conversational filler, fixes dangling pipes, and returns 'df'."""
     backticks = "\x60\x60\x60"
     if backticks in text:
         pattern = backticks + r"(?:r|python|R)?\n(.*?)\n" + backticks
@@ -66,6 +66,10 @@ def clean_r_code(text):
         out.append(clean_line)
     
     cleaned = "\n".join(out)
+    
+    # --- NEW SAFETY NET: Snip off dangling pipes before adding df ---
+    cleaned = re.sub(r"%>%\s*$", "", cleaned.strip())
+    
     if not cleaned.strip().endswith("df"): cleaned += "\ndf"
     return cleaned
 
