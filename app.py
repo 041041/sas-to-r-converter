@@ -59,7 +59,6 @@ def clean_r_code(text):
     for line in lines:
         clean_line = line.strip()
         if not clean_line or clean_line.startswith(('#', backticks)): continue
-        # Only ban data.frame() if it looks like mock data generation
         if "data.frame(" in clean_line and "c(" in clean_line and "df =" in clean_line.lower(): continue 
         if any(x in clean_line.lower() for x in forbidden if x != "data.frame()"): continue
         if "(" in clean_line and "<-" in clean_line:
@@ -79,25 +78,24 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
         
-    # --- UPGRADED DIALECT RULES WITH ANTI-LOOP AND COLUMN RETENTION ---
     if dialect == "Modern R (dplyr)":
         rule_set = (
-            f"1. Use modern R, specifically the tidyverse (dplyr, tidyr, stringr, lubridate).\n"
+            f"1. Use modern R, specifically the tidyverse.\n"
             f"2. Use the pipe operator (%>%) for chaining operations.\n"
             f"3. Start the code block with `library(tidyverse)`.\n"
-            f"4. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data. Write the code EXACTLY ONCE. Do NOT repeat lines.\n"
-            f"5. IF the SAS code reads an existing table (e.g., FROM SALES, SET WORK.SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
-            f"6. CRITICAL: In a DATA step with a SET statement, you MUST keep all original columns. Use `mutate()`. Do NOT drop original columns unless SAS explicitly uses DROP/KEEP.\n"
+            f"4. IF SAS uses DATALINES/CARDS: ONLY create the data.frame using `data.frame(...)`. DO NOT add any extra lines, calculations, or aggregations. STOP immediately after creating it.\n"
+            f"5. IF SAS reads an existing table (e.g., SET SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
+            f"6. CRITICAL: In a DATA step with SET, you MUST keep all original columns. Use `mutate()`. Do not drop columns.\n"
         )
     else:
         rule_set = (
             f"1. Use ONLY pure Base R.\n"
             f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
-            f"3. For aggregate(), ALWAYS use the formula interface (e.g., `aggregate(total_qty ~ product, data = df, FUN = sum)`). NEVER use `by = list(...)`.\n"
-            f"4. ABSOLUTELY NO MATH inside aggregate() or cbind(). Do math FIRST.\n"
-            f"5. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data. Write the code EXACTLY ONCE. Do NOT repeat lines.\n"
-            f"6. IF the SAS code reads an existing table (e.g., FROM SALES, SET SALES), start your code exactly with `df <- SALES`.\n"
-            f"7. CRITICAL: In a DATA step with a SET statement, you MUST keep all original columns. DO NOT subset the dataframe to only the new columns unless SAS explicitly uses DROP/KEEP.\n"
+            f"3. For aggregate(), ALWAYS use the formula interface (e.g., `aggregate(total_qty ~ product, data=df, FUN=sum)`).\n"
+            f"4. IF SAS uses DATALINES/CARDS: ONLY create the data.frame using `data.frame(...)`. DO NOT add any extra lines. DO NOT use transform(), aggregate(), or cbind(). STOP immediately after creating the data.frame.\n"
+            f"5. IF SAS reads an existing table (e.g., SET SALES), start your code exactly with `df <- SALES`.\n"
+            f"6. CRITICAL: In a DATA step with SET, you MUST keep all original columns. DO NOT drop them.\n"
+            f"7. NO MATH inside aggregate() or cbind(). Do math FIRST on a separate line.\n"
         )
 
     prompt = (
@@ -129,7 +127,6 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         
         input_df.to_csv(inp_path, index=False)
         
-        # --- UPGRADED R SCRIPT INJECTION ---
         full_script = [
             'suppressWarnings(suppressMessages(library(tidyverse)))',
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)'
@@ -283,7 +280,6 @@ st.title("🔄 Smart SAS to R Converter")
 st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
 st.divider()
 
-# --- MOVED CONTROLS TO SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Settings")
     mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
@@ -317,7 +313,6 @@ with st.sidebar:
 """)
     st.caption("Built with Gemini + Groq + Rscript")
 
-# --- CLEAN MAIN INTERFACE ---
 st.subheader("📋 SAS Code")
 sas_script = st.text_area("sas", height=250, label_visibility="collapsed", placeholder="Paste your SAS code here...")
 
@@ -379,10 +374,8 @@ if run_btn:
                 with t2:
                     with st.spinner(f"Converting {sname}..."):
                         try:
-                            # Pass an empty list for columns so it triggers the smart DATALINES logic
                             rc = call_llm_api(step, [], known_tables, r_dialect)
                             st.code(rc, language="r")
-                            # Explicitly assign df to the dataset name in the script compilation
                             if "dplyr" in r_dialect:
                                 all_r.append(f"# --- {sname} ---\nlibrary(tidyverse)\n{rc}\n{sname} <- df\n")
                             else:
@@ -430,7 +423,6 @@ if run_btn:
                 with t2:
                     if res["r_code"]: 
                         st.code(res["r_code"], language="r")
-                        # Explicitly assign df to the dataset name in the script compilation
                         if "dplyr" in r_dialect:
                             all_r.append(f"# --- {res['name']} ---\nlibrary(tidyverse)\n{res['r_code']}\n{res['name']} <- df\n")
                         else:
