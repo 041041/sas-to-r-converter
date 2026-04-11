@@ -79,23 +79,25 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
         
-    # --- UPGRADED DIALECT RULES ---
+    # --- UPGRADED DIALECT RULES WITH ANTI-LOOP AND COLUMN RETENTION ---
     if dialect == "Modern R (dplyr)":
         rule_set = (
             f"1. Use modern R, specifically the tidyverse (dplyr, tidyr, stringr, lubridate).\n"
             f"2. Use the pipe operator (%>%) for chaining operations.\n"
             f"3. Start the code block with `library(tidyverse)`.\n"
-            f"4. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data.\n"
-            f"5. IF the SAS code reads from an existing table (e.g., FROM SALES, SET WORK.SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
+            f"4. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data. Write the code EXACTLY ONCE. Do NOT repeat lines.\n"
+            f"5. IF the SAS code reads an existing table (e.g., FROM SALES, SET WORK.SALES), start the pipeline exactly with `df <- SALES %>%`.\n"
+            f"6. CRITICAL: In a DATA step with a SET statement, you MUST keep all original columns. Use `mutate()`. Do NOT drop original columns unless SAS explicitly uses DROP/KEEP.\n"
         )
     else:
         rule_set = (
             f"1. Use ONLY pure Base R.\n"
             f"2. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
             f"3. For aggregate(), ALWAYS use the formula interface (e.g., `aggregate(total_qty ~ product, data = df, FUN = sum)`). NEVER use `by = list(...)`.\n"
-            f"4. ABSOLUTELY NO MATH inside aggregate() or cbind(). If SAS does sum(price*qty), do `df$new_col <- df$price * df$qty` BEFORE calling aggregate().\n"
-            f"5. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data.\n"
-            f"6. IF the SAS code reads from an existing table (e.g., FROM SALES), start your code exactly with `df <- SALES`.\n"
+            f"4. ABSOLUTELY NO MATH inside aggregate() or cbind(). Do math FIRST.\n"
+            f"5. IF the SAS code uses DATALINES/CARDS, build the data.frame from the raw data. Write the code EXACTLY ONCE. Do NOT repeat lines.\n"
+            f"6. IF the SAS code reads an existing table (e.g., FROM SALES, SET SALES), start your code exactly with `df <- SALES`.\n"
+            f"7. CRITICAL: In a DATA step with a SET statement, you MUST keep all original columns. DO NOT subset the dataframe to only the new columns unless SAS explicitly uses DROP/KEEP.\n"
         )
 
     prompt = (
