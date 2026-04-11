@@ -382,7 +382,7 @@ if run_btn:
 
     if mode == "Convert Only":
         st.subheader("Generated R Code")
-        steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL|re.IGNORECASE)
+        steps = re.findall(r"((?:data|proc|%macro)\s+.*?;.*?(?:run|quit|%mend);)", sas_code, re.DOTALL | re.I)
         if not steps: st.error("No valid SAS steps found."); st.stop()
         
         all_r = []
