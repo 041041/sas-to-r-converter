@@ -100,7 +100,8 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"3. IF SAS reads an existing table: start the pipeline exactly with `df <- TABLE_NAME %>%`.\n"
             f"4. FOR DATA STEPS: Create new variables inside a populated `mutate(...)`. NEVER write an empty mutate() or select().\n"
             f"5. FOR PROC SQL: Chain multiple tables using `left_join()`. Use `select()` at the end for columns.\n"
-            f"6. FIRST. LOGIC: Translate SAS 'first.variable' using `group_by(var) %>% slice(1) %>% ungroup()`.\n"
+            f"6. FOR PROC SORT: Use `arrange()`. Use `desc()` for descending variables.\n"
+            f"7. FIRST. LOGIC: Translate SAS 'first.variable' using `group_by(var) %>% slice(1) %>% ungroup()`.\n"
         )
     else:
         rule_set = (
@@ -109,7 +110,8 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"3. IF SAS uses DATALINES: ONLY create the data.frame. STOP immediately.\n"
             f"4. IF SAS reads an existing table: start your code exactly with `df <- TABLE_NAME`.\n"
             f"5. CRITICAL: Keep all original columns. NO MATH inside aggregate() or cbind().\n"
-            f"6. FIRST. LOGIC: Translate SAS 'first.variable' using `!duplicated(df$var)`.\n"
+            f"6. FOR PROC SORT: Use `df = df[order(...), ]`. For descending numeric, use a minus sign (e.g., `-df$amount`).\n"
+            f"7. FIRST. LOGIC: Translate SAS 'first.variable' using `!duplicated(df$var)`.\n"
         )
 
     prompt = (
@@ -117,7 +119,6 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         f"INPUT CONTEXT: {input_context}{env_info}\n"
         f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
         f"STRICT RULES:\n{rule_set}"
-        # --- ANTI-LOOP LLM INSTRUCTION ADDED HERE ---
         f"FINAL RULE: No explanations. Just executable R code. Write the code EXACTLY ONCE. DO NOT loop or repeat lines.\n\n"
         f"SAS STEP:\n{step}"
     )
@@ -132,7 +133,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         )
         raw = res.choices[0].message.content
     return clean_r_code(raw)
-
+    
 def run_r_subprocess(r_code, input_df, env_dict=None):
     """Executes the generated R code in a controlled environment."""
     with tempfile.TemporaryDirectory() as d:
