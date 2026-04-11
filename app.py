@@ -45,7 +45,7 @@ def safe_read_csv(file_obj):
             raise RuntimeError(f"Could not parse CSV file. Error: {str(e)}")
 
 def clean_r_code(text):
-    """Strips LLM conversational filler, fixes dangling pipes & empty functions, and returns 'df'."""
+    """Strips LLM conversational filler, fixes dangling pipes, and KILLS INFINITE LOOPS."""
     backticks = "\x60\x60\x60"
     if backticks in text:
         pattern = backticks + r"(?:r|python|R)?\n(.*?)\n" + backticks
@@ -63,7 +63,11 @@ def clean_r_code(text):
         if any(x in clean_line.lower() for x in forbidden if x != "data.frame()"): continue
         if "(" in clean_line and "<-" in clean_line:
             clean_line = clean_line.replace("<-", "=")
-        out.append(clean_line)
+            
+        # --- THE INFINITE LOOP KILLER ---
+        # Python will only keep the line if it is NOT the exact same as the line before it
+        if not out or clean_line != out[-1]:
+            out.append(clean_line)
     
     cleaned = "\n".join(out)
     
@@ -72,13 +76,13 @@ def clean_r_code(text):
     cleaned = re.sub(r"%>%\s*select\(\)\s*$", "", cleaned.strip()) # Catch empty selects
     cleaned = re.sub(r"%>%\s*mutate\(\)\s*$", "", cleaned.strip()) # Catch empty mutates
     
-    # De-duplicate assigning pipelines if AI hallucinates repeating the exact same block
     if cleaned.count("df <- ") > 1:
         parts = cleaned.split("df <- ")
         cleaned = "df <- " + parts[-1]
         
     if not cleaned.strip().endswith("df"): cleaned += "\ndf"
     return cleaned
+
 
 def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
@@ -113,7 +117,8 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         f"INPUT CONTEXT: {input_context}{env_info}\n"
         f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
         f"STRICT RULES:\n{rule_set}"
-        f"FINAL RULE: No explanations, no markdown. Just executable R code.\n\n"
+        # --- ANTI-LOOP LLM INSTRUCTION ADDED HERE ---
+        f"FINAL RULE: No explanations. Just executable R code. Write the code EXACTLY ONCE. DO NOT loop or repeat lines.\n\n"
         f"SAS STEP:\n{step}"
     )
     
