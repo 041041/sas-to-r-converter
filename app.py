@@ -148,6 +148,11 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
                                 f"NEVER add an order() or sort() before table(). "
                                 f"NEVER use any other approach. Output MUST stay in long format with one row per combination. "
                                 f"Final columns must be: var1, var2, COUNT.\n"
+            f"9. FOR PROC SQL with GROUP BY + HAVING: Use this EXACT pattern:\n"
+                                f"   df <- TABLE_NAME\n"
+                                f"   df = df[df$where_col == 'value', ]\n"
+                                f"   df = aggregate(cbind(count=1, amount=df$amount) ~ cust_id, data=df, FUN=function(x) c(n=length(x), sum=sum(x)))\n"
+                                f"   NEVER skip the WHERE filter. NEVER skip aggregation. ALWAYS apply HAVING after aggregation.\n"
         )
 
     prompt = (
