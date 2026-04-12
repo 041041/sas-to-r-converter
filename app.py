@@ -431,7 +431,7 @@ if mode == "Convert + Execute + Validate":
     uploaded = st.file_uploader("Upload CSVs", type=["csv"], 
                                  accept_multiple_files=True,
                                  key=f"uploader_{st.session_state.upload_key}")
-    if uploaded:
+     if uploaded:
         st.session_state.uploaded_csvs = {}  # ← reset on new upload
         cols = st.columns(min(len(uploaded), 3))
         for i, f in enumerate(uploaded):
@@ -440,18 +440,24 @@ if mode == "Convert + Execute + Validate":
                 df = safe_read_csv(f)
                 uploaded_csvs[name] = df
                 st.session_state.uploaded_csvs[name] = df  # ← save to session state
-
-     with st.expander("Or paste CSV text manually"):
-            manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
-            manual_csv  = st.text_area("Paste CSV here", height=100)
-            if manual_name and manual_csv:
-                try:
-                    df = pd.read_csv(io.StringIO(manual_csv))
-                    uploaded_csvs[manual_name.upper().strip()] = df
-                    st.success(f"Loaded {manual_name.upper()} — {df.shape}")
-                    st.dataframe(df, height=140)
-                except Exception as e:
-                    st.error(f"Parse error: {e}")
+                with cols[i % 3]:
+                    st.markdown(f"**{name}** ({df.shape[0]}r × {df.shape[1]}c)")
+                    st.dataframe(df, use_container_width=True, height=140)
+            except Exception as e:
+                st.error(f"Failed to load {name}: {str(e)}")
+    
+    with st.expander("Or paste CSV text manually"):
+        manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
+        manual_csv  = st.text_area("Paste CSV here", height=100)
+        if manual_name and manual_csv:
+            try:
+                df = pd.read_csv(io.StringIO(manual_csv))
+                uploaded_csvs[manual_name.upper().strip()] = df
+                st.session_state.uploaded_csvs[manual_name.upper().strip()] = df
+                st.success(f"Loaded {manual_name.upper()} — {df.shape}")
+                st.dataframe(df, height=140)
+            except Exception as e:
+                st.error(f"Parse error: {e}")
 
 st.divider()
 
