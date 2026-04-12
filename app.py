@@ -113,6 +113,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"5. FOR PROC SORT: Use `df = df[order(...), ]`. For descending numeric, use a minus sign (e.g., `-df$amount`).\n"
             f"6. FIRST. LOGIC: Use ONLY `df[!duplicated(df$var), ]`. ABSOLUTELY NO order() or sort() call allowed in this step — not even for tie-breaking. The previous PROC SORT already established the correct order. Trust it. Adding any order() here WILL produce wrong results.\n"
             f"7. MACRO LOGIC: Convert macro variables (&var) to standard R object references.\n"
+            f"8. FOR PROC FREQ: Use `df = as.data.frame(table(df$var1, df$var2))` for cross-tabs. Rename columns to match SAS output: `names(df) = c('var1', 'var2', 'COUNT')`. Remove zero counts with `df = df[df$COUNT > 0, ]`.\n"
         )
 
     prompt = (
