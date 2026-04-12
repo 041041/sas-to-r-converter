@@ -181,7 +181,9 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
                                 f"   NEVER use cbind inside aggregate. NEVER use matrix columns.\n"
             f"10. FOR PROC TRANSPOSE: Use EXACTLY this pattern:\n"
                                 f"    `df = reshape(TABLENAME, varying=c('q1','q2','q3','q4'), v.names='revenue', timevar='quarter', times=c('q1','q2','q3','q4'), direction='long')`\n"
+                                f"    `df = df[order(match(df$region, TABLENAME$region), match(df$quarter, c('q1','q2','q3','q4'))), ]`\n"
                                 f"    `df = df[, c('region', 'quarter', 'revenue')]`\n"
+                                f"    `row.names(df) = NULL`\n"
                                 f"    NEVER use stack(), NEVER use melt(). NEVER convert quarter to factor.\n"
         )
 
