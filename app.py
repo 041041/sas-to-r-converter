@@ -433,7 +433,13 @@ if run_btn:
     else:
         st.subheader("Conversion + Execution + Validation")
         with st.spinner("Processing chain: LLM Conversion ➡️ R Execution ➡️ Data Flow..."):
+        try:
             results = run_chain_pipeline(sas_script, uploaded_csvs, r_dialect)
+        except Exception as e:
+            st.error(f"Pipeline crashed: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
+            st.stop()
         
         if not results: st.error("No steps processed."); st.stop()
 
