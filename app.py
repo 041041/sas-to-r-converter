@@ -86,7 +86,22 @@ def clean_r_code(text):
     cleaned = re.sub(r"%>%\s*mutate\(\)\s*$", "", cleaned.strip())
     cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned)  # Base R FIRST. fix
     cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)               # Modern R FIRST. fix
-    cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)                                         # Fix squished pipes
+    cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)  # Fix squished pipes
+
+    # PROC FREQ fix — strip pivot_wider, force long format count output
+    if "pivot_wider" in cleaned and "count(" in cleaned:
+        # Extract the count() variables
+        match = re.search(r"count\(([^)]+)\)", cleaned)
+        if match:
+            vars = match.group(1).strip()
+            var_list = [v.strip() for v in vars.split(",")]
+            col_names = ", ".join(f'"{v}"' for v in var_list)
+            cleaned = re.sub(
+                r"df\s*<-\s*\w+\s* %>%.*",
+                f'df <- df %>%\n  count({vars}) %>%\n  rename(COUNT = n)',
+                cleaned,
+                flags=re.DOTALL
+            )
     
     if cleaned.count("df <- ") > 1:
         parts = cleaned.split("df <- ")
