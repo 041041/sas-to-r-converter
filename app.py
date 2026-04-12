@@ -96,7 +96,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"1. Use modern R (tidyverse). Use the pipe operator (%>%) for chaining.\n"
             f"2. IF SAS uses DATALINES: ONLY create the data.frame using `data.frame(...)`. STOP immediately.\n"
             f"3. IF SAS reads an existing table: start the pipeline exactly with `df <- TABLE_NAME %>%`.\n"
-            f"4. FOR DATA STEPS: Create new variables inside a populated `mutate(...)`. NEVER write an empty mutate().\n"
+            f"4. FOR DATA STEPS: Create new variables inside a populated `mutate(...)`. NEVER write an empty mutate() or select().\n"
             f"5. FOR PROC SORT: Use `arrange()`. Use `desc()` for descending variables.\n"
             f"6. FIRST. LOGIC: Use `group_by(var) %>% slice(1) %>% ungroup()`. IMPORTANT: Do NOT add an extra arrange() or sort inside this step; it must rely on the previous step's order.\n"
             f"7. MACRO LOGIC: If input is a %macro, convert macro variables (&var) to column names in a mutate() call.\n"
@@ -110,7 +110,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"5. FOR PROC SORT: Use `df = df[order(...), ]`. For descending numeric, use a minus sign (e.g., `-df$amount`).\n"
             f"6. FIRST. LOGIC: Use `df[!duplicated(df$var), ]`. CRITICAL: Do NOT re-sort the data (no order() call) in this step. It must preserve the order from the previous PROC SORT to ensure the correct 'first.' record is captured.\n"
             f"7. MACRO LOGIC: Convert macro variables (&var) to standard R object references.\n"
-     )
+        )
 
     prompt = (
         f"TASK: Convert this SAS step to R code.\n"
