@@ -88,6 +88,8 @@ def clean_r_code(text):
     cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned)  # Base R FIRST. fix
     cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)               # Modern R FIRST. fix
     cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)                                         # Fix squished pipes
+    # PROC TRANSPOSE fix — remove factor() conversion on pivot_longer output
+    cleaned = re.sub(r"\s*%>%\s*mutate\([^)]*factor\([^)]*\)[^)]*\)", "", cleaned)
     
     # PROC FREQ fix — only trigger if this is actually a frequency/count step
     is_freq_step = (
