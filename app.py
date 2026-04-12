@@ -102,15 +102,15 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"7. MACRO LOGIC: If input is a %macro, convert macro variables (&var) to column names in a mutate() call.\n"
         )
     else:
-    rule_set = (
-        f"1. Use ONLY pure Base R. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
-        f"2. For aggregate(), ALWAYS use the formula interface.\n"
-        f"3. IF SAS uses DATALINES: ONLY create the data.frame. STOP immediately.\n"
-        f"4. IF SAS reads an existing table: start your code exactly with `df <- TABLE_NAME`.\n"
-        f"5. FOR PROC SORT: Use `df = df[order(...), ]`. For descending numeric, use a minus sign (e.g., `-df$amount`).\n"
-        f"6. FIRST. LOGIC: Use ONLY `df[!duplicated(df$var), ]`. ABSOLUTELY NO order() or sort() call allowed in this step — not even for tie-breaking. The previous PROC SORT already established the correct order. Trust it. Adding any order() here WILL produce wrong results.\n"
-        f"7. MACRO LOGIC: Convert macro variables (&var) to standard R object references.\n"
-    )
+        rule_set = (
+            f"1. Use ONLY pure Base R. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
+            f"2. For aggregate(), ALWAYS use the formula interface.\n"
+            f"3. IF SAS uses DATALINES: ONLY create the data.frame. STOP immediately.\n"
+            f"4. IF SAS reads an existing table: start your code exactly with `df <- TABLE_NAME`.\n"
+            f"5. FOR PROC SORT: Use `df = df[order(...), ]`. For descending numeric, use a minus sign (e.g., `-df$amount`).\n"
+            f"6. FIRST. LOGIC: Use ONLY `df[!duplicated(df$var), ]`. ABSOLUTELY NO order() or sort() call allowed in this step — not even for tie-breaking. The previous PROC SORT already established the correct order. Trust it. Adding any order() here WILL produce wrong results.\n"
+            f"7. MACRO LOGIC: Convert macro variables (&var) to standard R object references.\n"
+       )
     prompt = (
         f"TASK: Convert this SAS step to R code.\n"
         f"INPUT CONTEXT: {input_context}{env_info}\n"
