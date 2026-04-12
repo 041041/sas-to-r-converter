@@ -88,9 +88,14 @@ def clean_r_code(text):
     cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)               # Modern R FIRST. fix
     cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)  # Fix squished pipes
 
-    # PROC FREQ fix — strip pivot_wider, force long format count output
-    # PROC FREQ fix — force correct output format
-    if "count(" in cleaned and ("pivot_wider" in cleaned or "rename(COUNT" not in cleaned):
+    # PROC FREQ fix — only trigger if this is actually a frequency/count step
+    is_freq_step = (
+        "count(" in cleaned and
+        "merge(" not in cleaned and
+        "join(" not in cleaned and
+        ("pivot_wider" in cleaned or "rename(COUNT" not in cleaned)
+    )
+    if is_freq_step:
         match = re.search(r"count\(([^)]+)\)", cleaned)
         if match:
             vars = match.group(1).strip()
