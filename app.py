@@ -71,9 +71,11 @@ def clean_r_code(text):
     cleaned = "\n".join(out)
     
     # --- SAFETY NETS ---
+    # --- SAFETY NETS ---
     cleaned = re.sub(r"%>%\s*$", "", cleaned.strip()) # Catch dangling pipes
     cleaned = re.sub(r"%>%\s*select\(\)\s*$", "", cleaned.strip()) # Catch empty selects
     cleaned = re.sub(r"%>%\s*mutate\(\)\s*$", "", cleaned.strip()) # Catch empty mutates
+    cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned) # FIRST. logic fix
     
     if cleaned.count("df <- ") > 1:
         parts = cleaned.split("df <- ")
