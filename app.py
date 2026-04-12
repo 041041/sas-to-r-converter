@@ -441,7 +441,7 @@ if mode == "Convert + Execute + Validate":
                 uploaded_csvs[name] = df
                 st.session_state.uploaded_csvs[name] = df  # ← save to session state
 
-        with st.expander("Or paste CSV text manually"):
+     with st.expander("Or paste CSV text manually"):
             manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
             manual_csv  = st.text_area("Paste CSV here", height=100)
             if manual_name and manual_csv:
