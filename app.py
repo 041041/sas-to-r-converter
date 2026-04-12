@@ -441,17 +441,17 @@ if mode == "Convert + Execute + Validate":
                 uploaded_csvs[name] = df
                 st.session_state.uploaded_csvs[name] = df  # ← save to session state
 
-    with st.expander("Or paste CSV text manually"):
-        manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
-        manual_csv  = st.text_area("Paste CSV here", height=100)
-        if manual_name and manual_csv:
-            try:
-                df = pd.read_csv(io.StringIO(manual_csv))
-                uploaded_csvs[manual_name.upper().strip()] = df
-                st.success(f"Loaded {manual_name.upper()} — {df.shape}")
-                st.dataframe(df, height=140)
-            except Exception as e:
-                st.error(f"Parse error: {e}")
+        with st.expander("Or paste CSV text manually"):
+            manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
+            manual_csv  = st.text_area("Paste CSV here", height=100)
+            if manual_name and manual_csv:
+                try:
+                    df = pd.read_csv(io.StringIO(manual_csv))
+                    uploaded_csvs[manual_name.upper().strip()] = df
+                    st.success(f"Loaded {manual_name.upper()} — {df.shape}")
+                    st.dataframe(df, height=140)
+                except Exception as e:
+                    st.error(f"Parse error: {e}")
 
 st.divider()
 
