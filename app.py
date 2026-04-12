@@ -71,15 +71,12 @@ def clean_r_code(text):
     cleaned = "\n".join(out)
     
     # --- SAFETY NETS ---
-    # --- SAFETY NETS ---
-    # --- SAFETY NETS ---
-    # --- SAFETY NETS ---
     cleaned = re.sub(r"%>%\s*$", "", cleaned.strip())
     cleaned = re.sub(r"%>%\s*select\(\)\s*$", "", cleaned.strip())
     cleaned = re.sub(r"%>%\s*mutate\(\)\s*$", "", cleaned.strip())
-    cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned) # Base R FIRST. fix
-    cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned) # Modern R FIRST. fix
-    cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)  # Fix squished pipes
+    cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned)  # Base R FIRST. fix
+    cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)               # Modern R FIRST. fix
+    cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)                                         # Fix squished pipes
     
     if cleaned.count("df <- ") > 1:
         parts = cleaned.split("df <- ")
@@ -116,7 +113,8 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"5. FOR PROC SORT: Use `df = df[order(...), ]`. For descending numeric, use a minus sign (e.g., `-df$amount`).\n"
             f"6. FIRST. LOGIC: Use ONLY `df[!duplicated(df$var), ]`. ABSOLUTELY NO order() or sort() call allowed in this step — not even for tie-breaking. The previous PROC SORT already established the correct order. Trust it. Adding any order() here WILL produce wrong results.\n"
             f"7. MACRO LOGIC: Convert macro variables (&var) to standard R object references.\n"
-       )
+        )
+
     prompt = (
         f"TASK: Convert this SAS step to R code.\n"
         f"INPUT CONTEXT: {input_context}{env_info}\n"
@@ -231,12 +229,10 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
     work_library = {}
     pipeline_results = []
     
-    # ADDED re.M (MULTILINE) SO IT CHECKS EVERY LINE FOR THE FINAL DATASET NAME
     all_out_names = re.findall(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", sas_code, re.I | re.M)
     final_ds_name = all_out_names[-1].split('.')[-1].upper().strip() if all_out_names else None
 
     for i, step in enumerate(steps):
-        # ADDED re.M (MULTILINE) HERE AS WELL
         out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
         sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
         
@@ -407,7 +403,7 @@ if run_btn:
                 t1, t2 = st.tabs(["SAS", "Generated R"])
                 with t1: st.code(step.strip(), language="sas")
                 with t2:
-                    with er(f"Converting {sname}..."):
+                    with st.spinner(f"Converting {sname}..."):
                         try:
                             rc = call_llm_api(step, [], known_tables, r_dialect)
                             st.code(rc, language="r")
@@ -429,16 +425,17 @@ if run_btn:
             st.code(full_script_text, language="r")
             st.download_button("⬇️ Download .R", data=full_script_text, file_name="converted.R", mime="text/plain", use_container_width=True)
 
-        else:
-         st.subheader("Conversion + Execution + Validation")
-         with st.spinner("Processing chain: LLM Conversion ➡️ R Execution ➡️ Data Flow..."):
-                try:
-                    results = run_chain_pipeline(sas_script, uploaded_csvs, r_dialect)
-                except Exception as e:
-                    st.error(f"Pipeline crashed: {str(e)}")
-                    import traceback
-                    st.code(traceback.format_exc())
-                    st.stop()
+    else:
+        st.subheader("Conversion + Execution + Validation")
+        results = []
+        with st.spinner("Processing chain: LLM Conversion ➡️ R Execution ➡️ Data Flow..."):
+            try:
+                results = run_chain_pipeline(sas_script, uploaded_csvs, r_dialect)
+            except Exception as e:
+                st.error(f"Pipeline crashed: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+                st.stop()
         
         if not results: st.error("No steps processed."); st.stop()
 
@@ -455,7 +452,7 @@ if run_btn:
 
             header = f"{badge} — {res['name']}"
 
-            with st.expander(header, expanded=res["is_final"] or res["error"] is not None):
+            with st.expander(header, expanded=True):
                 if res["error"]:
                     st.error(f"Pipeline broke here: {res['error']}")
                 
@@ -467,11 +464,14 @@ if run_btn:
                     if res["r_code"]: 
                         st.code(res["r_code"], language="r")
                         all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
-                    elif not res["error"]: 
+                    elif not res["error"]:
                         st.info("Datalines step — parsed directly without R.")
+                        if res["r_output"] is not None:
+                            st.success(f"✅ Successfully parsed {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
                 with t3:
                     if res["r_output"] is not None: 
                         st.dataframe(res["r_output"], use_container_width=True)
+                        st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
                     else: 
                         st.info("No data output for this step.")
                 with t4:
