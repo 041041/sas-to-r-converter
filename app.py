@@ -96,11 +96,15 @@ def clean_r_code(text):
             vars = match.group(1).strip()
             var_list = [v.strip() for v in vars.split(",")]
             col_names = ", ".join(f'"{v}"' for v in var_list)
+           # Extract source table name before replacing
+            source_match = re.search(r"df\s*<-\s*(\w+)\s*%>%", cleaned)
+            source_table = source_match.group(1) if source_match else "df"
             cleaned = re.sub(
-                r"df\s*<-\s*\w+\s* %>%.*",
-                f'df <- df %>%\n  count({vars}) %>%\n  rename(COUNT = n)',
+                r"df\s*<-\s*\w+\s*%>%.*",
+                f'df <- {source_table} %>%\n  count({vars}) %>%\n  rename(COUNT = n)',
                 cleaned,
                 flags=re.DOTALL
+            )
             )
     
     if cleaned.count("df <- ") > 1:
