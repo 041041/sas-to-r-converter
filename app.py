@@ -88,10 +88,28 @@ def clean_r_code(text):
     cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned)  # Base R FIRST. fix
     cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)               # Modern R FIRST. fix
     cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)                                         # Fix squished pipes
-    # PROC TRANSPOSE fix — remove factor() conversion on pivot_longer output
-    # PROC TRANSPOSE fix — remove factor() conversion on pivot_longer output
+    # PROC TRANSPOSE fix — rebuild cleanly if pivot_longer is present
     if "pivot_longer" in cleaned:
-        cleaned = re.sub(r"\s*%>%\s*mutate\(.*?factor\(.*?\).*?\)", "", cleaned, flags=re.DOTALL)
+        # Extract source table
+        source_match = re.search(r"df\s*<-\s*(\w+)\s*%>%", cleaned)
+        source_table = source_match.group(1) if source_match else "QUARTERLY"
+        # Extract cols
+        cols_match = re.search(r"cols\s*=\s*c\(([^)]+)\)", cleaned)
+        cols = cols_match.group(1) if cols_match else ""
+        # Extract names_to
+        names_match = re.search(r'names_to\s*=\s*["\']([^"\']+)["\']', cleaned)
+        names_to = names_match.group(1) if names_match else "quarter"
+        # Extract values_to
+        values_match = re.search(r'values_to\s*=\s*["\']([^"\']+)["\']', cleaned)
+        values_to = values_match.group(1) if values_match else "revenue"
+        # Rebuild cleanly
+        cleaned = (
+            f'df <- {source_table} %>%\n'
+            f'  pivot_longer(cols = c({cols}),\n'
+            f'               names_to = "{names_to}",\n'
+            f'               values_to = "{values_to}")\n'
+            f'df'
+        )
     
     # PROC FREQ fix — only trigger if this is actually a frequency/count step
     is_freq_step = (
