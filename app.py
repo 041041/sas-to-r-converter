@@ -300,7 +300,8 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
         pipeline_results.append(res_entry)
         
     return pipeline_results
-
+for res in results:
+    st.write(f"Step: {res['name']} | Error: {res['error']} | Output: {res['r_output'] is not None}")
 # --- STREAMLIT UI ---
 
 st.title("🔄 Smart SAS to R Converter")
