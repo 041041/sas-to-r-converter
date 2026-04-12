@@ -434,7 +434,7 @@ uploaded = st.file_uploader(
     accept_multiple_files=True,
     key="uploader_" + str(st.session_state.get("upload_key", 0))
 )
-    if uploaded:
+if uploaded:
         st.session_state.uploaded_csvs = {}  # ← reset on new upload
         cols = st.columns(min(len(uploaded), 3))
         for i, f in enumerate(uploaded):
