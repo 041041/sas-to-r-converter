@@ -8,17 +8,18 @@ from groq import Groq
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
 # --- SESSION STATE INIT ---
-if "sas_input" not in st.session_state:
-    st.session_state.sas_input = ""
-if "clear_flag" not in st.session_state:
-    st.session_state.clear_flag = False
-if "upload_key" not in st.session_state:
-    st.session_state.upload_key = 0  # ← add this
+for key, default in {
+    "sas_input": "",
+    "upload_key": 0,
+    "uploaded_csvs": {}
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 def clear_all():
     st.session_state.sas_input = ""
-    st.session_state.clear_flag = True
-    st.session_state.upload_key += 1  # ← forces file uploader to reset
+    st.session_state.upload_key += 1
+    st.session_state.uploaded_csvs = {}
     
 st.markdown("""
     <style>
@@ -417,7 +418,7 @@ sas_script = st.text_area("sas", height=250, label_visibility="collapsed",
                            value=st.session_state.sas_input,
                            key="sas_input")
 
-uploaded_csvs = {}
+uploaded_csvs = st.session_state.uploaded_csvs
 
 if mode == "Convert + Execute + Validate":
     st.divider()
@@ -427,18 +428,18 @@ if mode == "Convert + Execute + Validate":
     uploaded = st.file_uploader("Upload CSVs", type=["csv"], 
                              accept_multiple_files=True,
                              key=f"uploader_{st.session_state.upload_key}")  # ← add key
+    uploaded = st.file_uploader("Upload CSVs", type=["csv"], 
+                                 accept_multiple_files=True,
+                                 key=f"uploader_{st.session_state.upload_key}")
     if uploaded:
+        st.session_state.uploaded_csvs = {}  # ← reset on new upload
         cols = st.columns(min(len(uploaded), 3))
         for i, f in enumerate(uploaded):
             name = os.path.splitext(f.name)[0].upper().strip()
             try:
                 df = safe_read_csv(f)
                 uploaded_csvs[name] = df
-                with cols[i % 3]:
-                    st.markdown(f"**{name}** ({df.shape[0]}r × {df.shape[1]}c)")
-                    st.dataframe(df, use_container_width=True, height=140)
-            except Exception as e:
-                st.error(f"Failed to load {name}: {str(e)}")
+                st.session_state.uploaded_csvs[name] = df  # ← save to session state
 
     with st.expander("Or paste CSV text manually"):
         manual_name = st.text_input("Dataset name (e.g. FINAL_LABS)")
