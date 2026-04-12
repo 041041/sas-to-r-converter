@@ -93,23 +93,21 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         
     if dialect == "Modern R (dplyr)":
         rule_set = (
-            f"1. Use modern R (tidyverse). Use the pipe operator (%>%) for chaining.\n"
-            f"2. IF SAS uses DATALINES: ONLY create the data.frame using `data.frame(...)`. STOP immediately.\n"
-            f"3. IF SAS reads an existing table: start the pipeline exactly with `df <- TABLE_NAME %>%`.\n"
-            f"4. FOR DATA STEPS: Create new variables inside a populated `mutate(...)`. NEVER write an empty mutate() or select().\n"
-            f"5. FOR PROC SQL: Chain multiple tables using `left_join()`. Use `select()` at the end for columns.\n"
-            f"6. FOR PROC SORT: Use `arrange()`. Use `desc()` for descending variables.\n"
-            f"7. FIRST. LOGIC: Translate SAS 'first.variable' using `group_by(var) %>% slice(1) %>% ungroup()`.\n"
+            "1. Use modern R (tidyverse) with the pipe operator (%>%).\n"
+            "2. IF SAS uses DATALINES: Create the data.frame and STOP.\n"
+            "3. IF existing table: start exactly with `df <- TABLE_NAME %>%`.\n"
+            "4. FOR DATA STEPS: Use mutate() for derivations.\n"
+            "5. FOR PROC SORT: Use arrange(). Use desc() for descending variables.\n"
+            "6. FIRST. LOGIC: Use group_by(var) %>% slice(1) %>% ungroup(). IMPORTANT: Do NOT add an extra arrange() inside this step; rely on the existing order.\n"
+            "7. MACRO LOGIC: If input is a %macro, convert &var to column names in a mutate() call."
         )
     else:
         rule_set = (
-            f"1. Use ONLY pure Base R. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
-            f"2. For aggregate(), ALWAYS use the formula interface.\n"
-            f"3. IF SAS uses DATALINES: ONLY create the data.frame. STOP immediately.\n"
-            f"4. IF SAS reads an existing table: start your code exactly with `df <- TABLE_NAME`.\n"
-            f"5. CRITICAL: Keep all original columns. NO MATH inside aggregate() or cbind().\n"
-            f"6. FOR PROC SORT: Use `df = df[order(...), ]`. For descending numeric, use a minus sign (e.g., `-df$amount`).\n"
-            f"7. FIRST. LOGIC: Translate SAS 'first.variable' using `!duplicated(df$var)`.\n"
+            "1. Use ONLY pure Base R. NO pipes (%>%).\n"
+            "2. IF existing table: start exactly with `df <- TABLE_NAME`.\n"
+            "3. FOR PROC SORT: Use df[order(...), ]. For descending, use a minus sign (e.g., -df$var).\n"
+            "4. FIRST. LOGIC: Use df[!duplicated(df$var), ]. CRITICAL: Do NOT re-sort the data (no order() call) in this step. It must preserve the order from the previous PROC SORT.\n"
+            "5. MACRO LOGIC: Convert macro variables (&var) to standard R object references."
         )
 
     prompt = (
