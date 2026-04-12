@@ -465,9 +465,21 @@ if run_btn:
                         st.code(res["r_code"], language="r")
                         all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
                     elif not res["error"]:
-                        st.info("Datalines step — parsed directly without R.")
+                        # Generate R code for datalines step from the parsed dataframe
                         if res["r_output"] is not None:
-                            st.success(f"✅ Successfully parsed {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
+                            df_r = res["r_output"]
+                            col_code = []
+                            for col in df_r.columns:
+                                vals = df_r[col].tolist()
+                                try:
+                                    floats = [float(v) for v in vals]
+                                    col_code.append(f'  {col} = c({", ".join(str(v) for v in floats)})')
+                                except (ValueError, TypeError):
+                                    col_code.append(f'  {col} = c({", ".join(repr(str(v)) for v in vals)})')
+                            datalines_r = "df = data.frame(\n" + ",\n".join(col_code) + "\n)\ndf"
+                            st.code(datalines_r, language="r")
+                            all_r.append(f"# --- {res['name']} ---\n{datalines_r}\n{res['name']} <- df\n")
+                            st.success(f"✅ Successfully parsed {df_r.shape[0]} rows × {df_r.shape[1]} cols")
                 with t3:
                     if res["r_output"] is not None: 
                         st.dataframe(res["r_output"], use_container_width=True)
