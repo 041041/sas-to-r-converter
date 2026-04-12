@@ -12,10 +12,13 @@ if "sas_input" not in st.session_state:
     st.session_state.sas_input = ""
 if "clear_flag" not in st.session_state:
     st.session_state.clear_flag = False
+if "upload_key" not in st.session_state:
+    st.session_state.upload_key = 0  # ← add this
 
 def clear_all():
     st.session_state.sas_input = ""
     st.session_state.clear_flag = True
+    st.session_state.upload_key += 1  # ← forces file uploader to reset
     
 st.markdown("""
     <style>
@@ -421,7 +424,9 @@ if mode == "Convert + Execute + Validate":
     st.subheader("📊 Expected SAS Outputs")
     st.caption("Upload your final dataset (or intermediate ones). The app will automatically map a single uploaded CSV to the final step.")
 
-    uploaded = st.file_uploader("Upload CSVs", type=["csv"], accept_multiple_files=True)
+    uploaded = st.file_uploader("Upload CSVs", type=["csv"], 
+                             accept_multiple_files=True,
+                             key=f"uploader_{st.session_state.upload_key}")  # ← add key
     if uploaded:
         cols = st.columns(min(len(uploaded), 3))
         for i, f in enumerate(uploaded):
