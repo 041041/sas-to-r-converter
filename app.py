@@ -89,7 +89,9 @@ def clean_r_code(text):
     cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)               # Modern R FIRST. fix
     cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)                                         # Fix squished pipes
     # PROC TRANSPOSE fix — remove factor() conversion on pivot_longer output
-    cleaned = re.sub(r"\s*%>%\s*mutate\([^)]*factor\([^)]*\)[^)]*\)", "", cleaned)
+    # PROC TRANSPOSE fix — remove factor() conversion on pivot_longer output
+    if "pivot_longer" in cleaned:
+        cleaned = re.sub(r"\s*%>%\s*mutate\(.*?factor\(.*?\).*?\)", "", cleaned, flags=re.DOTALL)
     
     # PROC FREQ fix — only trigger if this is actually a frequency/count step
     is_freq_step = (
@@ -159,6 +161,10 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
                                 f"   `names(df) = c('cust_id', 'total_orders', 'total_spent')`\n"
                                 f"   Step 3 - HAVING filter: `df = df[df$total_spent > 600, ]`\n"
                                 f"   NEVER use cbind inside aggregate. NEVER use matrix columns.\n"
+            f"10. FOR PROC TRANSPOSE: Use EXACTLY this pattern:\n"
+                                f"    `df = reshape(TABLENAME, varying=c('q1','q2','q3','q4'), v.names='revenue', timevar='quarter', times=c('q1','q2','q3','q4'), direction='long')`\n"
+                                f"    `df = df[, c('region', 'quarter', 'revenue')]`\n"
+                                f"    NEVER use stack(), NEVER use melt(). NEVER convert quarter to factor.\n"
         )
 
     prompt = (
