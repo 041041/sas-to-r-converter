@@ -431,7 +431,7 @@ if mode == "Convert + Execute + Validate":
     uploaded = st.file_uploader("Upload CSVs", type=["csv"], 
                                  accept_multiple_files=True,
                                  key=f"uploader_{st.session_state.upload_key}")
-     if uploaded:
+    if uploaded:
         st.session_state.uploaded_csvs = {}  # ← reset on new upload
         cols = st.columns(min(len(uploaded), 3))
         for i, f in enumerate(uploaded):
