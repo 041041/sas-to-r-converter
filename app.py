@@ -89,23 +89,19 @@ def clean_r_code(text):
     cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)  # Fix squished pipes
 
     # PROC FREQ fix — strip pivot_wider, force long format count output
-    if "pivot_wider" in cleaned and "count(" in cleaned:
-        # Extract the count() variables
+    # PROC FREQ fix — force correct output format
+    if "count(" in cleaned and ("pivot_wider" in cleaned or "rename(COUNT" not in cleaned):
         match = re.search(r"count\(([^)]+)\)", cleaned)
         if match:
             vars = match.group(1).strip()
-            var_list = [v.strip() for v in vars.split(",")]
-            col_names = ", ".join(f'"{v}"' for v in var_list)
-            # Extract source table name before replacing
-            # Extract source table name before replacing
             source_match = re.search(r"df\s*<-\s*(\w+)\s*%>%", cleaned)
             source_table = source_match.group(1) if source_match else "df"
             cleaned = re.sub(
-                    r"df\s*<-\s*\w+\s*%>%.*",
-                    f'df <- {source_table} %>%\n  count({vars}) %>%\n  rename(COUNT = n)',
-                    cleaned,
-                    flags=re.DOTALL
-                )
+                r"df\s*<-\s*\w+\s*%>%.*",
+                f'df <- {source_table} %>%\n  count({vars}) %>%\n  rename(COUNT = n)',
+                cleaned,
+                flags=re.DOTALL
+            )
     
     if cleaned.count("df <- ") > 1:
         parts = cleaned.split("df <- ")
