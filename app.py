@@ -473,7 +473,11 @@ if run_btn:
                                 vals = df_r[col].tolist()
                                 try:
                                     floats = [float(v) for v in vals]
-                                    col_code.append(f'  {col} = c({", ".join(str(v) for v in floats)})')
+                                    # Use int if all values are whole numbers, else keep float
+                                    if all(v == int(v) for v in floats):
+                                        col_code.append(f'  {col} = c({", ".join(str(int(v)) for v in floats)})')
+                                    else:
+                                        col_code.append(f'  {col} = c({", ".join(str(v) for v in floats)})')
                                 except (ValueError, TypeError):
                                     col_code.append(f'  {col} = c({", ".join(repr(str(v)) for v in vals)})')
                             datalines_r = "df = data.frame(\n" + ",\n".join(col_code) + "\n)\ndf"
