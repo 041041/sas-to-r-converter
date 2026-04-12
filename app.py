@@ -7,7 +7,6 @@ from groq import Groq
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
-# --- SESSION STATE INIT ---
 for key, default in {
     "sas_input": "",
     "upload_key": 0,
@@ -18,8 +17,12 @@ for key, default in {
 
 def clear_all():
     st.session_state.sas_input = ""
-    st.session_state.upload_key += 1
     st.session_state.uploaded_csvs = {}
+    # Clear the uploader by resetting its key
+    if "upload_key" in st.session_state:
+        st.session_state.upload_key = st.session_state.upload_key + 1
+    else:
+        st.session_state.upload_key = 1
     
 st.markdown("""
     <style>
@@ -425,12 +428,12 @@ if mode == "Convert + Execute + Validate":
     st.subheader("📊 Expected SAS Outputs")
     st.caption("Upload your final dataset (or intermediate ones). The app will automatically map a single uploaded CSV to the final step.")
 
-    uploaded = st.file_uploader("Upload CSVs", type=["csv"], 
-                             accept_multiple_files=True,
-                             key=f"uploader_{st.session_state.upload_key}")  # ← add key
-    uploaded = st.file_uploader("Upload CSVs", type=["csv"], 
-                                 accept_multiple_files=True,
-                                 key=f"uploader_{st.session_state.upload_key}")
+uploaded = st.file_uploader(
+    "Upload CSVs", 
+    type=["csv"], 
+    accept_multiple_files=True,
+    key="uploader_" + str(st.session_state.get("upload_key", 0))
+)
     if uploaded:
         st.session_state.uploaded_csvs = {}  # ← reset on new upload
         cols = st.columns(min(len(uploaded), 3))
