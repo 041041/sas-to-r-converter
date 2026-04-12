@@ -408,7 +408,7 @@ if run_btn:
                 t1, t2 = st.tabs(["SAS", "Generated R"])
                 with t1: st.code(step.strip(), language="sas")
                 with t2:
-                    with st.spinner(f"Converting {sname}..."):
+                    with er(f"Converting {sname}..."):
                         try:
                             rc = call_llm_api(step, [], known_tables, r_dialect)
                             st.code(rc, language="r")
@@ -430,16 +430,16 @@ if run_btn:
             st.code(full_script_text, language="r")
             st.download_button("⬇️ Download .R", data=full_script_text, file_name="converted.R", mime="text/plain", use_container_width=True)
 
-    else:
-        st.subheader("Conversion + Execution + Validation")
-        with st.spinner("Processing chain: LLM Conversion ➡️ R Execution ➡️ Data Flow..."):
-        try:
-            results = run_chain_pipeline(sas_script, uploaded_csvs, r_dialect)
-        except Exception as e:
-            st.error(f"Pipeline crashed: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
-            st.stop()
+        else:
+         st.subheader("Conversion + Execution + Validation")
+            with st.spinner("Processing chain: LLM Conversion ➡️ R Execution ➡️ Data Flow..."):
+                try:
+                    results = run_chain_pipeline(sas_script, uploaded_csvs, r_dialect)
+                except Exception as e:
+                    st.error(f"Pipeline crashed: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+                    st.stop()
         
         if not results: st.error("No steps processed."); st.stop()
 
