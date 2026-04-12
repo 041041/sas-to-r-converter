@@ -7,6 +7,16 @@ from groq import Groq
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
+# --- SESSION STATE INIT ---
+if "sas_input" not in st.session_state:
+    st.session_state.sas_input = ""
+if "clear_flag" not in st.session_state:
+    st.session_state.clear_flag = False
+
+def clear_all():
+    st.session_state.sas_input = ""
+    st.session_state.clear_flag = True
+    
 st.markdown("""
     <style>
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
@@ -338,7 +348,10 @@ with st.sidebar:
     st.caption("Built with Gemini + Groq + Rscript")
 
 st.subheader("📋 SAS Code")
-sas_script = st.text_area("sas", height=250, label_visibility="collapsed", placeholder="Paste your SAS code here...")
+sas_script = st.text_area("sas", height=250, label_visibility="collapsed", 
+                           placeholder="Paste your SAS code here...",
+                           value=st.session_state.sas_input,
+                           key="sas_input")
 
 uploaded_csvs = {}
 
@@ -374,7 +387,12 @@ if mode == "Convert + Execute + Validate":
                 st.error(f"Parse error: {e}")
 
 st.divider()
-run_btn = st.button("⚡ Run", type="primary", use_container_width=True)
+
+col_run, col_clear = st.columns([5, 1])
+with col_run:
+    run_btn = st.button("⚡ Run", type="primary", use_container_width=True)
+with col_clear:
+    st.button("🗑️ Clear", on_click=clear_all, use_container_width=True)
 
 if run_btn:
     if not sas_script.strip():
