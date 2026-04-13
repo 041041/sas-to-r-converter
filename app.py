@@ -1,10 +1,17 @@
-import os, re, subprocess, tempfile, io
+import os
+import re
+import subprocess
+import tempfile
+import io
+import time
 import pandas as pd
 import streamlit as st
 from google import genai
 from groq import Groq
 
-# --- CONFIGURATION ---
+# ==========================================
+# 1. CONFIGURATION & STYLING
+# ==========================================
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
 # --- SESSION STATE INIT ---
@@ -29,7 +36,9 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# --- API CLIENT SETUP ---
+# ==========================================
+# 2. API CLIENTS
+# ==========================================
 def get_secret(key):
     try: return st.secrets[key]
     except Exception: return os.environ.get(key, "")
@@ -44,10 +53,20 @@ if not GEMINI_API_KEY or not GROQ_API_KEY:
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 groq_client   = Groq(api_key=GROQ_API_KEY)
 
-# --- CLEANING & UTILS ---
+# ==========================================
+# 3. CORE UTILITIES & LOGIC
+# ==========================================
 
-def safe_read_csv(file_obj):
-    """Attempts multiple methods to read a CSV gracefully."""
+# FEATURE: Excel Upload Support
+def safe_read_file(file_obj, file_name):
+    """Attempts multiple methods to read a CSV or Excel gracefully."""
+    if file_name.lower().endswith(('.xlsx', '.xls')):
+        try:
+            file_obj.seek(0)
+            return pd.read_excel(file_obj)
+        except Exception as e:
+            raise RuntimeError(f"Could not parse Excel file. Error: {str(e)}")
+            
     try:
         file_obj.seek(0)
         return pd.read_csv(file_obj)
@@ -60,7 +79,7 @@ def safe_read_csv(file_obj):
 
 def clean_r_code(text):
     """Strips LLM conversational filler, fixes dangling pipes & empty functions, and returns 'df'."""
-    backticks = "\x60\x60\x60"
+    backticks = "``" + "`"
     if backticks in text:
         pattern = backticks + r"(?:r|python|R)?\n(.*?)\n" + backticks
         blocks = re.findall(pattern, text, re.DOTALL)
@@ -90,7 +109,7 @@ def clean_r_code(text):
     cleaned = re.sub(r"%>%\s*mutate\(\)\s*$", "", cleaned.strip())
     cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned)  # Base R FIRST. fix
     cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)               # Modern R FIRST. fix
-    cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)                                         # Fix squished pipes
+    cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)                                        # Fix squished pipes
 
     # PROC TRANSPOSE fix — rebuild cleanly if pivot_longer is present
     if "pivot_longer" in cleaned:
@@ -306,7 +325,14 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
     all_out_names = re.findall(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", sas_code, re.I | re.M)
     final_ds_name = all_out_names[-1].split('.')[-1].upper().strip() if all_out_names else None
 
+    # FEATURE: Progress Bar Integration
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
     for i, step in enumerate(steps):
+        status_text.text(f"Processing Step {i+1} of {len(steps)}...")
+        step_start_time = time.time()  # FEATURE: Step Timing Initialization
+
         out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
         sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
 
@@ -338,7 +364,8 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
             "r_output": None,
             "error": None,
             "comparison": None,
-            "is_final": (target_name == final_ds_name)
+            "is_final": (target_name == final_ds_name),
+            "time_taken": 0.0  # FEATURE: Step Timing Dictionary key
         }
 
         try:
@@ -367,8 +394,15 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
         except Exception as e:
             res_entry["error"] = str(e)
 
+        # Record time taken for this specific step
+        res_entry["time_taken"] = time.time() - step_start_time
         pipeline_results.append(res_entry)
+        
+        # Update UI Progress Bar
+        progress_bar.progress((i + 1) / len(steps))
 
+    status_text.empty()
+    progress_bar.empty()
     return pipeline_results
 
 # --- STREAMLIT UI ---
@@ -393,11 +427,11 @@ with st.sidebar:
 ---
 **Convert + Validate:**
 1. Paste SAS code
-2. Upload expected CSVs
+2. Upload expected CSVs or Excels
    - filename = dataset name
    - e.g. `LAB_RESULTS.csv`
    - Or paste CSV manually
-   - *Note: App auto-maps a single CSV to the final step!*
+   - *Note: App auto-maps a single file to the final step!*
 3. Run → see ✅ MATCH / ❌ MISMATCH
 
 ---
@@ -419,17 +453,18 @@ sas_script = st.text_area(
     key="sas_input"
 )
 
-# --- CSV UPLOAD — only shown in validate mode ---
+# --- CSV / EXCEL UPLOAD — only shown in validate mode ---
 uploaded_csvs = st.session_state.uploaded_csvs
 
 if mode == "Convert + Execute + Validate":
     st.divider()
     st.subheader("📊 Expected SAS Outputs")
-    st.caption("Upload your final dataset. The app auto-maps a single uploaded CSV to the final step.")
+    st.caption("Upload your final dataset. The app auto-maps a single uploaded file to the final step.")
 
+    # FEATURE: Excel upload types allowed
     uploaded = st.file_uploader(
-        "Upload CSVs",
-        type=["csv"],
+        "Upload CSV or Excel Files",
+        type=["csv", "xlsx", "xls"],
         accept_multiple_files=True,
         key="uploader_" + str(st.session_state.get("upload_key", 0))
     )
@@ -440,7 +475,8 @@ if mode == "Convert + Execute + Validate":
         for i, f in enumerate(uploaded):
             name = os.path.splitext(f.name)[0].upper().strip()
             try:
-                df = safe_read_csv(f)
+                # Calls the new safe_read_file that handles both formats
+                df = safe_read_file(f, f.name)
                 uploaded_csvs[name] = df
                 st.session_state.uploaded_csvs[name] = df
                 with cols[i % 3]:
@@ -485,8 +521,13 @@ if run_btn:
 
         all_r = []
         known_tables = []
+        
+        # FEATURE: Progress Bar for Convert Only Mode
+        progress_bar = st.progress(0)
 
         for i, step in enumerate(steps, 1):
+            step_start_time = time.time()  # FEATURE: Step Timing
+            
             out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
             sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
 
@@ -508,9 +549,16 @@ if run_btn:
                             all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             if sname not in known_tables:
                                 known_tables.append(sname)
-                            st.success(f"✅ {sname} converted")
+                                
+                            # Calculate time taken and display
+                            elapsed = time.time() - step_start_time
+                            st.success(f"✅ {sname} converted in {elapsed:.2f}s")
                         except Exception as e:
                             st.error(f"❌ {e}")
+            
+            progress_bar.progress(i / len(steps))
+
+        progress_bar.empty()
 
         if all_r:
             st.divider()
@@ -549,6 +597,9 @@ if run_btn:
             header = f"{badge} — {res['name']}"
 
             with st.expander(header, expanded=True):
+                # FEATURE: Display Timing in the Expander
+                st.caption(f"⏱️ Step processed in {res['time_taken']:.2f} seconds")
+                
                 if res["error"]:
                     st.error(f"Pipeline broke here: {res['error']}")
 
