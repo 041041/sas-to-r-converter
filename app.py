@@ -1,4 +1,6 @@
-import os, re, subprocess, tempfile, io, time
+Updated code on Monday 13 April
+
+import os, re, subprocess, tempfile, io
 import pandas as pd
 import streamlit as st
 from google import genai
@@ -26,17 +28,6 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-weight: 600; }
     .step-card { border: 1px solid #e6e9ef; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
-    .timing-badge {
-        display: inline-block;
-        background: #f0f2f6;
-        border: 1px solid #d0d4de;
-        border-radius: 12px;
-        padding: 2px 10px;
-        font-size: 0.78em;
-        color: #555;
-        margin-left: 8px;
-        font-family: monospace;
-    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -69,22 +60,6 @@ def safe_read_csv(file_obj):
         except Exception as e:
             raise RuntimeError(f"Could not parse CSV file. Error: {str(e)}")
 
-def safe_read_excel(file_obj, sheet_name=0):
-    """Reads an Excel file (.xlsx or .xls), returns a DataFrame."""
-    try:
-        file_obj.seek(0)
-        return pd.read_excel(file_obj, sheet_name=sheet_name)
-    except Exception as e:
-        raise RuntimeError(f"Could not parse Excel file. Error: {str(e)}")
-
-def format_elapsed(seconds):
-    """Returns a human-readable elapsed time string."""
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    mins = int(seconds // 60)
-    secs = seconds % 60
-    return f"{mins}m {secs:.1f}s"
-
 def clean_r_code(text):
     """Strips LLM conversational filler, fixes dangling pipes & empty functions, and returns 'df'."""
     backticks = "\x60\x60\x60"
@@ -105,18 +80,21 @@ def clean_r_code(text):
         if "(" in clean_line and "<-" in clean_line:
             clean_line = clean_line.replace("<-", "=")
 
+        # --- THE INFINITE LOOP KILLER ---
         if not out or clean_line != out[-1]:
             out.append(clean_line)
 
     cleaned = "\n".join(out)
 
+    # --- SAFETY NETS ---
     cleaned = re.sub(r"%>%\s*$", "", cleaned.strip())
     cleaned = re.sub(r"%>%\s*select\(\)\s*$", "", cleaned.strip())
     cleaned = re.sub(r"%>%\s*mutate\(\)\s*$", "", cleaned.strip())
-    cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned)
-    cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)
-    cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)
+    cleaned = re.sub(r"df\s*=\s*df\[order\([^)]+\),\s*\]\s*\n(?=.*!duplicated)", "", cleaned)  # Base R FIRST. fix
+    cleaned = re.sub(r"\s*arrange\([^)]+\)\s*%>%\s*(?=.*group_by)", "", cleaned)               # Modern R FIRST. fix
+    cleaned = re.sub(r"%>%(?!\s)", " %>%\n  ", cleaned)                                         # Fix squished pipes
 
+    # PROC TRANSPOSE fix — rebuild cleanly if pivot_longer is present
     if "pivot_longer" in cleaned:
         source_match = re.search(r"df\s*<-\s*(\w+)\s*%>%", cleaned)
         source_table = source_match.group(1) if source_match else "QUARTERLY"
@@ -134,6 +112,7 @@ def clean_r_code(text):
             f'df'
         )
 
+    # PROC FREQ fix — only trigger if this is actually a frequency/count step
     is_freq_step = (
         "count(" in cleaned and
         "merge(" not in cleaned and
@@ -320,12 +299,11 @@ def parse_datalines(step):
 
 # --- PIPELINE LOGIC ---
 
-def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, status_text=None):
-    """Processes SAS steps as a continuous chain. Supports progress bar + per-step timing."""
+def run_chain_pipeline(sas_code, uploaded_outputs, dialect):
+    """Processes SAS steps as a continuous chain."""
     steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_code, re.DOTALL | re.I)
     work_library = {}
     pipeline_results = []
-    total_steps = len(steps)
 
     all_out_names = re.findall(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", sas_code, re.I | re.M)
     final_ds_name = all_out_names[-1].split('.')[-1].upper().strip() if all_out_names else None
@@ -362,41 +340,19 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
             "r_output": None,
             "error": None,
             "comparison": None,
-            "is_final": (target_name == final_ds_name),
-            "elapsed_llm": None,     # ← NEW: time for LLM call
-            "elapsed_exec": None,    # ← NEW: time for R execution
-            "elapsed_total": None,   # ← NEW: total time for the step
+            "is_final": (target_name == final_ds_name)
         }
-
-        # Update progress bar
-        if progress_bar is not None:
-            progress_bar.progress(i / total_steps, text=f"Processing step {i+1}/{total_steps}: {target_name}")
-        if status_text is not None:
-            status_text.markdown(f"⏳ **Step {i+1}/{total_steps}** — `{target_name}`")
-
-        step_start = time.time()
 
         try:
             if 'datalines' in step.lower() or 'cards' in step.lower():
                 out_df = parse_datalines(step)
                 if out_df is None: raise ValueError("Failed to parse datalines.")
-                res_entry["elapsed_total"] = time.time() - step_start
             else:
                 if active_df is None:
                     raise ValueError(f"Input dataset '{source_name or 'WORK'}' not found.")
-
-                # Time the LLM call
-                llm_start = time.time()
                 r_code = call_llm_api(step, active_df.columns.tolist(), list(work_library.keys()), dialect)
-                res_entry["elapsed_llm"] = time.time() - llm_start
                 res_entry["r_code"] = r_code
-
-                # Time the R execution
-                exec_start = time.time()
                 out_df = run_r_subprocess(r_code, active_df, work_library)
-                res_entry["elapsed_exec"] = time.time() - exec_start
-
-                res_entry["elapsed_total"] = time.time() - step_start
 
             work_library[target_name] = out_df
             res_entry["r_output"] = out_df
@@ -408,19 +364,12 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
                 res_entry["comparison"] = compare_dfs(uploaded_outputs[only_csv_key], out_df)
                 res_entry["comparison"]["details"] = f"(Auto-mapped to '{only_csv_key}') " + res_entry["comparison"]["details"]
             elif target_name == final_ds_name:
-                res_entry["comparison"] = {"match": None, "details": "Final output reached. Upload expected CSV/Excel to validate.", "mismatches": []}
+                res_entry["comparison"] = {"match": None, "details": "Final output reached. Upload expected CSV to validate.", "mismatches": []}
 
         except Exception as e:
             res_entry["error"] = str(e)
-            res_entry["elapsed_total"] = time.time() - step_start
 
         pipeline_results.append(res_entry)
-
-    # Complete the progress bar
-    if progress_bar is not None:
-        progress_bar.progress(1.0, text=f"✅ All {total_steps} steps processed!")
-    if status_text is not None:
-        status_text.empty()
 
     return pipeline_results
 
@@ -446,11 +395,11 @@ with st.sidebar:
 ---
 **Convert + Validate:**
 1. Paste SAS code
-2. Upload expected CSVs **or Excel files**
+2. Upload expected CSVs
    - filename = dataset name
-   - e.g. `LAB_RESULTS.csv` or `LAB_RESULTS.xlsx`
+   - e.g. `LAB_RESULTS.csv`
    - Or paste CSV manually
-   - *Note: App auto-maps a single file to the final step!*
+   - *Note: App auto-maps a single CSV to the final step!*
 3. Run → see ✅ MATCH / ❌ MISMATCH
 
 ---
@@ -472,61 +421,33 @@ sas_script = st.text_area(
     key="sas_input"
 )
 
-# --- FILE UPLOAD — only shown in validate mode ---
+# --- CSV UPLOAD — only shown in validate mode ---
 uploaded_csvs = st.session_state.uploaded_csvs
 
 if mode == "Convert + Execute + Validate":
     st.divider()
     st.subheader("📊 Expected SAS Outputs")
-    st.caption("Upload CSV or Excel files. The app auto-maps a single uploaded file to the final step.")
+    st.caption("Upload your final dataset. The app auto-maps a single uploaded CSV to the final step.")
 
-    # ── NEW: Accept both CSV and Excel ──
     uploaded = st.file_uploader(
-        "Upload CSV or Excel files",
-        type=["csv", "xlsx", "xls"],          # ← ADDED xlsx/xls
+        "Upload CSVs",
+        type=["csv"],
         accept_multiple_files=True,
         key="uploader_" + str(st.session_state.get("upload_key", 0))
     )
-
     if uploaded:
         st.session_state.uploaded_csvs = {}
         uploaded_csvs = st.session_state.uploaded_csvs
         cols = st.columns(min(len(uploaded), 3))
-
         for i, f in enumerate(uploaded):
             name = os.path.splitext(f.name)[0].upper().strip()
-            ext = os.path.splitext(f.name)[1].lower()
-
             try:
-                # ── Route by extension ──
-                if ext in (".xlsx", ".xls"):
-                    # Let user pick sheet if multiple sheets exist
-                    xls = pd.ExcelFile(f)
-                    sheet_names = xls.sheet_names
-
-                    if len(sheet_names) > 1:
-                        f.seek(0)
-                        chosen_sheet = st.selectbox(
-                            f"📋 Sheet for **{f.name}**",
-                            options=sheet_names,
-                            key=f"sheet_{name}_{i}"
-                        )
-                        f.seek(0)
-                        df = safe_read_excel(f, sheet_name=chosen_sheet)
-                    else:
-                        f.seek(0)
-                        df = safe_read_excel(f, sheet_name=0)
-                else:
-                    df = safe_read_csv(f)
-
+                df = safe_read_csv(f)
                 uploaded_csvs[name] = df
                 st.session_state.uploaded_csvs[name] = df
-
                 with cols[i % 3]:
-                    icon = "📗" if ext in (".xlsx", ".xls") else "📄"
-                    st.markdown(f"**{icon} {name}** ({df.shape[0]}r × {df.shape[1]}c)")
+                    st.markdown(f"**{name}** ({df.shape[0]}r × {df.shape[1]}c)")
                     st.dataframe(df, use_container_width=True, height=140)
-
             except Exception as e:
                 st.error(f"Failed to load {name}: {str(e)}")
 
@@ -566,12 +487,6 @@ if run_btn:
 
         all_r = []
         known_tables = []
-        total_steps = len(steps)
-
-        # ── PROGRESS BAR for Convert Only ──
-        prog = st.progress(0, text=f"Starting conversion of {total_steps} step(s)...")
-        status = st.empty()
-        overall_start = time.time()
 
         for i, step in enumerate(steps, 1):
             out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
@@ -584,30 +499,20 @@ if run_btn:
             else:
                 sname = f"Step{i}"
 
-            prog.progress((i - 1) / total_steps, text=f"Converting step {i}/{total_steps}: {sname}...")
-            status.markdown(f"⏳ **Step {i}/{total_steps}** — `{sname}`")
-
             with st.expander(f"Step {i}: {sname}", expanded=True):
                 t1, t2 = st.tabs(["SAS", "Generated R"])
                 with t1: st.code(step.strip(), language="sas")
                 with t2:
                     with st.spinner(f"Converting {sname}..."):
                         try:
-                            step_start = time.time()
                             rc = call_llm_api(step, [], known_tables, r_dialect)
-                            elapsed = time.time() - step_start
                             st.code(rc, language="r")
                             all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             if sname not in known_tables:
                                 known_tables.append(sname)
-                            st.success(f"✅ {sname} converted — ⏱️ {format_elapsed(elapsed)}")
+                            st.success(f"✅ {sname} converted")
                         except Exception as e:
                             st.error(f"❌ {e}")
-
-        prog.progress(1.0, text=f"✅ All {total_steps} steps converted!")
-        status.empty()
-        total_elapsed = time.time() - overall_start
-        st.info(f"🏁 Total conversion time: **{format_elapsed(total_elapsed)}**")
 
         if all_r:
             st.divider()
@@ -620,27 +525,15 @@ if run_btn:
 
     else:
         st.subheader("Conversion + Execution + Validation")
-
-        # ── PROGRESS BAR + STATUS for pipeline mode ──
-        prog = st.progress(0, text="Initialising pipeline...")
-        status = st.empty()
-        overall_start = time.time()
-
         results = []
-        try:
-            results = run_chain_pipeline(
-                sas_script, uploaded_csvs, r_dialect,
-                progress_bar=prog,
-                status_text=status
-            )
-        except Exception as e:
-            st.error(f"Pipeline crashed: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
-            st.stop()
-
-        total_elapsed = time.time() - overall_start
-        st.info(f"🏁 Total pipeline time: **{format_elapsed(total_elapsed)}**")
+        with st.spinner("Processing chain: LLM Conversion ➡️ R Execution ➡️ Data Flow..."):
+            try:
+                results = run_chain_pipeline(sas_script, uploaded_csvs, r_dialect)
+            except Exception as e:
+                st.error(f"Pipeline crashed: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+                st.stop()
 
         if not results: st.error("No steps processed."); st.stop()
 
@@ -655,28 +548,11 @@ if run_btn:
             elif match is True: badge = "✅ MATCH"
             elif match is False: badge = "❌ MISMATCH"
 
-            # ── Timing summary for the header ──
-            timing_str = ""
-            if res["elapsed_total"] is not None:
-                timing_str = f"  ⏱️ {format_elapsed(res['elapsed_total'])}"
-
-            header = f"{badge} — {res['name']}{timing_str}"
+            header = f"{badge} — {res['name']}"
 
             with st.expander(header, expanded=True):
                 if res["error"]:
                     st.error(f"Pipeline broke here: {res['error']}")
-
-                # ── Show detailed timing breakdown ──
-                if res["elapsed_total"] is not None:
-                    t_cols = st.columns(3)
-                    with t_cols[0]:
-                        llm_t = format_elapsed(res["elapsed_llm"]) if res["elapsed_llm"] else "—"
-                        st.metric("🤖 LLM Time", llm_t)
-                    with t_cols[1]:
-                        exec_t = format_elapsed(res["elapsed_exec"]) if res["elapsed_exec"] else "—"
-                        st.metric("⚙️ R Exec Time", exec_t)
-                    with t_cols[2]:
-                        st.metric("🕐 Total Step Time", format_elapsed(res["elapsed_total"]))
 
                 t1, t2, t3, t4 = st.tabs(["SAS Code", "Generated R", "R Output", "Validation"])
 
@@ -739,27 +615,10 @@ if run_btn:
         valid_steps = [r for r in results if r["comparison"] and r["comparison"]["match"] is not None]
         matches = [r for r in valid_steps if r["comparison"]["match"]]
 
-        # ── Timing summary table ──
-        timing_rows = []
-        for r in results:
-            timing_rows.append({
-                "Step": r["name"],
-                "LLM Time": format_elapsed(r["elapsed_llm"]) if r["elapsed_llm"] else "—",
-                "R Exec Time": format_elapsed(r["elapsed_exec"]) if r["elapsed_exec"] else "—",
-                "Total Time": format_elapsed(r["elapsed_total"]) if r["elapsed_total"] else "—",
-                "Status": "✅" if (r["comparison"] and r["comparison"]["match"] is True) else
-                          "❌" if (r["comparison"] and r["comparison"]["match"] is False) else
-                          "⚠️" if r["error"] else "⚪"
-            })
-
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Steps", len(results))
-        c2.metric("Validated", len(valid_steps))
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Steps Processed", len(results))
+        c2.metric("Validated Steps", len(valid_steps))
         c3.metric("Matched ✅", len(matches))
-        c4.metric("Total Time", format_elapsed(total_elapsed))
-
-        st.markdown("**⏱️ Step-by-Step Timing**")
-        st.dataframe(pd.DataFrame(timing_rows), use_container_width=True, hide_index=True)
 
         if all_r:
             st.divider()
