@@ -676,7 +676,7 @@ if run_btn:
                         exec_t = format_elapsed(res["elapsed_exec"]) if res["elapsed_exec"] else "—"
                         # st.metric("⚙️ R Exec Time", exec_t)
                     with t_cols[2]:
-                       #  st.metric("🕐 Total Step Time", format_elapsed(res["elapsed_total"]))
+                        #  st.metric("🕐 Total Step Time", format_elapsed(res["elapsed_total"]))
 
                 t1, t2, t3, t4 = st.tabs(["SAS Code", "Generated R", "R Output", "Validation"])
 
