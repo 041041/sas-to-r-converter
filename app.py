@@ -394,7 +394,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
                 # Time the R execution
                 exec_start = time.time()
                 out_df, r_log = run_r_subprocess(r_code, active_df, work_library)
-r               es_entry["r_log"] = r_log
+                res_entry["r_log"] = r_log
                 res_entry["elapsed_exec"] = time.time() - exec_start
 
                 res_entry["elapsed_total"] = time.time() - step_start
