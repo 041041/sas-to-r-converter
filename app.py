@@ -242,7 +242,7 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         input_df.to_csv(inp_path, index=False)
 
         full_script = [
-            'suppressWarnings(suppressMessages(library(tidyverse)))',
+            'library(tidyverse)',
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)'
         ]
 
