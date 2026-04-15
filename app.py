@@ -242,8 +242,10 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         input_df.to_csv(inp_path, index=False)
 
         full_script = [
-            'options(warn=1)',  # force warnings to print immediately to stderr
+            'options(warn=1)',
+            'message("=== R Log Start ===")',
             'library(tidyverse)',
+            'message("=== Libraries loaded ===")',
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)'
         ]
 
@@ -259,8 +261,7 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         with open(script_path, "w") as f:
             f.write("\n".join(full_script))
 
-        res = subprocess.run(["Rscript", script_path], capture_output=True, text=True, timeout=30)
-        if res.returncode != 0:
+        res = subprocess.run(["Rscript", script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)        if res.returncode != 0:
             raise RuntimeError(f"R Error: {res.stderr}\nCode Attempted:\n{r_code}")
 
         combined_log = (res.stdout + "\n" + res.stderr).strip()
@@ -738,6 +739,10 @@ if run_btn:
                             st.warning(cmp["details"])
                     else:
                         st.info("Intermediate step: Passed to next step automatically.")
+
+                with t5:
+                    log = res.get("r_log") or "✅ No warnings or messages."
+                    st.code(log, language="bash")
 
         st.divider()
         st.subheader("📊 Summary")
