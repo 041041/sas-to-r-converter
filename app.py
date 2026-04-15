@@ -264,7 +264,7 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
             raise RuntimeError(f"R Error: {res.stderr}\nCode Attempted:\n{r_code}")
 
         return pd.read_csv(out_path), res.stderr
-st.write(res.get("r_log")) # raw debug  testing
+# st.write(res.get("r_log")) # raw debug  testing
 
 def compare_dfs(sas_df, r_df, tol=1e-3):
     """Smart comparison: handles case-sensitivity and whitespace."""
@@ -367,7 +367,8 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
             "is_final": (target_name == final_ds_name),
             "elapsed_llm": None,     # ← NEW: time for LLM call
             "elapsed_exec": None,    # ← NEW: time for R execution
-            "elapsed_total": None,   # ← NEW: total time for the step
+            "elapsed_total": None,   # ← NEW: total time for the step   
+            "r_log": None,           # ← NEW: log 
         }
 
         # Update progress bar
