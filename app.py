@@ -262,7 +262,7 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         if res.returncode != 0:
             raise RuntimeError(f"R Error: {res.stderr}\nCode Attempted:\n{r_code}")
 
-        return pd.read_csv(out_path)
+        return pd.read_csv(out_path), res.stderr
 
 def compare_dfs(sas_df, r_df, tol=1e-3):
     """Smart comparison: handles case-sensitivity and whitespace."""
@@ -393,7 +393,8 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
 
                 # Time the R execution
                 exec_start = time.time()
-                out_df = run_r_subprocess(r_code, active_df, work_library)
+                out_df, r_log = run_r_subprocess(r_code, active_df, work_library)
+r               es_entry["r_log"] = r_log
                 res_entry["elapsed_exec"] = time.time() - exec_start
 
                 res_entry["elapsed_total"] = time.time() - step_start
@@ -678,8 +679,8 @@ if run_btn:
                     with t_cols[2]:
                         st.metric("🕐 Total Step Time", format_elapsed(res["elapsed_total"]))
 
-                t1, t2, t3, t4 = st.tabs(["SAS Code", "Generated R", "R Output", "Validation"])
-
+                t1, t2, t3, t4, t5 = st.tabs(["SAS Code", "Generated R", "R Output", "Validation", "R Log"])
+                
                 with t1:
                     st.code(res["step"], language="sas")
 
