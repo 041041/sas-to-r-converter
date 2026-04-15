@@ -264,7 +264,7 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
             raise RuntimeError(f"R Error: {res.stderr}\nCode Attempted:\n{r_code}")
 
         return pd.read_csv(out_path), res.stderr
-st.write(res.stderr)  # raw debug  testing
+st.write(res.get("r_log")) # raw debug  testing
 
 def compare_dfs(sas_df, r_df, tol=1e-3):
     """Smart comparison: handles case-sensitivity and whitespace."""
