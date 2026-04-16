@@ -243,9 +243,7 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
 
         full_script = [
             'options(warn=1)',
-            'message("=== R Log Start ===")',
-            'library(tidyverse)',
-            'message("=== Libraries loaded ===")',
+            'suppressPackageStartupMessages(library(tidyverse))',
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)'
         ]
 
