@@ -266,7 +266,7 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
         if res.returncode != 0:
             raise RuntimeError(f"R Error: {res.stderr}\nCode Attempted:\n{r_code}")
 
-         return pd.read_csv(out_path), combined_log
+        return pd.read_csv(out_path), combined_log
 # st.write(res.get("r_log")) # raw debug  testing
 
 def compare_dfs(sas_df, r_df, tol=1e-3):
