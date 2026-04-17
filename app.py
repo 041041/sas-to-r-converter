@@ -55,6 +55,38 @@ if not GEMINI_API_KEY or not GROQ_API_KEY:
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 groq_client   = Groq(api_key=GROQ_API_KEY)
 
+# --- SAS TO R FUNCTION MAPPING ---
+SAS_TO_R = {
+    "INTCK":    "use lubridate time_length(interval(date1, date2), 'month')",
+    "INTNX":    "use date + months(n) or date + days(n) from lubridate",
+    "PUT":      "use format() or sprintf()",
+    "INPUT":    "use as.Date() or as.numeric()",
+    "COMPRESS": "use gsub(' ', '', var) to remove spaces",
+    "CATX":     "use paste(..., sep='-')",
+    "SCAN":     "use strsplit(var, ' ')[[1]][n]",
+    "MISSING":  "use is.na()",
+    "STRIP":    "use trimws()",
+    "UPCASE":   "use toupper()",
+    "LOWCASE":  "use tolower()",
+    "INDEX":    "use regexpr() or grepl()",
+    "MOD":      "use %% operator",
+    "INT":      "use as.integer() or floor()",
+    "ROUND":    "use round()",
+    "SUBSTR":   "use substr() — same in R",
+    "TRIM":     "use trimws()",
+    "LEFT":     "use trimws(var, which='left')",
+    "LENGTH":   "use nchar()",
+    "TODAY":    "use Sys.Date()",
+    "DATE":     "use Sys.Date()",
+}
+
+def inject_function_hints(step):
+    hints = []
+    for sas_func, r_equiv in SAS_TO_R.items():
+        if sas_func in step.upper():
+            hints.append(f"  - {sas_func} → {r_equiv}")
+    return "\nFUNCTION HINTS (use these exact R equivalents):\n" + "\n".join(hints) if hints else ""
+
 # --- CLEANING & UTILS ---
 
 def safe_read_csv(file_obj):
@@ -133,7 +165,6 @@ def clean_r_code(text):
             f'               values_to = "{values_to}")\n'
             f'df'
         )
-
     is_freq_step = (
         "count(" in cleaned and
         "merge(" not in cleaned and
@@ -163,7 +194,7 @@ def clean_r_code(text):
 def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
     env_info = f"\nAvailable tables in R environment: {', '.join(env_names)}" if env_names else ""
-
+    func_hints = inject_function_hints(step)
     if not df_cols:
         input_context = "Convert this step. You have access to the tables listed below."
     else:
@@ -214,7 +245,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
 
     prompt = (
         f"TASK: Convert this SAS step to R code.\n"
-        f"INPUT CONTEXT: {input_context}{env_info}\n"
+        f"INPUT CONTEXT: {input_context}{env_info}{func_hints}\n"
         f"OUTPUT: Your code must result in a final dataframe named 'df'. The last line MUST be exactly 'df'.\n"
         f"STRICT RULES:\n{rule_set}"
         f"FINAL RULE: No explanations. Just executable R code. Write the code EXACTLY ONCE. DO NOT loop or repeat lines.\n\n"
