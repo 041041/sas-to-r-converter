@@ -89,6 +89,9 @@ def inject_function_hints(step):
     
 def expand_macros(sas_code):
     """Expands SAS macros by substituting parameters and inlining macro bodies."""
+    st.write("DEBUG raw input:", sas_code[:200])
+    matches = re.findall(r"%macro\s+(\w+)", sas_code, re.I)
+    st.write("DEBUG macros found:", matches)
     macro_lib = {}
 
     # Step 1 — collect all macro definitions
