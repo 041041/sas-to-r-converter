@@ -195,6 +195,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     """Calls Gemini with a Groq fallback. Injects available table names for SQL Joins."""
     env_info = f"\nAvailable tables in R environment: {', '.join(env_names)}" if env_names else ""
     func_hints = inject_function_hints(step)
+    st.write("DEBUG hints:", func_hints)  # remove after testing
     if not df_cols:
         input_context = "Convert this step. You have access to the tables listed below."
     else:
