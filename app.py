@@ -89,9 +89,6 @@ def inject_function_hints(step):
     
 def expand_macros(sas_code):
     """Expands SAS macros by substituting parameters and inlining macro bodies."""
-    st.write("DEBUG raw input:", sas_code[:200])
-    matches = re.findall(r"%macro\s+(\w+)", sas_code, re.I)
-    st.write("DEBUG macros found:", matches)
     macro_lib = {}
 
     # Step 1 — collect all macro definitions
@@ -103,8 +100,6 @@ def expand_macros(sas_code):
         params = [p.strip().lstrip('&').split('=')[0].strip() for p in m.group(2).split(',') if p.strip()]
         body = m.group(3).strip()
         macro_lib[name] = {"params": params, "body": body}
-        st.write("DEBUG body captured:", body[:100])
-        st.write("DEBUG macro:", name, "params:", params, "body:", body)
     # Step 2 — remove macro definitions from code
     expanded = re.sub(
         r"%macro\s+\w+\s*\([^)]*\)\s*;.*?%mend\s*\w*\s*;",
@@ -130,7 +125,6 @@ def expand_macros(sas_code):
                     body = re.sub(rf"&{param}\.?", val, body, flags=re.I)
                 expanded = expanded[:call_match.start()] + "\n" + body + "\n" + expanded[call_match.end():]
                 break
-                st.write("DEBUG args:", args)
                 body = macro["body"]
                 for param, arg in zip(macro["params"], args):
                     # handle both &param and &param. patterns
@@ -258,8 +252,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"2. IF SAS uses DATALINES: ONLY create the data.frame using `data.frame(...)`. STOP immediately.\n"
             f"3. IF SAS reads an existing table: start the pipeline exactly with `df <- TABLE_NAME %>%`.\n"
             f"4. FOR DATA STEPS: Create new variables inside a populated `mutate(...)`. NEVER write an empty mutate().\n"
-            f"5. FOR PROC SORT: Use `arrange()`. Use `desc()` for descending variables.\n"
-            f"6. FIRST. LOGIC: Use `group_by(var) %>% slice(1) %>% ungroup()`. IMPORTANT: Do NOT add an extra arrange() or sort inside this step; it must rely on the previous step's order.\n"
+            f"5. FOR PROC SORT: Use `arrange()`. ONLY use `desc()` if SAS code explicitly has `DESCENDING` keyword before the variable. If no DESCENDING keyword — always use ascending order.\n"            f"6. FIRST. LOGIC: Use `group_by(var) %>% slice(1) %>% ungroup()`. IMPORTANT: Do NOT add an extra arrange() or sort inside this step; it must rely on the previous step's order.\n"
             f"7. MACRO LOGIC: If input is a %macro, convert macro variables (&var) to column names in a mutate() call.\n"
             f"8. FOR PROC FREQ: Use `df %>% count(var1, var2) %>% rename(COUNT = n)` for cross-tabs. "
             f"NEVER use pivot_wider or spread. Output MUST stay in long format with one row per combination. "
@@ -271,8 +264,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
             f"2. For aggregate(), ALWAYS use the formula interface.\n"
             f"3. IF SAS uses DATALINES: ONLY create the data.frame. STOP immediately.\n"
             f"4. IF SAS reads an existing table: start your code exactly with `df <- TABLE_NAME`.\n"
-            f"5. FOR PROC SORT: Use `df = df[order(...), ]`. For descending numeric, use a minus sign (e.g., `-df$amount`).\n"
-            f"6. FIRST. LOGIC: Use ONLY `df[!duplicated(df$var), ]`. ABSOLUTELY NO order() or sort() call allowed in this step — not even for tie-breaking. The previous PROC SORT already established the correct order. Trust it. Adding any order() here WILL produce wrong results.\n"
+            f"5. FOR PROC SORT: Use `df = df[order(...), ]`. ONLY use minus sign for descending if SAS code explicitly has `DESCENDING` keyword before the variable. If no DESCENDING keyword — always use ascending order.\n"            f"6. FIRST. LOGIC: Use ONLY `df[!duplicated(df$var), ]`. ABSOLUTELY NO order() or sort() call allowed in this step — not even for tie-breaking. The previous PROC SORT already established the correct order. Trust it. Adding any order() here WILL produce wrong results.\n"
             f"7. MACRO LOGIC: Convert macro variables (&var) to standard R object references.\n"
             f"8. FOR PROC FREQ: Use EXACTLY this pattern: `df = as.data.frame(table(df$var1, df$var2))` then `names(df) = c('var1', 'var2', 'COUNT')` then `df = df[df$COUNT > 0, ]`. "
             f"NEVER add an order() or sort() before table(). "
