@@ -97,7 +97,7 @@ def expand_macros(sas_code):
         sas_code, re.DOTALL | re.I
     ):
         name = m.group(1).strip().upper()
-        params = [p.strip().lstrip('&') for p in m.group(2).split(',') if p.strip()]
+        params = [p.strip().lstrip('&').split('=')[0].strip() for p in m.group(2).split(',') if p.strip()]
         body = m.group(3).strip()
         macro_lib[name] = {"params": params, "body": body}
 
@@ -115,7 +115,8 @@ def expand_macros(sas_code):
                 args = [a.strip() for a in call_match.group(1).split(',')]
                 body = macro["body"]
                 for param, arg in zip(macro["params"], args):
-                    body = re.sub(rf"&{param}\b", arg, body, flags=re.I)
+                    # handle both &param and &param. patterns
+                    body = re.sub(rf"&{param}\.?", arg, body, flags=re.I)
                 expanded = expanded[:call_match.start()] + body + expanded[call_match.end():]
                 break  # restart after each substitution
 
