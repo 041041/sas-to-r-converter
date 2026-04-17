@@ -107,9 +107,9 @@ def expand_macros(sas_code):
         st.write("DEBUG macro:", name, "params:", params, "body:", body)
     # Step 2 — remove macro definitions from code
     expanded = re.sub(
-        r"%macro\s+\w+\s*\([^)]*\)\s*;.*?%mend\s*\w+\s*;",
+        r"%macro\s+\w+\s*\([^)]*\)\s*;.*?%mend\s*\w*\s*;",
         "", sas_code, flags=re.DOTALL | re.I
-    )
+    ).strip()
 
     # Step 3 — expand macro calls (up to 5 passes for nested)
     for _ in range(5):
@@ -128,14 +128,14 @@ def expand_macros(sas_code):
                 for param in macro["params"]:
                     val = arg_dict.get(param, "")
                     body = re.sub(rf"&{param}\.?", val, body, flags=re.I)
-                expanded = expanded[:call_match.start()] + body + expanded[call_match.end():]
+                expanded = expanded[:call_match.start()] + "\n" + body + "\n" + expanded[call_match.end():]
                 break
                 st.write("DEBUG args:", args)
                 body = macro["body"]
                 for param, arg in zip(macro["params"], args):
                     # handle both &param and &param. patterns
                     body = re.sub(rf"&{param}\.?", arg, body, flags=re.I)
-                expanded = expanded[:call_match.start()] + body + expanded[call_match.end():]
+                expanded = expanded[:call_match.start()] + "\n" + body + "\n" + expanded[call_match.end():]
                 break  # restart after each substitution
 
     return expanded.strip()
