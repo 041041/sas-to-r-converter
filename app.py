@@ -96,13 +96,14 @@ def expand_macros(sas_code):
 
     # Step 1 — collect all macro definitions
     for m in re.finditer(
-        r"%macro\s+(\w+)\s*\(([^)]*)\)\s*;(.*?)%mend\s*\1\s*;",
+        r"%macro\s+(\w+)\s*\(([^)]*)\)\s*;(.*?)%mend\s*\w*\s*;",
         sas_code, re.DOTALL | re.I
     ):
         name = m.group(1).strip().upper()
         params = [p.strip().lstrip('&').split('=')[0].strip() for p in m.group(2).split(',') if p.strip()]
         body = m.group(3).strip()
         macro_lib[name] = {"params": params, "body": body}
+        st.write("DEBUG body captured:", body[:100])
         st.write("DEBUG macro:", name, "params:", params, "body:", body)
     # Step 2 — remove macro definitions from code
     expanded = re.sub(
