@@ -86,7 +86,40 @@ def inject_function_hints(step):
         if sas_func in step.upper():
             hints.append(f"  - {sas_func} → {r_equiv}")
     return "\nFUNCTION HINTS (use these exact R equivalents):\n" + "\n".join(hints) if hints else ""
+    
+def expand_macros(sas_code):
+    """Expands SAS macros by substituting parameters and inlining macro bodies."""
+    macro_lib = {}
 
+    # Step 1 — collect all macro definitions
+    for m in re.finditer(
+        r"%macro\s+(\w+)\s*\(([^)]*)\)\s*;(.*?)%mend\s*\1\s*;",
+        sas_code, re.DOTALL | re.I
+    ):
+        name = m.group(1).strip().upper()
+        params = [p.strip().lstrip('&') for p in m.group(2).split(',') if p.strip()]
+        body = m.group(3).strip()
+        macro_lib[name] = {"params": params, "body": body}
+
+    # Step 2 — remove macro definitions from code
+    expanded = re.sub(
+        r"%macro\s+\w+\s*\([^)]*\)\s*;.*?%mend\s*\w+\s*;",
+        "", sas_code, flags=re.DOTALL | re.I
+    )
+
+    # Step 3 — expand macro calls (up to 5 passes for nested)
+    for _ in range(5):
+        for name, macro in macro_lib.items():
+            pattern = rf"%{name}\s*\(([^)]*)\)\s*;"
+            for call_match in re.finditer(pattern, expanded, re.I):
+                args = [a.strip() for a in call_match.group(1).split(',')]
+                body = macro["body"]
+                for param, arg in zip(macro["params"], args):
+                    body = re.sub(rf"&{param}\b", arg, body, flags=re.I)
+                expanded = expanded[:call_match.start()] + body + expanded[call_match.end():]
+                break  # restart after each substitution
+
+    return expanded.strip()
 # --- CLEANING & UTILS ---
 
 def safe_read_csv(file_obj):
@@ -594,7 +627,13 @@ if run_btn:
     if not sas_script.strip():
         st.warning("Paste some SAS code first."); st.stop()
     st.divider()
-
+    
+# --- MACRO EXPANSION ---
+    original_sas = sas_script
+    sas_script = expand_macros(sas_script)
+    if sas_script != original_sas:
+        st.info("🔧 Macros detected and expanded before conversion.")
+        
     if mode == "Convert Only":
         st.subheader("Generated R Code")
         steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL | re.IGNORECASE)
