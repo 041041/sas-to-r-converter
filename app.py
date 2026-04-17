@@ -100,7 +100,7 @@ def expand_macros(sas_code):
         params = [p.strip().lstrip('&').split('=')[0].strip() for p in m.group(2).split(',') if p.strip()]
         body = m.group(3).strip()
         macro_lib[name] = {"params": params, "body": body}
-
+        st.write("DEBUG macro:", name, "params:", params, "body:", body)
     # Step 2 — remove macro definitions from code
     expanded = re.sub(
         r"%macro\s+\w+\s*\([^)]*\)\s*;.*?%mend\s*\w+\s*;",
@@ -113,6 +113,7 @@ def expand_macros(sas_code):
             pattern = rf"%{name}\s*\(([^)]*)\)\s*;"
             for call_match in re.finditer(pattern, expanded, re.I):
                 args = [a.strip() for a in call_match.group(1).split(',')]
+                st.write("DEBUG args:", args)
                 body = macro["body"]
                 for param, arg in zip(macro["params"], args):
                     # handle both &param and &param. patterns
