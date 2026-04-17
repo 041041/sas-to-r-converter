@@ -116,7 +116,20 @@ def expand_macros(sas_code):
         for name, macro in macro_lib.items():
             pattern = rf"%{name}\s*\(([^)]*)\)\s*;"
             for call_match in re.finditer(pattern, expanded, re.I):
-                args = [a.strip() for a in call_match.group(1).split(',')]
+                args_raw = [a.strip() for a in call_match.group(1).split(',')]
+                # handle named args like dataset=sales → extract value only
+                arg_dict = {}
+                for a in args_raw:
+                    if '=' in a:
+                        k, v = a.split('=', 1)
+                        arg_dict[k.strip().lstrip('&')] = v.strip()
+                # substitute by name not position
+                body = macro["body"]
+                for param in macro["params"]:
+                    val = arg_dict.get(param, "")
+                    body = re.sub(rf"&{param}\.?", val, body, flags=re.I)
+                expanded = expanded[:call_match.start()] + body + expanded[call_match.end():]
+                break
                 st.write("DEBUG args:", args)
                 body = macro["body"]
                 for param, arg in zip(macro["params"], args):
