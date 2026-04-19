@@ -380,10 +380,10 @@ def compare_dfs(sas_df, r_df, tol=1e-3):
 
             try:
                 if abs(float(val_s) - float(val_r)) > tol:
-                    mismatches.append({"col": col, "row": i, "sas": val_s, "r": val_r})
+                    mismatches.append({"col": col, "row": i, "sas": str(val_s), "r": str(val_r)})
             except (ValueError, TypeError):
                 if str(val_s).strip().upper() != str(val_r).strip().upper():
-                    mismatches.append({"col": col, "row": i, "sas": val_s, "r": val_r})
+                    mismatches.append({"col": col, "row": i, "sas": str(val_s), "r": str(val_r)})
 
     return {
         "match": len(mismatches) == 0,
