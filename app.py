@@ -506,7 +506,15 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
                 except RuntimeError as r_err:
                     # Auto-fix: feed error back to LLM and retry once
                     fix_prompt = f"This R code failed:\n{r_code}\nError:\n{str(r_err)}\nFix it. Return only corrected R code ending with df."
-                    fixed_raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+                    try:
+                        res_fix = groq_client.chat.completions.create(
+                            model='llama-3.3-70b-versatile',
+                            messages=[{'role': 'user', 'content': fix_prompt}],
+                            temperature=0
+                        )
+                        fixed_raw = res_fix.choices[0].message.content
+                    except Exception:
+                        fixed_raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
                     r_code = clean_r_code(fixed_raw)
                     res_entry["r_code"] = r_code
                     res_entry["auto_fixed"] = True
