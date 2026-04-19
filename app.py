@@ -11,7 +11,8 @@ st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layo
 for key, default in {
     "sas_input": "",
     "upload_key": 0,
-    "uploaded_csvs": {}
+    "uploaded_csvs": {},
+    "retry_step": None
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -398,7 +399,7 @@ def parse_datalines(step):
 
 # --- PIPELINE LOGIC ---
 
-def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, status_text=None):
+def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, status_text=None, retry_step=None):
     """Processes SAS steps as a continuous chain. Supports progress bar + per-step timing."""
     steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_code, re.DOTALL | re.I)
     work_library = {}
@@ -452,7 +453,10 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
             progress_bar.progress(i / total_steps, text=f"Processing step {i+1}/{total_steps}: {target_name}")
         if status_text is not None:
             status_text.markdown(f"⏳ **Step {i+1}/{total_steps}** — `{target_name}`")
-
+            
+        # Skip steps if retrying specific step only
+        if retry_step and target_name != retry_step:
+            continue
         step_start = time.time()
 
         try:
@@ -729,8 +733,10 @@ if run_btn:
             results = run_chain_pipeline(
                 sas_script, uploaded_csvs, r_dialect,
                 progress_bar=prog,
-                status_text=status
+                status_text=status,
+                retry_step=st.session_state.get("retry_step")
             )
+            st.session_state.retry_step = None
         except Exception as e:
             st.error(f"Pipeline crashed: {str(e)}")
             import traceback
@@ -827,6 +833,9 @@ if run_btn:
                             st.error(cmp["details"])
                             if cmp["mismatches"]:
                                 st.table(pd.DataFrame(cmp["mismatches"]).head(10))
+                            if st.button(f"🔄 Retry {res['name']}", key=f"retry_{res['name']}"):
+                                st.session_state.retry_step = res['name']
+                                st.rerun()
                         else:
                             st.warning(cmp["details"])
                     else:
