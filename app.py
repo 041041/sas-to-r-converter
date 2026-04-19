@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st 
 from google import genai
 from groq import Groq
-
+ 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
@@ -833,9 +833,14 @@ if run_btn:
                             st.error(cmp["details"])
                             if cmp["mismatches"]:
                                 st.table(pd.DataFrame(cmp["mismatches"]).head(10))
-                            if st.button(f"🔄 Retry {res['name']}", key=f"retry_{res['name']}"):
-                                st.session_state.retry_step = res['name']
-                                st.rerun()
+                            retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
+                            if retry_count == 0:
+                                if st.button(f"🔄 Retry {res['name']}", key=f"retry_{res['name']}"):
+                                    st.session_state.setdefault("retry_counts", {})[res['name']] = 1
+                                    st.session_state.retry_step = res['name']
+                                    st.rerun()
+                            else:
+                                st.info("⚠️ This step has already been retried once.")
                         else:
                             st.warning(cmp["details"])
                     else:
