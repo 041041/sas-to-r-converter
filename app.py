@@ -391,8 +391,9 @@ def compare_dfs(sas_df, r_df, tol=1e-3):
         "mismatches": mismatches
     }
 def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
-    """Feeds mismatch details back to LLM to fix R code."""
     try:
+        st.write("DEBUG types:", [type(m) for m in mismatches])
+        st.write("DEBUG values:", [(m.get('sas'), type(m.get('sas'))) for m in mismatches])
         mismatch_info = f"Shape: SAS={sas_df.shape} R={r_df.shape}\n" if sas_df.shape != r_df.shape else ""
         if mismatches:
             mismatch_info += "Value mismatches:\n"
