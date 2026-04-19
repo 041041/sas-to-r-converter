@@ -860,7 +860,7 @@ if run_btn or st.session_state.get("pipeline_run"):
                     with t_cols[2]:
                         st.metric("🕐 Total Step Time", format_elapsed(res["elapsed_total"]))
 
-                t1, t2, t3, t4, t5 = st.tabs(["SAS Code", "Generated R", "R Output", "Validation", "R Log"])
+                t1, t2, t3, t4, t5, t6 = st.tabs(["SAS Code", "Generated R", "R Output", "SAS vs R", "Validation", "R Log"])
                 
                 with t1:
                     st.code(res["step"], language="sas")
@@ -895,7 +895,22 @@ if run_btn or st.session_state.get("pipeline_run"):
 
                 with t3:
                     if res["r_output"] is not None:
-                        # check if SAS expected output exists
+                        st.markdown("**⚙️ R Generated Output**")
+                        st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
+                        st.dataframe(res["r_output"], use_container_width=True, height=300)
+                        csv_data = res["r_output"].to_csv(index=False)
+                        st.download_button(
+                            label=f"⬇️ Download {res['name']} as CSV",
+                            data=csv_data,
+                            file_name=f"{res['name']}_r_output.csv",
+                            mime="text/csv",
+                            key=f"download_{res['name']}_{id(res)}"
+                        )
+                    else:
+                        st.info("No data output for this step.")
+
+                with t5:
+                    if res["r_output"] is not None:
                         sas_out = uploaded_csvs.get(res['name'])
                         if sas_out is None:
                             sas_out = uploaded_csvs.get('MANUAL_INPUT')
@@ -913,85 +928,11 @@ if run_btn or st.session_state.get("pipeline_run"):
                                 st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
                                 st.dataframe(res["r_output"], use_container_width=True, height=300)
                         else:
-                            st.markdown("**⚙️ R Generated Output**")
-                            st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
-                            st.dataframe(res["r_output"], use_container_width=True, height=300)
-                        csv_data = res["r_output"].to_csv(index=False)
-                        st.download_button(
-                            label=f"⬇️ Download {res['name']} as CSV",
-                            data=csv_data,
-                            file_name=f"{res['name']}_r_output.csv",
-                            mime="text/csv",
-                            key=f"download_{res['name']}_{id(res)}"
-                        )
+                            st.info("Upload expected CSV to see side by side comparison.")
                     else:
-                        st.info("No data output for this step.")
+                        st.info("No R output available.")
 
-                with t4:
-                    if cmp:
-                        if cmp["match"] is True:
-                            st.success(cmp["details"])
-                        elif cmp["match"] is False:
-                            st.error(cmp["details"])
-                            if cmp["mismatches"]:
-                                st.table(pd.DataFrame(cmp["mismatches"]).head(10))
-                            if not res.get('r_code'):
-                                st.info("ℹ️ No R code to fix for this step.")
-                            else:
-                                retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
-                            
-                            # Show previous fix result if exists
-                            fix_result = st.session_state.get("fix_results", {}).get(res['name'])
-                            if fix_result:
-                                st.divider()
-                                st.markdown("**🔧 Fix & Retry Result:**")
-                                st.code(fix_result["code"], language="r")
-                                if fix_result["match"]:
-                                    st.success("✅ Fixed! Output now matches SAS!")
-                                else:
-                                    st.error(f"❌ Still mismatching: {fix_result['details']}")
-
-                            if retry_count == 0:
-                                if st.button(f"🔄 Fix & Retry {res['name']}", key=f"retry_{res['name']}"):
-                                    st.session_state.setdefault("retry_counts", {})[res['name']] = 1
-                                    with st.spinner("🔧 Asking LLM to fix based on mismatch..."):
-                                        sas_df = uploaded_csvs.get(res['name']) or list(uploaded_csvs.values())[0]
-                                        r_code_to_fix = res.get('r_code') or ""
-                                        fixed_code = fix_r_code_on_mismatch(
-                                            r_code_to_fix,
-                                            res['step'],
-                                            cmp['mismatches'],
-                                            sas_df,
-                                            res['r_output'],
-                                            r_dialect
-                                        )
-                                        try:
-                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], st.session_state.get("work_library", {}))
-                                            new_cmp = compare_dfs(sas_df, new_output)
-                                            st.session_state.setdefault("fix_results", {})[res['name']] = {
-                                                "code": fixed_code,
-                                                "match": new_cmp["match"],
-                                                "details": new_cmp["details"]
-                                            }
-                                         # Update pipeline results with fix
-                                            if new_cmp["match"]:
-                                                for pr in st.session_state["pipeline_results"]:
-                                                    if pr["name"] == res["name"]:
-                                                        pr["comparison"] = new_cmp
-                                                        pr["r_code"] = fixed_code
-                                                        pr["r_output"] = new_output
-                                                        break
-                                            st.rerun()
-                                        except Exception as e:
-                                            st.error(f"Fix attempt failed: {e}")
-                            else:
-                                st.info("⚠️ Already retried once.")
-                        else:
-                            st.warning(cmp["details"])
-                    else:
-                        st.info("Intermediate step: Passed to next step automatically.")
-
-                with t5:
+                with t6:
                     log = res.get("r_log") or "✅ No warnings or messages."
                     st.code(log, language="bash")
 
