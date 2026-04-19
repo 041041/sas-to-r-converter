@@ -335,7 +335,8 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
             f.write("\n".join(full_script)) 
 
         res = subprocess.run(["Rscript", script_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
-        combined_log = res.stderr.strip() or "✅ No warnings or messages."        if res.returncode != 0:
+        combined_log = res.stderr.strip() or "✅ No warnings or messages."
+        if res.returncode != 0:
             raise RuntimeError(f"R Error: {res.stderr}\nCode Attempted:\n{r_code}")
 
         return pd.read_csv(out_path), combined_log
