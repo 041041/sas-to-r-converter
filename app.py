@@ -14,7 +14,9 @@ for key, default in {
     "uploaded_csvs": {},
     "retry_step": None,
     "retry_counts": {},
-    "fix_results": {}
+    "fix_results": {},
+    "pipeline_results": [],
+    "pipeline_run": False
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -23,6 +25,9 @@ def clear_all():
     st.session_state.sas_input = ""
     st.session_state.uploaded_csvs = {}
     st.session_state.upload_key = st.session_state.upload_key + 1
+    st.session_state.pipeline_results = []
+    st.session_state.pipeline_run = False
+    st.session_state.fix_results = {}
 
 st.markdown("""
     <style>
@@ -771,6 +776,8 @@ if run_btn:
                 retry_step=st.session_state.get("retry_step")
             )
             st.session_state.retry_step = None
+            st.session_state.pipeline_results = results
+            st.session_state.pipeline_run = True
         except Exception as e:
             st.error(f"Pipeline crashed: {str(e)}")
             import traceback
@@ -780,6 +787,7 @@ if run_btn:
         total_elapsed = time.time() - overall_start
         st.info(f"🏁 Total pipeline time: **{format_elapsed(total_elapsed)}**")
 
+        iresults = st.session_state.get("pipeline_results", results)
         if not results: st.error("No steps processed."); st.stop()
 
         all_r = []
