@@ -767,22 +767,24 @@ if run_btn:
         status = st.empty()
         overall_start = time.time()
 
-        results = []
-        try:
-            results = run_chain_pipeline(
-                sas_script, uploaded_csvs, r_dialect,
-                progress_bar=prog,
-                status_text=status,
-                retry_step=st.session_state.get("retry_step")
-            )
-            st.session_state.retry_step = None
-            st.session_state.pipeline_results = results
-            st.session_state.pipeline_run = True
+        if not st.session_state.get("pipeline_run"):
+            results = []
+            try:
+                results = run_chain_pipeline(
+                    sas_script, uploaded_csvs, r_dialect,
+                    progress_bar=prog,
+                    status_text=status
+                )
+                st.session_state.pipeline_results = results
+                st.session_state.pipeline_run = True
+                st.session_state.retry_step = None
         except Exception as e:
-            st.error(f"Pipeline crashed: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
-            st.stop()
+                st.error(f"Pipeline crashed: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+                st.stop()
+
+        results = st.session_state.get("pipeline_results", [])
 
         total_elapsed = time.time() - overall_start
         st.info(f"🏁 Total pipeline time: **{format_elapsed(total_elapsed)}**")
