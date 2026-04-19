@@ -909,7 +909,7 @@ if run_btn or st.session_state.get("pipeline_run"):
                     else:
                         st.info("No data output for this step.")
 
-                with t5:
+                with t4:
                     if res["r_output"] is not None:
                         sas_out = uploaded_csvs.get(res['name'])
                         if sas_out is None:
@@ -931,7 +931,67 @@ if run_btn or st.session_state.get("pipeline_run"):
                             st.info("Upload expected CSV to see side by side comparison.")
                     else:
                         st.info("No R output available.")
-
+                with t5:
+                    if cmp:
+                        if cmp["match"] is True:
+                            st.success(cmp["details"])
+                        elif cmp["match"] is False:
+                            st.error(cmp["details"])
+                            if cmp["mismatches"]:
+                                st.table(pd.DataFrame(cmp["mismatches"]).head(10))
+                            retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
+                            fix_result = st.session_state.get("fix_results", {}).get(res['name'])
+                            if fix_result:
+                                st.divider()
+                                st.markdown("**🔧 Fix & Retry Result:**")
+                                st.code(fix_result["code"], language="r")
+                                if fix_result["match"]:
+                                    st.success("✅ Fixed! Output now matches SAS!")
+                                else:
+                                    st.error(f"❌ Still mismatching: {fix_result['details']}")
+                            if retry_count < 3:
+                                if st.button(f"🔄 Fix & Retry {res['name']}", key=f"retry_{res['name']}"):
+                                    st.session_state.setdefault("retry_counts", {})[res['name']] = retry_count + 1
+                                    with st.spinner("🔧 Asking LLM to fix based on mismatch..."):
+                                        sas_df = uploaded_csvs.get(res['name'])
+                                        if sas_df is None:
+                                            sas_df = uploaded_csvs.get('MANUAL_INPUT')
+                                        if sas_df is None and len(uploaded_csvs) == 1:
+                                            sas_df = list(uploaded_csvs.values())[0]
+                                        r_code_to_fix = res.get('r_code') or ""
+                                        fixed_code = fix_r_code_on_mismatch(
+                                            r_code_to_fix,
+                                            res['step'],
+                                            cmp['mismatches'],
+                                            sas_df,
+                                            res['r_output'],
+                                            r_dialect
+                                        )
+                                        try:
+                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], st.session_state.get("work_library", {}))
+                                            new_cmp = compare_dfs(sas_df, new_output)
+                                            st.session_state.setdefault("fix_results", {})[res['name']] = {
+                                                "code": fixed_code,
+                                                "match": new_cmp["match"],
+                                                "details": new_cmp["details"]
+                                            }
+                                            if new_cmp["match"]:
+                                                for pr in st.session_state["pipeline_results"]:
+                                                    if pr["name"] == res["name"]:
+                                                        pr["comparison"] = new_cmp
+                                                        pr["r_code"] = fixed_code
+                                                        pr["r_output"] = new_output
+                                                        break
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Fix attempt failed: {e}")
+                            else:
+                                st.info("⚠️ Already retried 3 times.")
+                        else:
+                            st.warning(cmp["details"])
+                    else:
+                        st.info("Intermediate step: Passed to next step automatically.")
+                     
                 with t6:
                     log = res.get("r_log") or "✅ No warnings or messages."
                     st.code(log, language="bash")
