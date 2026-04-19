@@ -392,20 +392,38 @@ def compare_dfs(sas_df, r_df, tol=1e-3):
     }
 def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
     try:
-        st.write("DEBUG types:", [type(m) for m in mismatches])
-        st.write("DEBUG values:", [(m.get('sas'), type(m.get('sas'))) for m in mismatches])
-        mismatch_info = f"Shape: SAS={sas_df.shape} R={r_df.shape}\n" if sas_df.shape != r_df.shape else ""
+        mismatch_info = ""
+        if sas_df is not None and r_df is not None and sas_df.shape != r_df.shape:
+            mismatch_info += f"Shape: SAS={sas_df.shape} R={r_df.shape}\n"
         if mismatches:
             mismatch_info += "Value mismatches:\n"
             clean_mismatches = [m for m in mismatches if m is not None]
             for m in clean_mismatches[:5]:
-                col = str(m.get('col', 'unknown'))
-                row = str(m.get('row', '?'))
-                sas_val = str(m.get('sas', 'None'))
-                r_val = str(m.get('r', 'None'))
-                mismatch_info += f"  col={col} row={row} SAS={sas_val} R={r_val}\n"
-    except Exception:
+                mismatch_info += f"  col={str(m.get('col','?'))} row={str(m.get('row','?'))} SAS={str(m.get('sas','?'))} R={str(m.get('r','?'))}\n"
+    except Exception as e:
         mismatch_info = "Could not extract mismatch details."
+
+    fix_prompt = "\n".join([
+        "This R code produced wrong output compared to SAS.",
+        "ORIGINAL R CODE:",
+        str(r_code) if r_code else "",
+        "ORIGINAL SAS CODE:",
+        str(step) if step else "",
+        "MISMATCH DETAILS:",
+        str(mismatch_info),
+        "Fix the R code to match SAS output exactly. Return only corrected R code ending with df."
+    ])
+
+    try:
+        res = groq_client.chat.completions.create(
+            model='llama-3.3-70b-versatile',
+            messages=[{'role': 'user', 'content': fix_prompt}],
+            temperature=0
+        )
+        raw = res.choices[0].message.content
+    except Exception:
+        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+    return clean_r_code(raw)
     
     fix_prompt = (
         f"This R code produced wrong output compared to SAS.\n"
