@@ -241,7 +241,7 @@ def clean_r_code(text):
                 flags=re.DOTALL
             )
 
-    if cleaned.count("df <- ") > 1:
+    if cleaned.count("df <- ") > 1 and "aggregate" not in cleaned and "merge(" not in cleaned:
         parts = cleaned.split("df <- ")
         cleaned = "df <- " + parts[-1]
 
@@ -772,8 +772,6 @@ if run_btn or st.session_state.get("pipeline_run"):
                             rc = call_llm_api(step, [], known_tables, r_dialect)
                             elapsed = time.time() - step_start
                             st.code(rc, language="r")
-                            if res.get("auto_fixed"):
-                                st.warning("⚠️ Auto-fixed by LLM on retry")
                             all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             if sname not in known_tables:
                                 known_tables.append(sname)
