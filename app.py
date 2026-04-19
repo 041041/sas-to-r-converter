@@ -380,7 +380,32 @@ def compare_dfs(sas_df, r_df, tol=1e-3):
         "details": "All values match!" if not mismatches else f"{len(mismatches)} values differ.",
         "mismatches": mismatches
     }
-
+def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
+    """Feeds mismatch details back to LLM to fix R code."""
+    mismatch_info = f"Shape: SAS={sas_df.shape} R={r_df.shape}\n" if sas_df.shape != r_df.shape else ""
+    if mismatches:
+        mismatch_info += "Value mismatches:\n"
+        for m in mismatches[:5]:
+            mismatch_info += f"  col={m['col']} row={m['row']} SAS={m['sas']} R={m['r']}\n"
+    
+    fix_prompt = (
+        f"This R code produced wrong output compared to SAS.\n"
+        f"ORIGINAL R CODE:\n{r_code}\n"
+        f"ORIGINAL SAS CODE:\n{step}\n"
+        f"MISMATCH DETAILS:\n{mismatch_info}\n"
+        f"Fix the R code to match SAS output exactly. Return only corrected R code ending with df."
+    )
+    try:
+        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+    except Exception:
+        res = groq_client.chat.completions.create(
+            model='llama-3.3-70b-versatile',
+            messages=[{'role': 'user', 'content': fix_prompt}],
+            temperature=0
+        )
+        raw = res.choices[0].message.content
+    return clean_r_code(raw)
+ 
 def parse_datalines(step):
     """Extracts raw data from SAS datalines/cards block."""
     try:
@@ -829,18 +854,36 @@ if run_btn:
                     if cmp:
                         if cmp["match"] is True:
                             st.success(cmp["details"])
-                        elif cmp["match"] is False or cmp["match"] is True:
+                        elif cmp["match"] is False:
                             st.error(cmp["details"])
                             if cmp["mismatches"]:
                                 st.table(pd.DataFrame(cmp["mismatches"]).head(10))
                             retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
                             if retry_count == 0:
-                                if st.button(f"🔄 Retry {res['name']}", key=f"retry_{res['name']}"):
-                                    st.session_state.setdefault("retry_counts", {})[res['name']] = 1
-                                    st.session_state.retry_step = res['name']
-                                    st.rerun()
+                                if st.button(f"🔄 Fix & Retry {res['name']}", key=f"retry_{res['name']}"):
+                                    with st.spinner("🔧 Asking LLM to fix based on mismatch..."):
+                                        sas_df = uploaded_csvs.get(res['name']) or list(uploaded_csvs.values())[0]
+                                        fixed_code = fix_r_code_on_mismatch(
+                                            res['r_code'],
+                                            res['step'],
+                                            cmp['mismatches'],
+                                            sas_df,
+                                            res['r_output'],
+                                            r_dialect
+                                        )
+                                        try:
+                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], {})
+                                            new_cmp = compare_dfs(sas_df, new_output)
+                                            st.code(fixed_code, language="r")
+                                            if new_cmp["match"]:
+                                                st.success("✅ Fixed! Output now matches SAS!")
+                                            else:
+                                                st.error(f"❌ Still mismatching: {new_cmp['details']}")
+                                            st.session_state.setdefault("retry_counts", {})[res['name']] = 1
+                                        except Exception as e:
+                                            st.error(f"Fix attempt failed: {e}")
                             else:
-                                st.info("⚠️ This step has already been retried once.")
+                                st.info("⚠️ Already retried once.")
                         else:
                             st.warning(cmp["details"])
                     else:
