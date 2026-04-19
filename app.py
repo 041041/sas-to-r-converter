@@ -896,7 +896,7 @@ if run_btn or st.session_state.get("pipeline_run"):
                             if not res.get('r_code'):
                                 st.info("ℹ️ No R code to fix for this step.")
                             else:
-                            retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
+                                retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
                             
                             # Show previous fix result if exists
                             fix_result = st.session_state.get("fix_results", {}).get(res['name'])
