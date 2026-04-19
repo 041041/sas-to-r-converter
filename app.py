@@ -86,6 +86,9 @@ SAS_TO_R = {
     "LENGTH":   "use nchar()",
     "TODAY":    "use Sys.Date()",
     "DATE":     "use Sys.Date()",
+    "DATE9":    "use as.Date(var, '%d%b%Y') for date9. format",
+    "MMDDYY":   "use as.Date(var, '%m/%d/%Y')",
+    "YYMMDD":   "use as.Date(var, '%Y-%m-%d')",
 }
 
 def inject_function_hints(step):
