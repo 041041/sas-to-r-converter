@@ -1,6 +1,6 @@
 import os, re, subprocess, tempfile, io, time
 import pandas as pd
-import streamlit as st
+import streamlit as st 
 from google import genai
 from groq import Groq
 
@@ -829,7 +829,8 @@ if run_btn:
                     if cmp:
                         if cmp["match"] is True:
                             st.success(cmp["details"])
-                        elif cmp["match"] is False or cmp["match"] is True:                            st.error(cmp["details"])
+                        elif cmp["match"] is False or cmp["match"] is True:
+                            st.error(cmp["details"])
                             if cmp["mismatches"]:
                                 st.table(pd.DataFrame(cmp["mismatches"]).head(10))
                             if st.button(f"🔄 Retry {res['name']}", key=f"retry_{res['name']}"):
