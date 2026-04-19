@@ -778,7 +778,7 @@ if run_btn:
                 st.session_state.pipeline_results = results
                 st.session_state.pipeline_run = True
                 st.session_state.retry_step = None
-        except Exception as e:
+            except Exception as e:
                 st.error(f"Pipeline crashed: {str(e)}")
                 import traceback
                 st.code(traceback.format_exc())
