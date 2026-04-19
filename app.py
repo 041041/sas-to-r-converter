@@ -393,7 +393,7 @@ def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
     if mismatches:
         mismatch_info += "Value mismatches:\n"
         for m in mismatches[:5]:
-            mismatch_info += f"  col={m['col']} row={m['row']} SAS={m['sas']} R={m['r']}\n"
+            mismatch_info += f"  col={m['col']} row={m['row']} SAS={str(m['sas'])} R={str(m['r'])}\n"
     
     fix_prompt = (
         f"This R code produced wrong output compared to SAS.\n"
