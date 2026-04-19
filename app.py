@@ -897,8 +897,23 @@ if run_btn or st.session_state.get("pipeline_run"):
 
                 with t3:
                     if res["r_output"] is not None:
-                        st.dataframe(res["r_output"], use_container_width=True)
-                        st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
+                        # check if SAS expected output exists
+                        sas_out = uploaded_csvs.get(res['name']) or (list(uploaded_csvs.values())[0] if len(uploaded_csvs)==1 else None)
+                        
+                        if sas_out is not None:
+                            col_sas, col_r = st.columns(2)
+                            with col_sas:
+                                st.markdown("**📋 SAS Expected Output**")
+                                st.caption(f"Shape: {sas_out.shape[0]} rows × {sas_out.shape[1]} cols")
+                                st.dataframe(sas_out, use_container_width=True, height=300)
+                            with col_r:
+                                st.markdown("**⚙️ R Generated Output**")
+                                st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
+                                st.dataframe(res["r_output"], use_container_width=True, height=300)
+                        else:
+                            st.markdown("**⚙️ R Generated Output**")
+                            st.caption(f"Shape: {res['r_output'].shape[0]} rows × {res['r_output'].shape[1]} cols")
+                            st.dataframe(res["r_output"], use_container_width=True, height=300)
                         csv_data = res["r_output"].to_csv(index=False)
                         st.download_button(
                             label=f"⬇️ Download {res['name']} as CSV",
