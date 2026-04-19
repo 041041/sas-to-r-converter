@@ -915,6 +915,9 @@ if run_btn or st.session_state.get("pipeline_run"):
                                     with st.spinner("🔧 Asking LLM to fix based on mismatch..."):
                                         sas_df = uploaded_csvs.get(res['name']) or list(uploaded_csvs.values())[0]
                                         r_code_to_fix = res.get('r_code') or ""
+                                        st.write("r_code:", res.get('r_code'))
+                                        st.write("step:", res.get('step'))
+                                        st.write("mismatches:", cmp.get('mismatches'))
                                         fixed_code = fix_r_code_on_mismatch(
                                             r_code_to_fix,
                                             res['step'],
