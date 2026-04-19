@@ -955,6 +955,14 @@ if run_btn or st.session_state.get("pipeline_run"):
                                                 "match": new_cmp["match"],
                                                 "details": new_cmp["details"]
                                             }
+                                         # Update pipeline results with fix
+                                            if new_cmp["match"]:
+                                                for pr in st.session_state["pipeline_results"]:
+                                                    if pr["name"] == res["name"]:
+                                                        pr["comparison"] = new_cmp
+                                                        pr["r_code"] = fixed_code
+                                                        pr["r_output"] = new_output
+                                                        break
                                             st.rerun()
                                         except Exception as e:
                                             st.error(f"Fix attempt failed: {e}")
