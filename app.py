@@ -893,7 +893,9 @@ if run_btn or st.session_state.get("pipeline_run"):
                             st.error(cmp["details"])
                             if cmp["mismatches"]:
                                 st.table(pd.DataFrame(cmp["mismatches"]).head(10))
-                            
+                            if not res.get('r_code'):
+                                st.info("ℹ️ No R code to fix for this step.")
+                            else:
                             retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
                             
                             # Show previous fix result if exists
@@ -912,8 +914,9 @@ if run_btn or st.session_state.get("pipeline_run"):
                                     st.session_state.setdefault("retry_counts", {})[res['name']] = 1
                                     with st.spinner("🔧 Asking LLM to fix based on mismatch..."):
                                         sas_df = uploaded_csvs.get(res['name']) or list(uploaded_csvs.values())[0]
+                                        r_code_to_fix = res.get('r_code') or ""
                                         fixed_code = fix_r_code_on_mismatch(
-                                            res['r_code'],
+                                            r_code_to_fix,
                                             res['step'],
                                             cmp['mismatches'],
                                             sas_df,
