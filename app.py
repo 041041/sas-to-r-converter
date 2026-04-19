@@ -872,7 +872,7 @@ if run_btn:
                                             r_dialect
                                         )
                                         try:
-                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], {})
+                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], work_library if 'work_library' in locals() else {})
                                             new_cmp = compare_dfs(sas_df, new_output)
                                             st.code(fixed_code, language="r")
                                             if new_cmp["match"]:
