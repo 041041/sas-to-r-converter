@@ -464,6 +464,8 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     """Processes SAS steps as a continuous chain. Supports progress bar + per-step timing."""
     steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_code, re.DOTALL | re.I)
     work_library = {}
+    st.session_state["work_library"] = work_library
+
     pipeline_results = []
     total_steps = len(steps)
 
@@ -946,7 +948,7 @@ if run_btn or st.session_state.get("pipeline_run"):
                                             r_dialect
                                         )
                                         try:
-                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], {})
+                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], st.session_state.get("work_library", {}))
                                             new_cmp = compare_dfs(sas_df, new_output)
                                             st.session_state.setdefault("fix_results", {})[res['name']] = {
                                                 "code": fixed_code,
