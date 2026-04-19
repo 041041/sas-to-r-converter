@@ -869,8 +869,13 @@ if run_btn or st.session_state.get("pipeline_run"):
                     st.code(res["step"], language="sas")
 
                 with t2:
-                    if res["r_code"]:
-                        st.code(res["r_code"], language="r")
+                    # show fixed code if available
+                    fix_result = st.session_state.get("fix_results", {}).get(res["name"])
+                    display_code = fix_result["code"] if fix_result and fix_result.get("match") else res["r_code"]
+                    if display_code:
+                        st.code(display_code, language="r")
+                        if fix_result and fix_result.get("match"):
+                            st.warning("⚠️ This is the Auto-fixed version")
                         all_r.append(f"# --- {res['name']} ---\n{res['r_code']}\n{res['name']} <- df\n")
                     elif not res["error"]:
                         if res["r_output"] is not None:
