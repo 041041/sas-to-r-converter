@@ -694,7 +694,7 @@ if run_btn:
                             elapsed = time.time() - step_start
                             st.code(rc, language="r")
                             if res.get("auto_fixed"):
-                            st.warning("⚠️ Auto-fixed by LLM on retry")
+                                st.warning("⚠️ Auto-fixed by LLM on retry")
                             all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             if sname not in known_tables:
                                 known_tables.append(sname)
