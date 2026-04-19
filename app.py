@@ -470,12 +470,22 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
                 res_entry["elapsed_llm"] = time.time() - llm_start
                 res_entry["r_code"] = r_code
 
-                # Time the R execution
+# Time the R execution — with 1 auto-retry on failure
                 exec_start = time.time()
-                out_df, r_log = run_r_subprocess(r_code, active_df, work_library)
-                res_entry["r_log"] = r_log
+                try:
+                    out_df, r_log = run_r_subprocess(r_code, active_df, work_library)
+                    res_entry["r_log"] = r_log
+                except RuntimeError as r_err:
+                    # Auto-fix: feed error back to LLM and retry once
+                    fix_prompt = f"This R code failed:\n{r_code}\nError:\n{str(r_err)}\nFix it. Return only corrected R code ending with df."
+                    fixed_raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+                    r_code = clean_r_code(fixed_raw)
+                    res_entry["r_code"] = r_code
+                    res_entry["auto_fixed"] = True
+                    out_df, r_log = run_r_subprocess(r_code, active_df, work_library)
+                    res_entry["r_log"] = r_log
                 res_entry["elapsed_exec"] = time.time() - exec_start
-
+                
                 res_entry["elapsed_total"] = time.time() - step_start
 
             work_library[target_name] = out_df
@@ -683,6 +693,8 @@ if run_btn:
                             rc = call_llm_api(step, [], known_tables, r_dialect)
                             elapsed = time.time() - step_start
                             st.code(rc, language="r")
+                            if res.get("auto_fixed"):
+                            st.warning("⚠️ Auto-fixed by LLM on retry")
                             all_r.append(f"# --- {sname} ---\n{rc}\n{sname} <- df\n")
                             if sname not in known_tables:
                                 known_tables.append(sname)
