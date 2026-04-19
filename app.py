@@ -910,7 +910,6 @@ if run_btn or st.session_state.get("pipeline_run"):
                         st.info("No data output for this step.")
 
                 with t4:
-                    with t4:
                     if res["r_output"] is not None:
                         # only show SAS vs R for final step
                         sas_out = uploaded_csvs.get(res['name'])
