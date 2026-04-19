@@ -395,7 +395,7 @@ def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
         f"MISMATCH DETAILS:\n{mismatch_info}\n"
         f"Fix the R code to match SAS output exactly. Return only corrected R code ending with df."
     )
-   try:
+    try:
         res = groq_client.chat.completions.create(
             model='llama-3.3-70b-versatile',
             messages=[{'role': 'user', 'content': fix_prompt}],
