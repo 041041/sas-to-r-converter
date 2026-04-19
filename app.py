@@ -392,11 +392,18 @@ def compare_dfs(sas_df, r_df, tol=1e-3):
     }
 def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
     """Feeds mismatch details back to LLM to fix R code."""
-    mismatch_info = f"Shape: SAS={sas_df.shape} R={r_df.shape}\n" if sas_df.shape != r_df.shape else ""
-    if mismatches:
-        mismatch_info += "Value mismatches:\n"
-        for m in mismatches[:5]:
-            mismatch_info += f"  col={m['col']} row={m['row']} SAS={str(m['sas'])} R={str(m['r'])}\n"
+    try:
+        mismatch_info = f"Shape: SAS={sas_df.shape} R={r_df.shape}\n" if sas_df.shape != r_df.shape else ""
+        if mismatches:
+            mismatch_info += "Value mismatches:\n"
+            for m in mismatches[:5]:
+                col = str(m.get('col', 'unknown'))
+                row = str(m.get('row', '?'))
+                sas_val = str(m.get('sas', 'None'))
+                r_val = str(m.get('r', 'None'))
+                mismatch_info += f"  col={col} row={row} SAS={sas_val} R={r_val}\n"
+    except Exception:
+        mismatch_info = "Could not extract mismatch details."
     
     fix_prompt = (
         f"This R code produced wrong output compared to SAS.\n"
