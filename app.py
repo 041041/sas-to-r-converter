@@ -308,7 +308,6 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     )
 
     try:
-        st.write("DEBUG fix_prompt:", fix_prompt)
         res = groq_client.chat.completions.create(
             model='llama-3.3-70b-versatile',
             messages=[{'role': 'user', 'content': prompt}],
