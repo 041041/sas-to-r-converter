@@ -12,7 +12,9 @@ for key, default in {
     "sas_input": "",
     "upload_key": 0,
     "uploaded_csvs": {},
-    "retry_step": None
+    "retry_step": None,
+    "retry_counts": {},
+    "fix_results": {}
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -865,9 +867,23 @@ if run_btn:
                             st.error(cmp["details"])
                             if cmp["mismatches"]:
                                 st.table(pd.DataFrame(cmp["mismatches"]).head(10))
+                            
                             retry_count = st.session_state.get("retry_counts", {}).get(res['name'], 0)
+                            
+                            # Show previous fix result if exists
+                            fix_result = st.session_state.get("fix_results", {}).get(res['name'])
+                            if fix_result:
+                                st.divider()
+                                st.markdown("**🔧 Fix & Retry Result:**")
+                                st.code(fix_result["code"], language="r")
+                                if fix_result["match"]:
+                                    st.success("✅ Fixed! Output now matches SAS!")
+                                else:
+                                    st.error(f"❌ Still mismatching: {fix_result['details']}")
+
                             if retry_count == 0:
                                 if st.button(f"🔄 Fix & Retry {res['name']}", key=f"retry_{res['name']}"):
+                                    st.session_state.setdefault("retry_counts", {})[res['name']] = 1
                                     with st.spinner("🔧 Asking LLM to fix based on mismatch..."):
                                         sas_df = uploaded_csvs.get(res['name']) or list(uploaded_csvs.values())[0]
                                         fixed_code = fix_r_code_on_mismatch(
@@ -879,14 +895,14 @@ if run_btn:
                                             r_dialect
                                         )
                                         try:
-                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], work_library if 'work_library' in locals() else {})
+                                            new_output, new_log = run_r_subprocess(fixed_code, res['r_output'], {})
                                             new_cmp = compare_dfs(sas_df, new_output)
-                                            st.code(fixed_code, language="r")
-                                            if new_cmp["match"]:
-                                                st.success("✅ Fixed! Output now matches SAS!")
-                                            else:
-                                                st.error(f"❌ Still mismatching: {new_cmp['details']}")
-                                            st.session_state.setdefault("retry_counts", {})[res['name']] = 1
+                                            st.session_state.setdefault("fix_results", {})[res['name']] = {
+                                                "code": fixed_code,
+                                                "match": new_cmp["match"],
+                                                "details": new_cmp["details"]
+                                            }
+                                            st.rerun()
                                         except Exception as e:
                                             st.error(f"Fix attempt failed: {e}")
                             else:
