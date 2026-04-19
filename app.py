@@ -351,7 +351,6 @@ def run_r_subprocess(r_code, input_df, env_dict=None):
             raise RuntimeError(f"R Error: {res.stderr}\nCode Attempted:\n{r_code}")
 
         return pd.read_csv(out_path), combined_log
-# st.write(res.get("r_log")) # raw debug  testing
 
 def compare_dfs(sas_df, r_df, tol=1e-3):
     """Smart comparison: handles case-sensitivity and whitespace."""
@@ -941,9 +940,6 @@ if run_btn or st.session_state.get("pipeline_run"):
                                     with st.spinner("🔧 Asking LLM to fix based on mismatch..."):
                                         sas_df = uploaded_csvs.get(res['name']) or list(uploaded_csvs.values())[0]
                                         r_code_to_fix = res.get('r_code') or ""
-                                        st.write("r_code:", res.get('r_code'))
-                                        st.write("step:", res.get('step'))
-                                        st.write("mismatches:", cmp.get('mismatches'))
                                         fixed_code = fix_r_code_on_mismatch(
                                             r_code_to_fix,
                                             res['step'],
