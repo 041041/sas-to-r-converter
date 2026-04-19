@@ -610,21 +610,65 @@ with st.sidebar:
 ---
 **Convert + Validate:**
 1. Paste SAS code
-2. Upload expected CSVs **or Excel files**
+2. Upload expected CSV or Excel
    - filename = dataset name
-   - e.g. `LAB_RESULTS.csv` or `LAB_RESULTS.xlsx`
-   - Or paste CSV manually
-   - *Note: App auto-maps a single file to the final step!*
+   - *Single file auto-maps to final step!*
 3. Run → see ✅ MATCH / ❌ MISMATCH
-
----
-**Supported SAS:**
-- DATA step (SET, IF/ELSE)
-- PROC SORT
-- PROC TRANSPOSE
-- PROC MEANS / FREQ
-- PROC SQL (SELECT, JOIN, GROUP BY, HAVING)
 """)
+
+    st.divider()
+
+    st.header("✨ What this app does")
+    st.markdown("""
+🔄 Converts SAS code to R automatically
+
+✅ Executes & validates R output
+
+🔧 Auto-fixes R errors on failure
+
+🔄 Fix & Retry on output mismatch
+
+📊 Side by side SAS vs R comparison
+
+⏱️ Per-step timing metrics
+
+📥 Downloads full R script
+""")
+
+    st.divider()
+
+    st.header("📋 Supported SAS")
+    st.markdown("""
+✅ DATA step (SET, IF/ELSE, mutate)
+
+✅ PROC SORT
+
+✅ PROC MEANS
+
+✅ PROC FREQ
+
+✅ PROC SQL (JOIN, GROUP BY, HAVING)
+
+✅ PROC TRANSPOSE
+""")
+
+    st.divider()
+
+    st.header("🔜 Coming Soon")
+    st.markdown("""
+🔶 SAS Macros *(in development)*
+""")
+
+    st.divider()
+
+    st.header("💡 Tips")
+    st.markdown("""
+- Name CSV same as SAS dataset
+- Single CSV auto-maps to final step
+- Use **Modern R** for cleaner code
+- Use **Base R** for maximum compatibility
+""")
+
     st.caption("Built with Gemini + Groq + Rscript")
 
 # --- SAS INPUT ---
