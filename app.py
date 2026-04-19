@@ -301,9 +301,8 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         raw = groq_client.chat.completions.create(
             model='llama-3.3-70b-versatile',
             messages=[{'role': 'user', 'content': prompt}],
-            temperature=0
-     
-    except Exception:
+            temperature=0    
+     except Exception:
         res = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=prompt).text
         )
         raw = res.choices[0].message.content
