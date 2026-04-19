@@ -396,7 +396,8 @@ def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
         mismatch_info = f"Shape: SAS={sas_df.shape} R={r_df.shape}\n" if sas_df.shape != r_df.shape else ""
         if mismatches:
             mismatch_info += "Value mismatches:\n"
-            for m in mismatches[:5]:
+            clean_mismatches = [m for m in mismatches if m is not None]
+            for m in clean_mismatches[:5]:
                 col = str(m.get('col', 'unknown'))
                 row = str(m.get('row', '?'))
                 sas_val = str(m.get('sas', 'None'))
