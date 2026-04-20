@@ -32,61 +32,96 @@ PALETTES = ["default", "Blues", "Reds", "Greens", "Spectral", "Set1", "Set2"]
 
 # --- GENERATE GGPLOT CODE VIA LLM ---
 def generate_graph_code(selections, df_preview, col_types):
-    """Sends graph selections to LLM and gets ggplot2 code back."""
+    """Builds ggplot2 code directly from selections — no LLM guessing."""
     
-    prompt = (
-        f"Generate R ggplot2 code for the following chart.\n"
-        f"DATA PREVIEW:\n{df_preview}\n"
-        f"COLUMN TYPES:\n{col_types}\n"
-        f"CHART SETTINGS:\n"
-        f"- Chart type: {selections['chart_type']}\n"
-        f"- X axis: {selections['x_col']}\n"
-        f"- Y axis: {selections.get('y_col', 'None')}\n"
-        f"- Color by: {selections.get('color_col', 'None')}\n"
-        f"- Title: {selections.get('title', '')}\n"
-        f"- Theme: theme_{selections.get('theme', 'minimal')}()\n"
-        f"- Orientation: {selections.get('orientation', 'vertical')}\n"
-        f"- Show values: {selections.get('show_values', False)}\n"
-        f"- Sort: {selections.get('sort_order', 'none')}\n"
-        f"- Color palette: {selections.get('palette', 'default')}\n\n"
-        f"STRICT RULES:\n"
-        f"1. Use ggplot2 only. Load with library(ggplot2).\n"
-        f"2. Data frame is named 'df'.\n"
-        f"3. Save plot as: ggsave('output_plot.png', width=10, height=6, dpi=150)\n"
-        f"4. CRITICAL: ALWAYS use geom_bar(stat='identity') — NEVER geom_bar() alone.\n"
-        f"5. ALWAYS include aes(x={selections['x_col']}, y={selections.get('y_col', '')}) in ggplot().\n"
-        f"6. CRITICAL: If color_by is not None, ALWAYS put fill={selections.get('color_col','NULL')} inside aes().\n"
-        f"7. ALWAYS use theme_{selections.get('theme','minimal')}() — NEVER theme_dark().\n"
-        f"8. ALWAYS add labs(title='{selections.get('title','')}', x='{selections['x_col']}', y='{selections.get('y_col','')}').\n"
-        f"9. Use position='dodge' for grouped bar charts.\n"
-        f"10. If show values is TRUE add geom_text() with labels.\n"
-        f"11. If sort is asc/desc, use reorder() on x axis.\n"
-        f"12. Always add proper labs(title=, x=, y=, fill=) labels.\n"
-        f"13. No explanations. Just R code.\n"
-    )
-    
-    try:
-        res = groq_client.chat.completions.create(
-            model='llama-3.3-70b-versatile',
-            messages=[{'role': 'user', 'content': prompt}],
-            temperature=0
-        )
-        raw = res.choices[0].message.content
-    except Exception:
-        raw = gemini_client.models.generate_content(
-            model='gemini-2.0-flash', contents=prompt
-        ).text
-    
-    # clean code blocks
-    backticks = "\x60\x60\x60"
-    if backticks in raw:
-        pattern = backticks + r"(?:r|R)?\n(.*?)\n" + backticks
-        import re
-        blocks = re.findall(pattern, raw, re.DOTALL)
-        if blocks: raw = "\n".join(blocks)
-    
-    return raw.strip()
+    chart_type  = selections['chart_type']
+    x_col       = selections['x_col']
+    y_col       = selections.get('y_col')
+    color_col   = selections.get('color_col')
+    title       = selections.get('title', '')
+    theme       = selections.get('theme', 'minimal')
+    orientation = selections.get('orientation', 'vertical')
+    show_values = selections.get('show_values', False)
+    sort_order  = selections.get('sort_order', 'none')
+    palette     = selections.get('palette', 'default')
 
+    # --- X axis with optional sorting ---
+    if sort_order == 'asc' and y_col:
+        x_aes = f"reorder({x_col}, {y_col})"
+    elif sort_order == 'desc' and y_col:
+        x_aes = f"reorder({x_col}, -{y_col})"
+    else:
+        x_aes = x_col
+
+    # --- Color/fill aesthetic ---
+    if color_col:
+        aes_str = f"aes(x={x_aes}, y={y_col}, fill={color_col})" if y_col else f"aes(x={x_aes}, fill={color_col})"
+    else:
+        aes_str = f"aes(x={x_aes}, y={y_col})" if y_col else f"aes(x={x_aes})"
+
+    # --- Geom layer ---
+    if chart_type == "Bar Chart":
+        if color_col:
+            geom = "geom_bar(stat='identity', position='dodge')"
+        else:
+            geom = "geom_bar(stat='identity', fill='steelblue')"
+    elif chart_type == "Line Chart":
+        if color_col:
+            geom = f"geom_line(aes(group={color_col}), size=1)"
+        else:
+            geom = "geom_line(size=1, color='steelblue')"
+        geom += f"\n  + geom_point(size=2)"
+    elif chart_type == "Scatter Plot":
+        if color_col:
+            geom = f"geom_point(size=3)"
+        else:
+            geom = "geom_point(size=3, color='steelblue')"
+    elif chart_type == "Histogram":
+        geom = "geom_histogram(bins=30, fill='steelblue', color='white')"
+    elif chart_type == "Box Plot":
+        if color_col:
+            geom = "geom_boxplot()"
+        else:
+            geom = "geom_boxplot(fill='steelblue')"
+    elif chart_type == "Area Chart":
+        if color_col:
+            geom = f"geom_area(aes(group={color_col}), alpha=0.6)"
+        else:
+            geom = "geom_area(fill='steelblue', alpha=0.6)"
+    elif chart_type == "Pie Chart":
+        geom = "geom_bar(stat='identity', width=1)\n  + coord_polar('y')"
+    else:
+        geom = "geom_bar(stat='identity', fill='steelblue')"
+
+    # --- Color palette ---
+    if color_col and palette != "default":
+        palette_line = f"\n  + scale_fill_brewer(palette='{palette}')"
+    elif color_col:
+        palette_line = ""
+    else:
+        palette_line = ""
+
+    # --- Value labels ---
+    if show_values and y_col:
+        values_line = f"\n  + geom_text(aes(label={y_col}), vjust=-0.5, size=3)"
+    else:
+        values_line = ""
+
+    # --- Flip for horizontal ---
+    flip_line = "\n  + coord_flip()" if orientation == "horizontal" and chart_type != "Pie Chart" else ""
+
+    # --- Build final code ---
+    code = f"""library(ggplot2)
+
+p <- ggplot(df, {aes_str}) +
+  {geom}{palette_line}{values_line} +
+  labs(title='{title}',
+       x='{x_col}',
+       y='{y_col if y_col else ''}') +
+  theme_{theme}(){flip_line}
+p
+"""
+    return code
 # --- EXECUTE R AND RETURN PNG ---
 def execute_graph(r_code, df):
     """Runs ggplot2 code via Rscript and returns PNG path."""
