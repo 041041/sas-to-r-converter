@@ -99,14 +99,15 @@ def execute_graph(r_code, df):
 
         # Remove any ggsave from LLM code to avoid conflicts
         import re
-        r_code_clean = re.sub(r'ggsave\([^)]+\)', '', r_code)
+        # Remove ggsave from LLM code
+        r_code_clean = re.sub(r'ggsave\s*\([^)]+\)\s*', '', r_code).strip()
         
         full_script = "\n".join([
             "suppressPackageStartupMessages(library(ggplot2))",
             "suppressPackageStartupMessages(library(dplyr))",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
-            "p <- " + r_code_clean.strip().rstrip('+'),
-            f'ggsave("{plot_path}", plot=p, width=10, height=6, dpi=150)'
+            r_code_clean,
+            f'ggsave("{plot_path}", width=10, height=6, dpi=150)'
         ])
 
         with open(script_path, "w") as f:
