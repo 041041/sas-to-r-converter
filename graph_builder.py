@@ -99,7 +99,7 @@ def execute_graph(r_code, df):
 
         import re
         # Step 1 - remove ggsave from LLM code
-        r_code_clean = re.sub(r'ggsave\s*\([^)]+\)\s*', '', r_code).strip()
+        r_code_clean = re.sub(r'\+?\s*ggsave\s*\(.*?\)', '', r_code, flags=re.DOTALL).strip()
         # Step 2 - force stat='identity' in geom_bar
         r_code_clean = re.sub(r'geom_bar\(\)', "geom_bar(stat='identity')", r_code_clean)
 
