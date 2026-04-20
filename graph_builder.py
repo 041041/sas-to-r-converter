@@ -103,7 +103,7 @@ def generate_graph_code(selections, df_preview, col_types):
 
     # --- Value labels ---
     if show_values and y_col:
-        values_line = f" +\n  geom_text(aes(label={y_col}), vjust=-0.5, size=3)"
+        values_line = f" +\n  geom_text(aes(label={y_col}), vjust=-0.5, size=3, position=position_stack(vjust=0.5))"
     else:
         values_line = ""
 
