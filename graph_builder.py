@@ -108,7 +108,7 @@ def generate_graph_code(selections, df_preview, col_types):
         values_line = ""
 
     # --- Flip for horizontal ---
-    flip_line = "\n  + coord_flip()" if orientation == "horizontal" and chart_type != "Pie Chart" else ""
+    flip_line = "\n  + coord_flip()" if orientation == "horizontal" else ""
 
     # --- Build final code ---
     code = f"""library(ggplot2)
@@ -118,7 +118,9 @@ p <- ggplot(df, {aes_str}) +
   labs(title='{title}',
        x='{x_col}',
        y='{y_col if y_col else ''}') +
-  theme_{theme}(){flip_line}
+  theme_{theme}() +
+  theme(plot.background = element_rect(fill='white'),
+        panel.background = element_rect(fill='white')){flip_line}
 p
 """
     return code
