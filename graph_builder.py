@@ -58,7 +58,7 @@ def generate_graph_code(selections, df_preview, col_types):
         aes_str = f"aes(x={x_aes}, y={y_col}, fill={color_col})" if y_col else f"aes(x={x_aes}, fill={color_col})"
     else:
         aes_str = f"aes(x={x_aes}, y={y_col})" if y_col else f"aes(x={x_aes})"
-    st.write("DEBUG x:", x_col, "y:", y_col, "color:", color_col)
+        
     # --- Geom layer ---
     if chart_type == "Bar Chart":
         if color_col:
@@ -215,7 +215,12 @@ def render_graph_builder_tab():
 
     with c2:
         default_y   = 1 if numeric_cols else 0
-        y_col       = st.selectbox("📈 Y Axis", all_cols_with_none, index=default_y)
+        # find index of first numeric column in all_cols_with_none
+        numeric_default = next(
+            (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 
+            0
+        )
+        y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default)
         color_col   = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
         orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
         palette     = st.selectbox("🖌️ Color Palette", PALETTES)
