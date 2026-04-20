@@ -297,7 +297,25 @@ def render_graph_builder_tab():
                 st.error(st.session_state["graph_error"])
 
         with out2:
-            st.code(st.session_state.get("graph_r_code", ""), language="r")
+            edited_code = st.text_area(
+                "Edit R Code",
+                value=st.session_state.get("graph_r_code", ""),
+                height=300,
+                key="edited_r_code"
+            )
+            if st.button("▶️ Run Edited Code", type="primary"):
+                with st.spinner("Running updated code..."):
+                    try:
+                        png_bytes, r_log = execute_graph(
+                            edited_code,
+                            st.session_state.get("graph_df")
+                        )
+                        st.session_state["graph_png"] = png_bytes
+                        st.session_state["graph_log"] = r_log
+                        st.session_state["graph_r_code"] = edited_code
+                        st.rerun()
+                    except RuntimeError as e:
+                        st.error(str(e))
             st.download_button(
                 "⬇️ Download R Code",
                 data=st.session_state.get("graph_r_code", ""),
