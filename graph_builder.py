@@ -97,12 +97,16 @@ def execute_graph(r_code, df):
 
         df.to_csv(inp_path, index=False)
 
+        # Remove any ggsave from LLM code to avoid conflicts
+        import re
+        r_code_clean = re.sub(r'ggsave\([^)]+\)', '', r_code)
+        
         full_script = "\n".join([
             "suppressPackageStartupMessages(library(ggplot2))",
             "suppressPackageStartupMessages(library(dplyr))",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
-            r_code,
-            f'if (!file.exists("{plot_path}")) ggsave("{plot_path}", width=10, height=6, dpi=150)'
+            "p <- " + r_code_clean.strip().rstrip('+'),
+            f'ggsave("{plot_path}", plot=p, width=10, height=6, dpi=150)'
         ])
 
         with open(script_path, "w") as f:
