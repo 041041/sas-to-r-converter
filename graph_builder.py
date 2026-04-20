@@ -94,12 +94,9 @@ def generate_graph_code(selections, df_preview, col_types):
         geom = "geom_bar(stat='identity', fill='steelblue')"
 
     # --- Color palette ---
+    palette_line = ""  # default empty
     if color_col and palette != "default":
-        palette_line = f"\n  + scale_fill_brewer(palette='{palette}')"
-    elif color_col:
-        palette_line = ""
-    else:
-        palette_line = ""
+        palette_line = f" +\n  scale_fill_brewer(palette='{palette}')"
 
     # --- Value labels ---
     values_line = ""  # default empty
