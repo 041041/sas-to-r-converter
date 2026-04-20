@@ -97,16 +97,12 @@ def execute_graph(r_code, df):
 
         df.to_csv(inp_path, index=False)
 
-        # Remove any ggsave from LLM code to avoid conflicts
         import re
-        # Remove ggsave from LLM code
-        # Force stat='identity' if geom_bar() found without it
-        r_code_clean = re.sub(
-            r'geom_bar\(\)', 
-            "geom_bar(stat='identity')", 
-            r_code_clean
-        )
-        
+        # Step 1 - remove ggsave from LLM code
+        r_code_clean = re.sub(r'ggsave\s*\([^)]+\)\s*', '', r_code).strip()
+        # Step 2 - force stat='identity' in geom_bar
+        r_code_clean = re.sub(r'geom_bar\(\)', "geom_bar(stat='identity')", r_code_clean)
+
         full_script = "\n".join([
             "suppressPackageStartupMessages(library(ggplot2))",
             "suppressPackageStartupMessages(library(dplyr))",
@@ -114,7 +110,6 @@ def execute_graph(r_code, df):
             r_code_clean,
             f'ggsave("{plot_path}", width=10, height=6, dpi=150)'
         ])
-
         with open(script_path, "w") as f:
             f.write(full_script)
 
