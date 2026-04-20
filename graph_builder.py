@@ -102,12 +102,11 @@ def generate_graph_code(selections, df_preview, col_types):
         palette_line = ""
 
     # --- Value labels ---
+    values_line = ""  # default empty
     if show_values and y_col:
         if color_col:
-            # stacked/grouped — show inside each segment
             values_line = f" +\n  geom_text(aes(label={y_col}), position=position_stack(vjust=0.5), size=3, color='white')"
         else:
-            # single bars — show on top
             values_line = f" +\n  geom_text(aes(label={y_col}), vjust=-0.5, size=3)"
 
     # --- Flip for horizontal ---
