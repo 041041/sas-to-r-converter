@@ -257,7 +257,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
     else:
         input_context = f"A dataframe named 'df' with columns: {df_cols}"
 
-    if dialect == "Modern R (dplyr)":
+    if dialect == "Modern R (tidyverse)":
         rule_set = (
             f"1. Use modern R (tidyverse). Use the pipe operator (%>%) for chaining.\n"
             f"2. IF SAS uses DATALINES: ONLY create the data.frame using `data.frame(...)`. STOP immediately.\n"
