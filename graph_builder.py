@@ -53,11 +53,16 @@ def generate_graph_code(selections, df_preview, col_types):
         f"1. Use ggplot2 only. Load with library(ggplot2).\n"
         f"2. Data frame is named 'df'.\n"
         f"3. Save plot as: ggsave('output_plot.png', width=10, height=6, dpi=150)\n"
-        f"4. For pie chart use coord_polar().\n"
-        f"5. For horizontal bars use coord_flip().\n"
-        f"6. If show values is TRUE add geom_text() with labels.\n"
-        f"7. If sort is asc/desc, use reorder() on x axis.\n"
-        f"8. No explanations. Just R code.\n"
+        f"4. IMPORTANT: If Y axis is a numeric column, use stat='identity' in geom_bar().\n"
+        f"5. NEVER use stat='count' when Y axis column is specified.\n"
+        f"6. If color_by is specified, use aes(fill=color_col) inside ggplot().\n"
+        f"7. Always add scale_fill_brewer() for color palette.\n"
+        f"8. For pie chart use coord_polar().\n"
+        f"9. For horizontal bars use coord_flip().\n"
+        f"10. If show values is TRUE add geom_text() with labels.\n"
+        f"11. If sort is asc/desc, use reorder() on x axis.\n"
+        f"12. Always add proper labs(title=, x=, y=, fill=) labels.\n"
+        f"13. No explanations. Just R code.\n"
     )
     
     try:
