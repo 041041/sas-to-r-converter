@@ -271,7 +271,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         )
     else:
         rule_set = (
-            f"1. Use ONLY pure Base R. DO NOT use dplyr, tidyr, or pipes (%>%).\n"
+            f"1. Use ONLY pure Base R. DO NOT use tidyverse, tidyr, or pipes (%>%).\n"
             f"2. For aggregate(), ALWAYS use the formula interface.\n"
             f"3. IF SAS uses DATALINES: ONLY create the data.frame. STOP immediately.\n"
             f"4. IF SAS reads an existing table: start your code exactly with `df <- TABLE_NAME`.\n"
@@ -597,7 +597,7 @@ st.divider()
 with st.sidebar:
     st.header("⚙️ Settings")
     mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
-    r_dialect = st.radio("R Dialect", ["Base R", "Modern R (dplyr)"])
+    r_dialect = st.radio("R Dialect", ["Base R", "Modern R (tidyverse)"])
 
     st.divider()
 
@@ -831,7 +831,7 @@ if run_btn or st.session_state.get("pipeline_run"):
         if all_r:
             st.divider()
             full_script_text = "\n".join(all_r)
-            if "dplyr" in r_dialect:
+            if "tidyverse" in r_dialect:
                 full_script_text = "library(tidyverse)\n\n" + full_script_text
             st.subheader("📥 Full R Script")
             st.code(full_script_text, language="r")
@@ -1071,7 +1071,7 @@ if run_btn or st.session_state.get("pipeline_run"):
         if all_r:
             st.divider()
             full_script_text = "\n".join(all_r)
-            if "dplyr" in r_dialect:
+            if "tidyverse" in r_dialect:
                 full_script_text = "library(tidyverse)\n\n" + full_script_text
             st.subheader("📥 Full R Script")
             st.code(full_script_text, language="r")
