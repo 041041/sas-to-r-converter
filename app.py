@@ -62,6 +62,8 @@ if not GEMINI_API_KEY or not GROQ_API_KEY:
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 groq_client   = Groq(api_key=GROQ_API_KEY)
+# --- NAVIGATION ---
+page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder"])
 
 # --- SAS TO R FUNCTION MAPPING ---
 SAS_TO_R = {
@@ -593,9 +595,7 @@ if page == "🔄 SAS Converter":
   st.title("🔄 Smart SAS to R Converter")
   st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
   st.divider()
-  
-  page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder"])
- 
+   
   with st.sidebar:
       st.header("⚙️ Settings")
       mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
