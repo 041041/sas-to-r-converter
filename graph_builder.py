@@ -103,9 +103,12 @@ def generate_graph_code(selections, df_preview, col_types):
 
     # --- Value labels ---
     if show_values and y_col:
-        values_line = f" +\n  geom_text(aes(label={y_col}), vjust=-0.5, size=3, position=position_stack(vjust=0.5))"
-    else:
-        values_line = ""
+        if color_col:
+            # stacked/grouped — show inside each segment
+            values_line = f" +\n  geom_text(aes(label={y_col}), position=position_stack(vjust=0.5), size=3, color='white')"
+        else:
+            # single bars — show on top
+            values_line = f" +\n  geom_text(aes(label={y_col}), vjust=-0.5, size=3)"
 
     # --- Flip for horizontal ---
     flip_line = "\n  + coord_flip()" if orientation == "horizontal" else ""
