@@ -594,9 +594,11 @@ if page == "🔄 SAS Converter":
  st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
  st.divider()
  
- with st.sidebar:
-     st.header("⚙️ Settings")
-     mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
+page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder"])
+
+with st.sidebar:
+    st.header("⚙️ Settings")
+    mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
      page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder"])
      st.divider()
      r_dialect = st.radio("R Dialect", ["Base R", "Modern R (tidyverse)"])
