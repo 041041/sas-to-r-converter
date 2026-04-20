@@ -3,7 +3,8 @@ import pandas as pd
 import streamlit as st 
 from google import genai
 from groq import Groq
- 
+from graph_builder import render_graph_builder_tab
+
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
