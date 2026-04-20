@@ -596,7 +596,7 @@ if page == "🔄 SAS Converter":
  
 page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder"])
 
- with st.sidebar:
+  with st.sidebar:
      st.header("⚙️ Settings")
      mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
      page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder"])
