@@ -53,8 +53,8 @@ def generate_graph_code(selections, df_preview, col_types):
         f"1. Use ggplot2 only. Load with library(ggplot2).\n"
         f"2. Data frame is named 'df'.\n"
         f"3. Save plot as: ggsave('output_plot.png', width=10, height=6, dpi=150)\n"
-        f"4. IMPORTANT: If Y axis is a numeric column, use stat='identity' in geom_bar().\n"
-        f"5. NEVER use stat='count' when Y axis column is specified.\n"
+        f"4. CRITICAL: ALWAYS use geom_bar(stat='identity') — NEVER geom_bar() alone.\n"
+        f"5. ALWAYS include aes(x={selections['x_col']}, y={selections.get('y_col', '')}) in ggplot().\n"
         f"6. If color_by is specified, use aes(fill=color_col) inside ggplot().\n"
         f"7. Always add scale_fill_brewer() for color palette.\n"
         f"8. For pie chart use coord_polar().\n"
@@ -100,7 +100,12 @@ def execute_graph(r_code, df):
         # Remove any ggsave from LLM code to avoid conflicts
         import re
         # Remove ggsave from LLM code
-        r_code_clean = re.sub(r'ggsave\s*\([^)]+\)\s*', '', r_code).strip()
+        # Force stat='identity' if geom_bar() found without it
+        r_code_clean = re.sub(
+            r'geom_bar\(\)', 
+            "geom_bar(stat='identity')", 
+            r_code_clean
+        )
         
         full_script = "\n".join([
             "suppressPackageStartupMessages(library(ggplot2))",
