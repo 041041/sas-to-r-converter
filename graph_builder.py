@@ -212,7 +212,8 @@ def render_graph_builder_tab():
         sort_order  = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"])
 
     with c2:
-        y_col       = st.selectbox("📈 Y Axis", all_cols_with_none, index=0)
+        default_y   = 1 if numeric_cols else 0
+        y_col       = st.selectbox("📈 Y Axis", all_cols_with_none, index=default_y)
         color_col   = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
         orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
         palette     = st.selectbox("🖌️ Color Palette", PALETTES)
@@ -241,6 +242,11 @@ def render_graph_builder_tab():
 
     # --- GENERATE BUTTON ---
     if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
+        # Validate required fields
+        if chart_type in ["Bar Chart", "Line Chart", "Scatter Plot", "Area Chart"] and not selections.get("y_col"):
+            st.error("⚠️ Please select a Y axis column for this chart type!")
+            st.stop()
+        
         with st.spinner("🤖 Generating ggplot2 code..."):
             try:
                 r_code = generate_graph_code(selections, df_preview, col_types)
