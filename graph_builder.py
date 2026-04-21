@@ -168,18 +168,6 @@ def render_graph_builder_tab():
     st.subheader("📊 R Graph Builder")
     st.caption("Upload data → configure chart → get ggplot2 code + graph")
     st.divider()
-    
-    # --- CUSTOM ENHANCEMENT ---
-    custom_request = st.text_area(
-        "✨ Custom Enhancement (optional)",
-        placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
-        height=80,
-        key="custom_request"
-    )
-
-    # --- GENERATE BUTTON ---
-    if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
-
     # --- DATA UPLOAD ---
     st.subheader("📁 Upload Data")
     uploaded = st.file_uploader(
@@ -270,6 +258,14 @@ def render_graph_builder_tab():
     df_preview = df.head(3).to_string()
 
     st.divider()
+    
+    # --- CUSTOM ENHANCEMENT ---
+    custom_request = st.text_area(
+        "✨ Custom Enhancement (optional)",
+        placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
+        height=80,
+        key="custom_request"
+    )
 
     # --- GENERATE BUTTON ---
     if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
