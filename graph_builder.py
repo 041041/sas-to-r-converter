@@ -240,9 +240,12 @@ def render_graph_builder_tab():
         return
 
     st.divider()
-
-    # --- CHART CONFIGURATION ---
-    st.subheader("⚙️ Configure Chart")
+    
+    # --- TWO COLUMN LAYOUT ---
+    left_col, right_col = st.columns([1, 2])
+    
+    with left_col:
+        st.subheader("⚙️ Configure Chart")
 
     cols = df.columns.tolist()
     numeric_cols = df.select_dtypes(include='number').columns.tolist()
