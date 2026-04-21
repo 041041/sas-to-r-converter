@@ -168,6 +168,13 @@ def render_graph_builder_tab():
     st.subheader("📊 R Graph Builder")
     st.caption("Upload data → configure chart → get ggplot2 code + graph")
     st.divider()
+    # --- CUSTOM ENHANCEMENT ---
+    custom_request = st.text_area(
+        "✨ Custom Enhancement (optional)",
+        placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
+        height=80,
+        key="custom_request"
+    )
 
     # --- DATA UPLOAD ---
     st.subheader("📁 Upload Data")
@@ -270,6 +277,34 @@ def render_graph_builder_tab():
         with st.spinner("🤖 Generating ggplot2 code..."):
             try:
                 r_code = generate_graph_code(selections, df_preview, col_types)
+                
+                # If custom request provided, enhance with LLM
+                if custom_request.strip():
+                    enhance_prompt = (
+                        f"Enhance this ggplot2 R code based on this request: '{custom_request}'\n\n"
+                        f"CURRENT CODE:\n{r_code}\n\n"
+                        f"RULES:\n"
+                        f"1. Keep the base structure intact\n"
+                        f"2. Only add/modify what's requested\n"
+                        f"3. Return complete working R code\n"
+                        f"4. No explanations, just code\n"
+                        f"5. Do NOT add ggsave\n"
+                    )
+                    try:
+                        res = groq_client.chat.completions.create(
+                            model='llama-3.3-70b-versatile',
+                            messages=[{'role': 'user', 'content': enhance_prompt}],
+                            temperature=0
+                        )
+                        r_code = res.choices[0].message.content
+                    except Exception:
+                        try:
+                            r_code = gemini_client.models.generate_content(
+                                model='gemini-2.0-flash', contents=enhance_prompt
+                            ).text
+                        except Exception:
+                            st.warning("⚠️ Enhancement failed, using base code.")
+                            
             except Exception as e:
                 st.error(f"LLM error: {e}")
                 return
