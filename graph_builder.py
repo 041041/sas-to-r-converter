@@ -307,11 +307,9 @@ def render_graph_builder_tab():
                     
                     if raw:
                         import re
-                        backticks = "\x60\x60\x60"
-                        if backticks in raw:
-                            pattern = backticks + r"(?:r|R)?\n(.*?)\n" + backticks
-                            blocks = re.findall(pattern, raw, re.DOTALL)
-                            if blocks: raw = "\n".join(blocks)
+                        # remove all backtick code blocks
+                        raw = re.sub(r'```[rR]?\n?', '', raw)
+                        raw = re.sub(r'```', '', raw)
                         r_code = raw.strip()
 
             except Exception as e:
