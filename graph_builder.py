@@ -168,6 +168,7 @@ def render_graph_builder_tab():
     st.subheader("📊 R Graph Builder")
     st.caption("Upload data → configure chart → get ggplot2 code + graph")
     st.divider()
+    
     # --- CUSTOM ENHANCEMENT ---
     custom_request = st.text_area(
         "✨ Custom Enhancement (optional)",
@@ -175,6 +176,9 @@ def render_graph_builder_tab():
         height=80,
         key="custom_request"
     )
+
+    # --- GENERATE BUTTON ---
+    if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
 
     # --- DATA UPLOAD ---
     st.subheader("📁 Upload Data")
