@@ -289,15 +289,18 @@ def render_graph_builder_tab():
                 
                 if custom_request.strip():
                     enhance_prompt = (
-                        f"Enhance this ggplot2 R code based on this request: '{custom_request}'\n\n"
+                        f"Modify this ggplot2 R code based on this request: '{custom_request}'\n\n"
                         f"CURRENT CODE:\n{r_code}\n\n"
-                        f"RULES:\n"
-                        f"1. Keep the base structure intact\n"
-                        f"2. Only add/modify what's requested\n"
-                        f"3. Return complete working R code\n"
-                        f"4. No explanations, just code\n"
-                        f"5. Do NOT add ggsave\n"
-                        f"6. Only use base ggplot2 functions — NO cowplot, NO ggthemes, NO external packages\n"
+                        f"CRITICAL RULES:\n"
+                        f"1. NEVER create or modify the data frame df — it already exists\n"
+                        f"2. NEVER add read.csv() or any data loading code\n"
+                        f"3. NEVER invent or hardcode any data values\n"
+                        f"4. ONLY modify ggplot2 visual elements (themes, labels, colors, geoms)\n"
+                        f"5. Keep all aes() mappings exactly the same\n"
+                        f"6. Return complete modified R code\n"
+                        f"7. No explanations, just code\n"
+                        f"8. Do NOT add ggsave\n"
+                        f"9. Only use base ggplot2 — NO cowplot, NO ggthemes\n"
                     )
                     try:
                         res = groq_client.chat.completions.create(
