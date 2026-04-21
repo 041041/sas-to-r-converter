@@ -355,7 +355,19 @@ def render_graph_builder_tab():
                 height=300,
                 key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
             )
-            if st.button("▶️ Run Edited Code", type="primary"):
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                run_edit = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
+            with btn_col2:
+                st.download_button(
+                    "⬇️ Download R Code",
+                    data=edited_code,
+                    file_name="graph.R",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            
+            if run_edit:
                 with st.spinner("Running updated code..."):
                     try:
                         png_bytes, r_log = execute_graph(
@@ -368,12 +380,6 @@ def render_graph_builder_tab():
                         st.rerun()
                     except RuntimeError as e:
                         st.error(str(e))
-            st.download_button(
-                "⬇️ Download R Code",
-                data=st.session_state.get("graph_r_code", ""),
-                file_name="graph.R",
-                mime="text/plain"
-            )
             log = st.session_state.get("graph_log", "")
             if log:
                 with st.expander("📋 R Log"):
