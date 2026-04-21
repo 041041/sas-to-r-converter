@@ -278,7 +278,6 @@ def render_graph_builder_tab():
             try:
                 r_code = generate_graph_code(selections, df_preview, col_types)
                 
-                # If custom request provided, enhance with LLM
                 if custom_request.strip():
                     enhance_prompt = (
                         f"Enhance this ggplot2 R code based on this request: '{custom_request}'\n\n"
@@ -297,7 +296,16 @@ def render_graph_builder_tab():
                             temperature=0
                         )
                         raw = res.choices[0].message.content
-                        # clean code blocks
+                    except Exception:
+                        try:
+                            raw = gemini_client.models.generate_content(
+                                model='gemini-2.0-flash', contents=enhance_prompt
+                            ).text
+                        except Exception:
+                            raw = None
+                            st.warning("⚠️ Enhancement failed, using base code.")
+                    
+                    if raw:
                         import re
                         backticks = "\x60\x60\x60"
                         if backticks in raw:
@@ -305,21 +313,14 @@ def render_graph_builder_tab():
                             blocks = re.findall(pattern, raw, re.DOTALL)
                             if blocks: raw = "\n".join(blocks)
                         r_code = raw.strip()
-                    except Exception:
-                        try:
-                            r_code = gemini_client.models.generate_content(
-                                model='gemini-2.0-flash', contents=enhance_prompt
-                            ).text
-                        except Exception:
-                            st.warning("⚠️ Enhancement failed, using base code.")
-                            
+
             except Exception as e:
                 st.error(f"LLM error: {e}")
                 return
 
         st.session_state["graph_r_code"] = r_code
-        st.session_state["graph_df"]     = df
-
+        st.session_state["graph_df"] = df
+        
         with st.spinner("⚙️ Running R..."):
             try:
                 png_bytes, r_log = execute_graph(r_code, df)
