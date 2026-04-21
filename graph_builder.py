@@ -288,6 +288,7 @@ def render_graph_builder_tab():
                         f"3. Return complete working R code\n"
                         f"4. No explanations, just code\n"
                         f"5. Do NOT add ggsave\n"
+                        f"6. Only use base ggplot2 functions — NO cowplot, NO ggthemes, NO external packages\n"
                     )
                     try:
                         res = groq_client.chat.completions.create(
@@ -310,6 +311,10 @@ def render_graph_builder_tab():
                         # remove all backtick code blocks
                         raw = re.sub(r'```[rR]?\n?', '', raw)
                         raw = re.sub(r'```', '', raw)
+                        # remove functions from unknown packages
+                        raw = re.sub(r'panel_border\([^)]*\)\s*\+?', '', raw)
+                        raw = re.sub(r'library\(cowplot\)', '', raw)
+                        raw = re.sub(r'library\(ggthemes\)', '', raw)
                         r_code = raw.strip()
 
             except Exception as e:
