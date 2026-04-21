@@ -4,6 +4,28 @@ import streamlit as st
 from groq import Groq
 from google import genai
 
+def show_code_diff(old_code, new_code):
+    """Shows highlighted diff between old and new code."""
+    import difflib
+    old_lines = old_code.splitlines()
+    new_lines = new_code.splitlines()
+    
+    diff = difflib.unified_diff(old_lines, new_lines, lineterm='')
+    
+    html = ["<pre style='font-family:monospace; font-size:13px; line-height:1.5;'>"]
+    for line in diff:
+        if line.startswith('+++') or line.startswith('---') or line.startswith('@@'):
+            continue
+        elif line.startswith('+'):
+            html.append(f"<span style='background:#1a4a1a; color:#90ee90; display:block'>{line}</span>")
+        elif line.startswith('-'):
+            html.append(f"<span style='background:#4a1a1a; color:#ff9999; display:block; text-decoration:line-through'>{line}</span>")
+        else:
+            html.append(f"<span style='color:#ccc; display:block'>{line}</span>")
+    html.append("</pre>")
+    
+    st.markdown("".join(html), unsafe_allow_html=True)
+
 # --- CLIENTS (reuse from app.py) ---
 def get_secret(key):
     try: return st.secrets[key]
@@ -342,13 +364,11 @@ def render_graph_builder_tab():
         # Show confirm if pending enhancement
         if st.session_state.get("graph_r_code_pending"):
             st.warning("⚠️ AI wants to modify your code. Review and confirm:")
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Before:**")
-                st.code(st.session_state["graph_r_code_original"], language="r")
-            with col2:
-                st.markdown("**After:**")
-                st.code(st.session_state["graph_r_code_pending"], language="r")
+            st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
+            show_code_diff(
+                st.session_state["graph_r_code_original"],
+                st.session_state["graph_r_code_pending"]
+            )
             
             c1, c2 = st.columns(2)
             with c1:
