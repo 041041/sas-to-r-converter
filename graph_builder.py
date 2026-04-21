@@ -353,7 +353,7 @@ def render_graph_builder_tab():
                 "Edit R Code",
                 value=st.session_state.get("graph_r_code", ""),
                 height=300,
-                key="edited_r_code"
+                key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
             )
             if st.button("▶️ Run Edited Code", type="primary"):
                 with st.spinner("Running updated code..."):
