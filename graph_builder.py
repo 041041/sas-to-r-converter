@@ -135,8 +135,13 @@ def execute_graph(r_code, df):
 
         import re
         # Remove ggsave - handle multiline
-        r_code_clean = re.sub(r'\+?\s*ggsave\s*\([^;]*?\)', '', r_code, flags=re.DOTALL).strip()
-        r_code_clean = re.sub(r'\+?\s*ggsave\s*\(.*', '', r_code_clean, flags=re.DOTALL).strip()
+        # Nuclear ggsave removal - split on ggsave and take everything before it
+        if 'ggsave' in r_code:
+            # remove the + before ggsave too
+            r_code = re.sub(r'\s*\+\s*\n?\s*(?=ggsave)', '', r_code)
+            r_code_clean = r_code.split('ggsave')[0].strip().rstrip('+').strip()
+        else:
+            r_code_clean = r_code.strip()
 
         full_script = "\n".join([
             "suppressPackageStartupMessages(library(ggplot2))",
