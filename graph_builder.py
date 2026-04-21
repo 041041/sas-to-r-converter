@@ -291,12 +291,21 @@ def render_graph_builder_tab():
                         f"5. Do NOT add ggsave\n"
                     )
                     try:
+                        try:
                         res = groq_client.chat.completions.create(
                             model='llama-3.3-70b-versatile',
                             messages=[{'role': 'user', 'content': enhance_prompt}],
                             temperature=0
                         )
-                        r_code = res.choices[0].message.content
+                        raw = res.choices[0].message.content
+                        # clean code blocks
+                        import re
+                        backticks = "\x60\x60\x60"
+                        if backticks in raw:
+                            pattern = backticks + r"(?:r|R)?\n(.*?)\n" + backticks
+                            blocks = re.findall(pattern, raw, re.DOTALL)
+                            if blocks: raw = "\n".join(blocks)
+                        r_code = raw.strip()
                     except Exception:
                         try:
                             r_code = gemini_client.models.generate_content(
