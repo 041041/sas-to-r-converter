@@ -134,10 +134,9 @@ def execute_graph(r_code, df):
         df.to_csv(inp_path, index=False)
 
         import re
-        # Step 1 - remove ggsave from LLM code
-        r_code_clean = re.sub(r'\+?\s*ggsave\s*\(.*?\)', '', r_code, flags=re.DOTALL).strip()
-        # Step 2 - force stat='identity' in geom_bar
-        r_code_clean = re.sub(r'geom_bar\(\)', "geom_bar(stat='identity')", r_code_clean)
+        # Remove ggsave - handle multiline
+        r_code_clean = re.sub(r'\+?\s*ggsave\s*\([^;]*?\)', '', r_code, flags=re.DOTALL).strip()
+        r_code_clean = re.sub(r'\+?\s*ggsave\s*\(.*', '', r_code_clean, flags=re.DOTALL).strip()
 
         full_script = "\n".join([
             "suppressPackageStartupMessages(library(ggplot2))",
