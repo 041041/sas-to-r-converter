@@ -311,6 +311,8 @@ def render_graph_builder_tab():
                         # remove all backtick code blocks
                         raw = re.sub(r'```[rR]?\n?', '', raw)
                         raw = re.sub(r'```', '', raw)
+                        # remove ggsave from enhanced code
+                        raw = re.sub(r'\+?\s*ggsave\s*\(.*?\)', '', raw, flags=re.DOTALL)
                         # remove functions from unknown packages
                         raw = re.sub(r'panel_border\([^)]*\)\s*\+?', '', raw)
                         raw = re.sub(r'library\(cowplot\)', '', raw)
