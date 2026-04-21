@@ -330,6 +330,8 @@ def render_graph_builder_tab():
                         raw = re.sub(r'library\(cowplot\)', '', raw)
                         raw = re.sub(r'library\(ggthemes\)', '', raw)
                         r_code = raw.strip()
+                        st.session_state["graph_r_code_pending"] = r_code
+                        st.session_state["graph_r_code_original"] = st.session_state.get("graph_r_code", "")
 
             except Exception as e:
                 st.error(f"LLM error: {e}")
@@ -337,6 +339,27 @@ def render_graph_builder_tab():
 
         st.session_state["graph_r_code"] = r_code
         st.session_state["graph_df"] = df
+        # Show confirm if pending enhancement
+        if st.session_state.get("graph_r_code_pending"):
+            st.warning("⚠️ AI wants to modify your code. Review and confirm:")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Before:**")
+                st.code(st.session_state["graph_r_code_original"], language="r")
+            with col2:
+                st.markdown("**After:**")
+                st.code(st.session_state["graph_r_code_pending"], language="r")
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✅ Apply Changes", use_container_width=True):
+                    st.session_state["graph_r_code"] = st.session_state["graph_r_code_pending"]
+                    st.session_state["graph_r_code_pending"] = None
+                    st.rerun()
+            with c2:
+                if st.button("❌ Reject Changes", use_container_width=True):
+                    st.session_state["graph_r_code_pending"] = None
+                    st.rerun()
         
         with st.spinner("⚙️ Running R..."):
             try:
