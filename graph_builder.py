@@ -143,6 +143,11 @@ def execute_graph(r_code, df):
         else:
             r_code_clean = r_code.strip()
 
+        # Clean trailing + or whitespace
+        r_code_clean = r_code_clean.rstrip()
+        while r_code_clean.endswith('+'):
+            r_code_clean = r_code_clean[:-1].rstrip()
+
         full_script = "\n".join([
             "suppressPackageStartupMessages(library(ggplot2))",
             "suppressPackageStartupMessages(library(dplyr))",
