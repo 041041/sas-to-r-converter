@@ -370,16 +370,42 @@ def render_graph_builder_tab():
                 st.session_state["graph_r_code_pending"]
             )
             
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns(3)
             with c1:
                 if st.button("✅ Apply Changes", use_container_width=True):
                     st.session_state["graph_r_code"] = st.session_state["graph_r_code_pending"]
                     st.session_state["graph_r_code_pending"] = None
+                    st.session_state["graph_preview_png"] = None
                     st.rerun()
             with c2:
+                if st.button("👁️ Preview", use_container_width=True):
+                    with st.spinner("Generating preview..."):
+                        try:
+                            preview_png, _ = execute_graph(
+                                st.session_state["graph_r_code_pending"],
+                                st.session_state.get("graph_df")
+                            )
+                            st.session_state["graph_preview_png"] = preview_png
+                            st.rerun()
+                        except RuntimeError as e:
+                            st.error(f"Preview failed: {e}")
+            with c3:
                 if st.button("❌ Reject Changes", use_container_width=True):
                     st.session_state["graph_r_code_pending"] = None
+                    st.session_state["graph_preview_png"] = None
                     st.rerun()
+
+            # Show preview if available
+            if st.session_state.get("graph_preview_png"):
+                st.markdown("**👁️ Preview (not applied yet):**")
+                col_old, col_new = st.columns(2)
+                with col_old:
+                    st.markdown("**Current Graph:**")
+                    if st.session_state.get("graph_png"):
+                        st.image(st.session_state["graph_png"], use_container_width=True)
+                with col_new:
+                    st.markdown("**Preview (pending):**")
+                    st.image(st.session_state["graph_preview_png"], use_container_width=True)
         
         with st.spinner("⚙️ Running R..."):
             try:
