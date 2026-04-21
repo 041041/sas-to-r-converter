@@ -177,7 +177,8 @@ def render_graph_builder_tab():
         key="graph_upload"
     )
 
-    df = None
+    df = st.session_state.get("graph_df", None)
+
     if uploaded:
         try:
             ext = os.path.splitext(uploaded.name)[1].lower()
@@ -185,19 +186,20 @@ def render_graph_builder_tab():
                 df = pd.read_excel(uploaded)
             else:
                 df = pd.read_csv(uploaded)
+            st.session_state["graph_df"] = df
             st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
             st.dataframe(df.head(5), use_container_width=True)
         except Exception as e:
             st.error(f"Failed to load file: {e}")
             return
 
-    # --- PASTE CSV OPTION ---
     with st.expander("Or paste CSV text manually"):
         manual_csv = st.text_area("Paste CSV here", height=100, key="graph_manual_csv")
         if manual_csv:
             try:
                 import io
                 df = pd.read_csv(io.StringIO(manual_csv))
+                st.session_state["graph_df"] = df
                 st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
                 st.dataframe(df.head(5), use_container_width=True)
             except Exception as e:
