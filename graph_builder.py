@@ -291,7 +291,6 @@ def render_graph_builder_tab():
                         f"5. Do NOT add ggsave\n"
                     )
                     try:
-                        try:
                         res = groq_client.chat.completions.create(
                             model='llama-3.3-70b-versatile',
                             messages=[{'role': 'user', 'content': enhance_prompt}],
