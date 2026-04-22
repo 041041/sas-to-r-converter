@@ -255,61 +255,62 @@ def render_graph_builder_tab():
 
     st.divider()
     
-st.subheader("⚙️ Configure Chart")
-cols = df.columns.tolist()
-numeric_cols = df.select_dtypes(include='number').columns.tolist()
-all_cols_with_none = ["None"] + cols
-c1, c2 = st.columns(2)
+# --- DATA CONFIGURATION SECTION ---
+    st.subheader("⚙️ Configure Chart")
+    cols = df.columns.tolist()
+    numeric_cols = df.select_dtypes(include='number').columns.tolist()
+    all_cols_with_none = ["None"] + cols
 
-with c1:
-    chart_type  = st.selectbox("📊 Chart Type", CHART_TYPES)
-    x_col       = st.selectbox("📋 X Axis", cols)
-    title       = st.text_input("📝 Title", value=f"{chart_type} of {x_col}")
-    theme       = st.selectbox("🎨 Theme", THEMES)
-    sort_order  = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"])
-
-with c2:
-    default_y   = 1 if numeric_cols else 0
-    # find index of first numeric column in all_cols_with_none
-    numeric_default = next(
-        (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 
-        0
-    )
-    y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default)
-    color_col   = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
-    orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
-    palette     = st.selectbox("🖌️ Color Palette", PALETTES)
-    show_values = st.checkbox("🔢 Show Values on Chart", value=False)
-
-selections = {
-    "chart_type":   chart_type,
-    "x_col":        x_col,
-    "y_col":        y_col if y_col != "None" else None,
-    "color_col":    color_col if color_col != "None" else None,
-    "title":        title,
-    "theme":        theme,
-    "orientation":  orientation,
-    "palette":      palette,
-    "show_values":  show_values,
-    "sort_order":   sort_order,
-}
-
-# column types for LLM context
-col_types = {c: str(df[c].dtype) for c in cols}
-
-# df preview for LLM
-df_preview = df.head(3).to_string()
-
-st.divider()
+    # Using standard columns for a cleaner vertical stack of controls
+    c1, c2 = st.columns(2)
     
-# --- CUSTOM ENHANCEMENT ---
-custom_request = st.text_area(
-    "✨ Custom Enhancement (optional)",
-    placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
-    height=80,
-    key="custom_request"
-)
-    # --- GENERATE BUTTON ---
+    with c1:
+        chart_type  = st.selectbox("📊 Chart Type", CHART_TYPES)
+        x_col       = st.selectbox("📋 X Axis", cols)
+        title       = st.text_input("📝 Title", value=f"{chart_type} of {x_col}")
+        theme       = st.selectbox("🎨 Theme", THEMES)
+        sort_order  = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"])
+
+    with c2:
+        # find index of first numeric column in all_cols_with_none
+        numeric_default = next(
+            (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 
+            0
+        )
+        y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default)
+        color_col   = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
+        orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
+        palette     = st.selectbox("🖌️ Color Palette", PALETTES)
+        show_values = st.checkbox("🔢 Show Values on Chart", value=False)
+
+    selections = {
+        "chart_type":   chart_type,
+        "x_col":        x_col,
+        "y_col":        y_col if y_col != "None" else None,
+        "color_col":    color_col if color_col != "None" else None,
+        "title":        title,
+        "theme":        theme,
+        "orientation":  orientation,
+        "palette":      palette,
+        "show_values":  show_values,
+        "sort_order":   sort_order,
+    }
+
+    # column types for LLM context
+    col_types = {c: str(df[c].dtype) for c in cols}
+
+    # df preview for LLM
+    df_preview = df.head(3).to_string()
+
+    st.divider()
+        
+    # --- CUSTOM ENHANCEMENT ---
+    custom_request = st.text_area(
+        "✨ Custom Enhancement (optional)",
+        placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
+        height=80,
+        key="custom_request"
+    )    # --- GENERATE BUTTON ---
     if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
         # Validate required fields
         if chart_type in ["Bar Chart", "Line Chart", "Scatter Plot", "Area Chart"] and not selections.get("y_col"):
