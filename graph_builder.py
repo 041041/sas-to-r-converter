@@ -26,7 +26,7 @@ def show_code_diff(old_code, new_code):
     
     st.markdown("".join(html), unsafe_allow_html=True)
 
-# --- CLIENTS (reuse from app.py) ---
+# --- CLIENTS ---
 def get_secret(key):
     try: return st.secrets[key]
     except Exception: return os.environ.get(key, "")
@@ -52,9 +52,9 @@ CHART_TYPES = [
 THEMES = ["minimal", "classic", "dark", "light", "bw", "void"]
 PALETTES = ["default", "Blues", "Reds", "Greens", "Spectral", "Set1", "Set2"]
 
-# --- GENERATE GGPLOT CODE VIA LLM ---
+# --- GENERATE GGPLOT CODE ---
 def generate_graph_code(selections, df_preview, col_types):
-    """Builds ggplot2 code directly from selections — no LLM guessing."""
+    """Builds ggplot2 code directly from selections."""
     
     chart_type  = selections['chart_type']
     x_col       = selections['x_col']
@@ -67,7 +67,6 @@ def generate_graph_code(selections, df_preview, col_types):
     sort_order  = selections.get('sort_order', 'none')
     palette     = selections.get('palette', 'default')
 
-    # --- X axis with optional sorting ---
     if sort_order == 'asc' and y_col:
         x_aes = f"reorder({x_col}, {y_col})"
     elif sort_order == 'desc' and y_col:
@@ -75,63 +74,41 @@ def generate_graph_code(selections, df_preview, col_types):
     else:
         x_aes = x_col
 
-    # --- Color/fill aesthetic ---
     if color_col:
         aes_str = f"aes(x={x_aes}, y={y_col}, fill={color_col})" if y_col else f"aes(x={x_aes}, fill={color_col})"
     else:
         aes_str = f"aes(x={x_aes}, y={y_col})" if y_col else f"aes(x={x_aes})"
         
-    # --- Geom layer ---
     if chart_type == "Bar Chart":
-        if color_col:
-            geom = "geom_bar(stat='identity', position='dodge')"
-        else:
-            geom = "geom_bar(stat='identity', fill='steelblue')"
+        geom = "geom_bar(stat='identity', position='dodge')" if color_col else "geom_bar(stat='identity', fill='steelblue')"
     elif chart_type == "Line Chart":
-        if color_col:
-            geom = f"geom_line(aes(group={color_col}), size=1)"
-        else:
-            geom = "geom_line(size=1, color='steelblue')"
+        geom = f"geom_line(aes(group={color_col}), size=1)" if color_col else "geom_line(size=1, color='steelblue')"
         geom += f"\n  + geom_point(size=2)"
     elif chart_type == "Scatter Plot":
-        if color_col:
-            geom = f"geom_point(size=3)"
-        else:
-            geom = "geom_point(size=3, color='steelblue')"
+        geom = "geom_point(size=3)" if color_col else "geom_point(size=3, color='steelblue')"
     elif chart_type == "Histogram":
         geom = "geom_histogram(bins=30, fill='steelblue', color='white')"
     elif chart_type == "Box Plot":
-        if color_col:
-            geom = "geom_boxplot()"
-        else:
-            geom = "geom_boxplot(fill='steelblue')"
+        geom = "geom_boxplot()" if color_col else "geom_boxplot(fill='steelblue')"
     elif chart_type == "Area Chart":
-        if color_col:
-            geom = f"geom_area(aes(group={color_col}), alpha=0.6)"
-        else:
-            geom = "geom_area(fill='steelblue', alpha=0.6)"
+        geom = f"geom_area(aes(group={color_col}), alpha=0.6)" if color_col else "geom_area(fill='steelblue', alpha=0.6)"
     elif chart_type == "Pie Chart":
         geom = "geom_bar(stat='identity', width=1)\n  + coord_polar('y')"
     else:
         geom = "geom_bar(stat='identity', fill='steelblue')"
 
-    # --- Color palette ---
-    palette_line = ""  # default empty
-    if color_col and palette != "default":
-        palette_line = f" +\n  scale_fill_brewer(palette='{palette}')"
+    palette_line = f" +\n  scale_fill_brewer(palette='{palette}')" if (color_col and palette != "default") else ""
 
-    # --- Value labels ---
-    values_line = ""  # default empty
     if show_values and y_col:
         if color_col:
             values_line = f" +\n  geom_text(aes(label={y_col}), position=position_stack(vjust=0.5), size=3, color='white')"
         else:
             values_line = f" +\n  geom_text(aes(label={y_col}), vjust=-0.5, size=3)"
+    else:
+        values_line = ""
 
-    # --- Flip for horizontal ---
     flip_line = "\n  + coord_flip()" if orientation == "horizontal" else ""
 
-    # --- Build final code ---
     code = f"""library(ggplot2)
 
 p <- ggplot(df, {aes_str}) +
@@ -145,9 +122,10 @@ p <- ggplot(df, {aes_str}) +
 p
 """
     return code
+
 # --- EXECUTE R AND RETURN PNG ---
 def execute_graph(r_code, df):
-    """Runs ggplot2 code via Rscript and returns PNG path."""
+    """Runs ggplot2 code via Rscript and returns PNG bytes."""
     with tempfile.TemporaryDirectory() as d:
         inp_path    = os.path.join(d, "input.csv")
         plot_path   = os.path.join(d, "output_plot.png")
@@ -155,17 +133,12 @@ def execute_graph(r_code, df):
 
         df.to_csv(inp_path, index=False)
 
-        import re
-        # Remove ggsave - handle multiline
-        # Nuclear ggsave removal - split on ggsave and take everything before it
         if 'ggsave' in r_code:
-            # remove the + before ggsave too
             r_code = re.sub(r'\s*\+\s*\n?\s*(?=ggsave)', '', r_code)
             r_code_clean = r_code.split('ggsave')[0].strip().rstrip('+').strip()
         else:
             r_code_clean = r_code.strip()
 
-        # Clean trailing + or whitespace
         r_code_clean = r_code_clean.rstrip()
         while r_code_clean.endswith('+'):
             r_code_clean = r_code_clean[:-1].rstrip()
@@ -199,6 +172,7 @@ def render_graph_builder_tab():
     st.subheader("📊 R Graph Builder")
     st.caption("Upload data → configure chart → get ggplot2 code + graph")
     st.divider()
+
     # --- SESSION STATE INIT ---
     for key, default in {
         "graph_df": None,
@@ -209,10 +183,12 @@ def render_graph_builder_tab():
         "graph_preview_png": None,
         "graph_r_code_pending": None,
         "graph_r_code_original": None,
+        # FIX 1: persist the custom enhancement text across reruns
+        "custom_request_text": "",
     }.items():
         if key not in st.session_state:
             st.session_state[key] = default
-            
+
     # --- DATA UPLOAD ---
     st.subheader("📁 Upload Data")
     uploaded = st.file_uploader(
@@ -226,10 +202,7 @@ def render_graph_builder_tab():
     if uploaded:
         try:
             ext = os.path.splitext(uploaded.name)[1].lower()
-            if ext in (".xlsx", ".xls"):
-                df = pd.read_excel(uploaded)
-            else:
-                df = pd.read_csv(uploaded)
+            df = pd.read_excel(uploaded) if ext in (".xlsx", ".xls") else pd.read_csv(uploaded)
             st.session_state["graph_df"] = df
             st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
             st.dataframe(df.head(5), use_container_width=True)
@@ -254,73 +227,71 @@ def render_graph_builder_tab():
         return
 
     st.divider()
-    
-# --- DATA CONFIGURATION SECTION ---
-    st.subheader("⚙️ Configure Chart")
-    cols = df.columns.tolist()
-    numeric_cols = df.select_dtypes(include='number').columns.tolist()
-    all_cols_with_none = ["None"] + cols
 
-    # Using standard columns for a cleaner vertical stack of controls
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        chart_type  = st.selectbox("📊 Chart Type", CHART_TYPES)
-        x_col       = st.selectbox("📋 X Axis", cols)
-        title       = st.text_input("📝 Title", value=f"{chart_type} of {x_col}")
-        theme       = st.selectbox("🎨 Theme", THEMES)
-        sort_order  = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"])
+    # --- TWO COLUMN LAYOUT ---
+    left_col, right_col = st.columns([1, 2])
 
-    with c2:
-        # find index of first numeric column in all_cols_with_none
-        numeric_default = next(
-            (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 
-            0
-        )
-        y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default)
-        color_col   = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
-        orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
-        palette     = st.selectbox("🖌️ Color Palette", PALETTES)
-        show_values = st.checkbox("🔢 Show Values on Chart", value=False)
+    with left_col:
+        st.subheader("⚙️ Configure Chart")
+        cols = df.columns.tolist()
+        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+        all_cols_with_none = ["None"] + cols
 
-    selections = {
-        "chart_type":   chart_type,
-        "x_col":        x_col,
-        "y_col":        y_col if y_col != "None" else None,
-        "color_col":    color_col if color_col != "None" else None,
-        "title":        title,
-        "theme":        theme,
-        "orientation":  orientation,
-        "palette":      palette,
-        "show_values":  show_values,
-        "sort_order":   sort_order,
-    }
+        c1, c2 = st.columns(2)
+        with c1:
+            chart_type  = st.selectbox("📊 Chart Type", CHART_TYPES)
+            x_col       = st.selectbox("📋 X Axis", cols)
+            title       = st.text_input("📝 Title", value=f"{chart_type} of {x_col}")
+            theme       = st.selectbox("🎨 Theme", THEMES)
+            sort_order  = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"])
 
-    # column types for LLM context
-    col_types = {c: str(df[c].dtype) for c in cols}
+        with c2:
+            numeric_default = next(
+                (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 0
+            )
+            y_col       = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default)
+            color_col   = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
+            orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
+            palette     = st.selectbox("🖌️ Color Palette", PALETTES)
+            show_values = st.checkbox("🔢 Show Values on Chart", value=False)
 
-    # df preview for LLM
-    df_preview = df.head(3).to_string()
+        selections = {
+            "chart_type":   chart_type,
+            "x_col":        x_col,
+            "y_col":        y_col if y_col != "None" else None,
+            "color_col":    color_col if color_col != "None" else None,
+            "title":        title,
+            "theme":        theme,
+            "orientation":  orientation,
+            "palette":      palette,
+            "show_values":  show_values,
+            "sort_order":   sort_order,
+        }
 
-    st.divider()
-        
+        col_types  = {c: str(df[c].dtype) for c in cols}
+        df_preview = df.head(3).to_string()
+
+        st.divider()
+
     # --- CUSTOM ENHANCEMENT ---
+    # FIX 1: bind text_area to session_state key so text survives reruns
     custom_request = st.text_area(
         "✨ Custom Enhancement (optional)",
         placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
         height=80,
-        key="custom_request"
-    )    # --- GENERATE BUTTON ---
+        key="custom_request_text",   # bound directly to session_state
+    )
+
+    # --- GENERATE BUTTON ---
     if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
-        # Validate required fields
         if chart_type in ["Bar Chart", "Line Chart", "Scatter Plot", "Area Chart"] and not selections.get("y_col"):
             st.error("⚠️ Please select a Y axis column for this chart type!")
             st.stop()
-        
+
         with st.spinner("🤖 Generating ggplot2 code..."):
             try:
                 r_code = generate_graph_code(selections, df_preview, col_types)
-                
+
                 if custom_request.strip():
                     enhance_prompt = (
                         f"Modify this ggplot2 R code based on this request: '{custom_request}'\n\n"
@@ -336,6 +307,7 @@ def render_graph_builder_tab():
                         f"8. Do NOT add ggsave\n"
                         f"9. Only use base ggplot2 — NO cowplot, NO ggthemes\n"
                     )
+                    raw = None
                     try:
                         res = groq_client.chat.completions.create(
                             model='llama-3.3-70b-versatile',
@@ -349,87 +321,120 @@ def render_graph_builder_tab():
                                 model='gemini-2.0-flash', contents=enhance_prompt
                             ).text
                         except Exception:
-                            raw = None
                             st.warning("⚠️ Enhancement failed, using base code.")
-                    
+
                     if raw:
-                        import re
-                        # remove all backtick code blocks
                         raw = re.sub(r'```[rR]?\n?', '', raw)
                         raw = re.sub(r'```', '', raw)
-                        # remove ggsave from enhanced code
                         raw = re.sub(r'\+?\s*ggsave\s*\(.*?\)', '', raw, flags=re.DOTALL)
-                        # remove functions from unknown packages
                         raw = re.sub(r'panel_border\([^)]*\)\s*\+?', '', raw)
                         raw = re.sub(r'library\(cowplot\)', '', raw)
                         raw = re.sub(r'library\(ggthemes\)', '', raw)
-                        r_code = raw.strip()
-                        st.session_state["graph_r_code_pending"] = r_code
-                        st.session_state["graph_r_code_original"] = st.session_state.get("graph_r_code", "")
-    
+                        enhanced_code = raw.strip()
+                        # FIX 2: store pending state and rerun so buttons persist
+                        st.session_state["graph_r_code_pending"]  = enhanced_code
+                        st.session_state["graph_r_code_original"] = r_code
+                        st.session_state["graph_r_code"]          = r_code
+                        st.session_state["graph_df"]              = df
+                        st.rerun()   # rerun so the review block below renders properly
+
+                # No custom request — run immediately
+                st.session_state["graph_r_code_pending"] = None
+                st.session_state["graph_r_code"]         = r_code
+                st.session_state["graph_df"]             = df
+
             except Exception as e:
-                st.error(f"LLM error: {e}")
-                return
-    
-        st.session_state["graph_r_code"] = r_code
-        st.session_state["graph_df"] = df
-        # Show confirm if pending enhancement
-        if st.session_state.get("graph_r_code_pending"):
-            st.warning("⚠️ AI wants to modify your code. Review and confirm:")
-            st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
-            show_code_diff(
-                st.session_state["graph_r_code_original"],
-                st.session_state["graph_r_code_pending"]
-            )
-            
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                if st.button("✅ Apply Changes", use_container_width=True):
-                    st.session_state["graph_r_code"] = st.session_state["graph_r_code_pending"]
-                    st.session_state["graph_r_code_pending"] = None
-                    st.session_state["graph_preview_png"] = None
-                    st.rerun()
-            with c2:
-                if st.button("👁️ Preview", use_container_width=True):
-                    with st.spinner("Generating preview..."):
-                        try:
-                            preview_png, _ = execute_graph(
-                                st.session_state["graph_r_code_pending"],
-                                st.session_state.get("graph_df")
-                            )
-                            st.session_state["graph_preview_png"] = preview_png
-                            st.rerun()
-                        except RuntimeError as e:
-                            st.error(f"Preview failed: {e}")
-            with c3:
-                if st.button("❌ Reject Changes", use_container_width=True):
-                    st.session_state["graph_r_code_pending"] = None
-                    st.session_state["graph_preview_png"] = None
-                    st.rerun()
-    
-            # Show preview if available
-            if st.session_state.get("graph_preview_png"):
-                st.markdown("**👁️ Preview (not applied yet):**")
-                col_old, col_new = st.columns(2)
-                with col_old:
-                    st.markdown("**Current Graph:**")
-                    if st.session_state.get("graph_png"):
-                        st.image(st.session_state["graph_png"], use_container_width=True)
-                with col_new:
-                    st.markdown("**Preview (pending):**")
-                    st.image(st.session_state["graph_preview_png"], use_container_width=True)
-        
-        with st.spinner("⚙️ Running R..."):
-            try:
-                png_bytes, r_log = execute_graph(r_code, df)
-                st.session_state["graph_png"] = png_bytes
-                st.session_state["graph_log"] = r_log
-                st.session_state["graph_error"] = None
-            except RuntimeError as e:
-                st.session_state["graph_error"] = str(e)
-                st.session_state["graph_png"]   = None
-    
+                st.error(f"Code generation error: {e}")
+                st.stop()
+
+        # FIX 3: only run R if there is NO pending enhancement waiting for review
+        if not st.session_state.get("graph_r_code_pending"):
+            with st.spinner("⚙️ Running R..."):
+                try:
+                    png_bytes, r_log = execute_graph(r_code, df)
+                    st.session_state["graph_png"]   = png_bytes
+                    st.session_state["graph_log"]   = r_log
+                    st.session_state["graph_error"] = None
+                except RuntimeError as e:
+                    st.session_state["graph_error"] = str(e)
+                    st.session_state["graph_png"]   = None
+
+    # FIX 2 (cont): review block lives OUTSIDE the Generate button block
+    # so it persists across reruns and the three buttons actually work
+    if st.session_state.get("graph_r_code_pending"):
+        st.warning("⚠️ AI wants to modify your code. Review and confirm:")
+        st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
+        show_code_diff(
+            st.session_state["graph_r_code_original"],
+            st.session_state["graph_r_code_pending"]
+        )
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("✅ Apply Changes", use_container_width=True):
+                st.session_state["graph_r_code"]         = st.session_state["graph_r_code_pending"]
+                st.session_state["graph_r_code_pending"] = None
+                st.session_state["graph_preview_png"]    = None
+                # Run R with the applied code
+                with st.spinner("⚙️ Running R with applied changes..."):
+                    try:
+                        png_bytes, r_log = execute_graph(
+                            st.session_state["graph_r_code"],
+                            st.session_state["graph_df"]
+                        )
+                        st.session_state["graph_png"]   = png_bytes
+                        st.session_state["graph_log"]   = r_log
+                        st.session_state["graph_error"] = None
+                    except RuntimeError as e:
+                        st.session_state["graph_error"] = str(e)
+                        st.session_state["graph_png"]   = None
+                st.rerun()
+
+        with c2:
+            if st.button("👁️ Preview", use_container_width=True):
+                with st.spinner("Generating preview..."):
+                    try:
+                        preview_png, _ = execute_graph(
+                            st.session_state["graph_r_code_pending"],
+                            st.session_state["graph_df"]
+                        )
+                        st.session_state["graph_preview_png"] = preview_png
+                        st.rerun()
+                    except RuntimeError as e:
+                        st.error(f"Preview failed: {e}")
+
+        with c3:
+            if st.button("❌ Reject Changes", use_container_width=True):
+                st.session_state["graph_r_code_pending"] = None
+                st.session_state["graph_preview_png"]    = None
+                # Run R with the original (unmodified) code
+                with st.spinner("⚙️ Running R with original code..."):
+                    try:
+                        png_bytes, r_log = execute_graph(
+                            st.session_state["graph_r_code"],
+                            st.session_state["graph_df"]
+                        )
+                        st.session_state["graph_png"]   = png_bytes
+                        st.session_state["graph_log"]   = r_log
+                        st.session_state["graph_error"] = None
+                    except RuntimeError as e:
+                        st.session_state["graph_error"] = str(e)
+                        st.session_state["graph_png"]   = None
+                st.rerun()
+
+        if st.session_state.get("graph_preview_png"):
+            st.markdown("**👁️ Preview (not applied yet):**")
+            col_old, col_new = st.columns(2)
+            with col_old:
+                st.markdown("**Current Graph:**")
+                if st.session_state.get("graph_png"):
+                    st.image(st.session_state["graph_png"], use_container_width=True)
+            with col_new:
+                st.markdown("**Preview (pending):**")
+                st.image(st.session_state["graph_preview_png"], use_container_width=True)
+
     # --- OUTPUT ---
+    with right_col:
         if st.session_state.get("graph_r_code"):
             st.subheader("📤 Output")
             out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
@@ -469,9 +474,9 @@ def render_graph_builder_tab():
                                 edited_code,
                                 st.session_state.get("graph_df")
                             )
-                            st.session_state["graph_png"] = png_bytes
-                            st.session_state["graph_log"] = r_log
-                            st.session_state["graph_r_code"] = edited_code
+                            st.session_state["graph_png"]     = png_bytes
+                            st.session_state["graph_log"]     = r_log
+                            st.session_state["graph_r_code"]  = edited_code
                             st.rerun()
                         except RuntimeError as e:
                             st.error(str(e))
