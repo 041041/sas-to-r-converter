@@ -433,6 +433,7 @@ def render_graph_builder_tab():
             except RuntimeError as e:
                 st.session_state["graph_error"] = str(e)
                 st.session_state["graph_png"]   = None
+        st.rerun()
 
     # Review block lives OUTSIDE Generate button block
     # so it persists across reruns and the three buttons actually work
