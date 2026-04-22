@@ -312,7 +312,7 @@ def render_graph_builder_tab():
             placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
             height=80,
             key="custom_request"
-    )
+            )
 
     # --- GENERATE BUTTON ---
     if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
