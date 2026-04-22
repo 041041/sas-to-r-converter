@@ -185,6 +185,7 @@ def render_graph_builder_tab():
         "graph_r_code_original": None,
         # FIX 1: persist the custom enhancement text across reruns
         "custom_request_text": "",
+        "_run_r_now": False,
     }.items():
         if key not in st.session_state:
             st.session_state[key] = default
@@ -331,35 +332,42 @@ def render_graph_builder_tab():
                         raw = re.sub(r'library\(cowplot\)', '', raw)
                         raw = re.sub(r'library\(ggthemes\)', '', raw)
                         enhanced_code = raw.strip()
-                        # FIX 2: store pending state and rerun so buttons persist
+                        # Store pending — do NOT touch graph_png so the existing
+                        # graph keeps showing in right_col during review
                         st.session_state["graph_r_code_pending"]  = enhanced_code
                         st.session_state["graph_r_code_original"] = r_code
                         st.session_state["graph_r_code"]          = r_code
                         st.session_state["graph_df"]              = df
-                        st.rerun()   # rerun so the review block below renders properly
+                        st.session_state["graph_preview_png"]     = None
+                        st.rerun()
 
-                # No custom request — run immediately
+                # No custom request — flag R to run immediately
                 st.session_state["graph_r_code_pending"] = None
                 st.session_state["graph_r_code"]         = r_code
                 st.session_state["graph_df"]             = df
+                st.session_state["_run_r_now"]           = True
 
             except Exception as e:
                 st.error(f"Code generation error: {e}")
                 st.stop()
 
-        # FIX 3: only run R if there is NO pending enhancement waiting for review
-        if not st.session_state.get("graph_r_code_pending"):
-            with st.spinner("⚙️ Running R..."):
-                try:
-                    png_bytes, r_log = execute_graph(r_code, df)
-                    st.session_state["graph_png"]   = png_bytes
-                    st.session_state["graph_log"]   = r_log
-                    st.session_state["graph_error"] = None
-                except RuntimeError as e:
-                    st.session_state["graph_error"] = str(e)
-                    st.session_state["graph_png"]   = None
+    # Run R whenever flagged (Generate with no custom, or Apply Changes)
+    if st.session_state.get("_run_r_now") and not st.session_state.get("graph_r_code_pending"):
+        st.session_state["_run_r_now"] = False
+        with st.spinner("⚙️ Running R..."):
+            try:
+                png_bytes, r_log = execute_graph(
+                    st.session_state["graph_r_code"],
+                    st.session_state["graph_df"]
+                )
+                st.session_state["graph_png"]   = png_bytes
+                st.session_state["graph_log"]   = r_log
+                st.session_state["graph_error"] = None
+            except RuntimeError as e:
+                st.session_state["graph_error"] = str(e)
+                st.session_state["graph_png"]   = None
 
-    # FIX 2 (cont): review block lives OUTSIDE the Generate button block
+    # Review block lives OUTSIDE Generate button block
     # so it persists across reruns and the three buttons actually work
     if st.session_state.get("graph_r_code_pending"):
         st.warning("⚠️ AI wants to modify your code. Review and confirm:")
@@ -372,22 +380,11 @@ def render_graph_builder_tab():
         c1, c2, c3 = st.columns(3)
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True):
+                # Move pending → active; _run_r_now flag triggers R execution below
                 st.session_state["graph_r_code"]         = st.session_state["graph_r_code_pending"]
                 st.session_state["graph_r_code_pending"] = None
                 st.session_state["graph_preview_png"]    = None
-                # Run R with the applied code
-                with st.spinner("⚙️ Running R with applied changes..."):
-                    try:
-                        png_bytes, r_log = execute_graph(
-                            st.session_state["graph_r_code"],
-                            st.session_state["graph_df"]
-                        )
-                        st.session_state["graph_png"]   = png_bytes
-                        st.session_state["graph_log"]   = r_log
-                        st.session_state["graph_error"] = None
-                    except RuntimeError as e:
-                        st.session_state["graph_error"] = str(e)
-                        st.session_state["graph_png"]   = None
+                st.session_state["_run_r_now"]           = True
                 st.rerun()
 
         with c2:
@@ -405,21 +402,10 @@ def render_graph_builder_tab():
 
         with c3:
             if st.button("❌ Reject Changes", use_container_width=True):
+                # Discard pending — graph_png already holds the original graph,
+                # so nothing disappears; just clear the review UI
                 st.session_state["graph_r_code_pending"] = None
                 st.session_state["graph_preview_png"]    = None
-                # Run R with the original (unmodified) code
-                with st.spinner("⚙️ Running R with original code..."):
-                    try:
-                        png_bytes, r_log = execute_graph(
-                            st.session_state["graph_r_code"],
-                            st.session_state["graph_df"]
-                        )
-                        st.session_state["graph_png"]   = png_bytes
-                        st.session_state["graph_log"]   = r_log
-                        st.session_state["graph_error"] = None
-                    except RuntimeError as e:
-                        st.session_state["graph_error"] = str(e)
-                        st.session_state["graph_png"]   = None
                 st.rerun()
 
         if st.session_state.get("graph_preview_png"):
