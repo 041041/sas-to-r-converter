@@ -258,14 +258,13 @@ def render_graph_builder_tab():
     # --- TWO COLUMN LAYOUT ---
     left_col, right_col = st.columns([1, 2])
     
-    with left_col:
+with left_col:
         st.subheader("⚙️ Configure Chart")
-
-    cols = df.columns.tolist()
-    numeric_cols = df.select_dtypes(include='number').columns.tolist()
-    all_cols_with_none = ["None"] + cols
-
-    c1, c2 = st.columns(2)
+        cols = df.columns.tolist()
+        numeric_cols = df.select_dtypes(include='number').columns.tolist()
+        all_cols_with_none = ["None"] + cols
+        c1, c2 = st.columns(2)
+        
     with c1:
         chart_type  = st.selectbox("📊 Chart Type", CHART_TYPES)
         x_col       = st.selectbox("📋 X Axis", cols)
