@@ -309,172 +309,172 @@ custom_request = st.text_area(
     height=80,
     key="custom_request"
 )
-# --- GENERATE BUTTON ---
-if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
-    # Validate required fields
-    if chart_type in ["Bar Chart", "Line Chart", "Scatter Plot", "Area Chart"] and not selections.get("y_col"):
-        st.error("⚠️ Please select a Y axis column for this chart type!")
-        st.stop()
-    
-    with st.spinner("🤖 Generating ggplot2 code..."):
-        try:
-            r_code = generate_graph_code(selections, df_preview, col_types)
-            
-            if custom_request.strip():
-                enhance_prompt = (
-                    f"Modify this ggplot2 R code based on this request: '{custom_request}'\n\n"
-                    f"CURRENT CODE:\n{r_code}\n\n"
-                    f"CRITICAL RULES:\n"
-                    f"1. NEVER create or modify the data frame df — it already exists\n"
-                    f"2. NEVER add read.csv() or any data loading code\n"
-                    f"3. NEVER invent or hardcode any data values\n"
-                    f"4. ONLY modify ggplot2 visual elements (themes, labels, colors, geoms)\n"
-                    f"5. Keep all aes() mappings exactly the same\n"
-                    f"6. Return complete modified R code\n"
-                    f"7. No explanations, just code\n"
-                    f"8. Do NOT add ggsave\n"
-                    f"9. Only use base ggplot2 — NO cowplot, NO ggthemes\n"
-                )
-                try:
-                    res = groq_client.chat.completions.create(
-                        model='llama-3.3-70b-versatile',
-                        messages=[{'role': 'user', 'content': enhance_prompt}],
-                        temperature=0
-                    )
-                    raw = res.choices[0].message.content
-                except Exception:
-                    try:
-                        raw = gemini_client.models.generate_content(
-                            model='gemini-2.0-flash', contents=enhance_prompt
-                        ).text
-                    except Exception:
-                        raw = None
-                        st.warning("⚠️ Enhancement failed, using base code.")
-                
-                if raw:
-                    import re
-                    # remove all backtick code blocks
-                    raw = re.sub(r'```[rR]?\n?', '', raw)
-                    raw = re.sub(r'```', '', raw)
-                    # remove ggsave from enhanced code
-                    raw = re.sub(r'\+?\s*ggsave\s*\(.*?\)', '', raw, flags=re.DOTALL)
-                    # remove functions from unknown packages
-                    raw = re.sub(r'panel_border\([^)]*\)\s*\+?', '', raw)
-                    raw = re.sub(r'library\(cowplot\)', '', raw)
-                    raw = re.sub(r'library\(ggthemes\)', '', raw)
-                    r_code = raw.strip()
-                    st.session_state["graph_r_code_pending"] = r_code
-                    st.session_state["graph_r_code_original"] = st.session_state.get("graph_r_code", "")
-
-        except Exception as e:
-            st.error(f"LLM error: {e}")
-            return
-
-    st.session_state["graph_r_code"] = r_code
-    st.session_state["graph_df"] = df
-    # Show confirm if pending enhancement
-    if st.session_state.get("graph_r_code_pending"):
-        st.warning("⚠️ AI wants to modify your code. Review and confirm:")
-        st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
-        show_code_diff(
-            st.session_state["graph_r_code_original"],
-            st.session_state["graph_r_code_pending"]
-        )
+    # --- GENERATE BUTTON ---
+    if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
+        # Validate required fields
+        if chart_type in ["Bar Chart", "Line Chart", "Scatter Plot", "Area Chart"] and not selections.get("y_col"):
+            st.error("⚠️ Please select a Y axis column for this chart type!")
+            st.stop()
         
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button("✅ Apply Changes", use_container_width=True):
-                st.session_state["graph_r_code"] = st.session_state["graph_r_code_pending"]
-                st.session_state["graph_r_code_pending"] = None
-                st.session_state["graph_preview_png"] = None
-                st.rerun()
-        with c2:
-            if st.button("👁️ Preview", use_container_width=True):
-                with st.spinner("Generating preview..."):
+        with st.spinner("🤖 Generating ggplot2 code..."):
+            try:
+                r_code = generate_graph_code(selections, df_preview, col_types)
+                
+                if custom_request.strip():
+                    enhance_prompt = (
+                        f"Modify this ggplot2 R code based on this request: '{custom_request}'\n\n"
+                        f"CURRENT CODE:\n{r_code}\n\n"
+                        f"CRITICAL RULES:\n"
+                        f"1. NEVER create or modify the data frame df — it already exists\n"
+                        f"2. NEVER add read.csv() or any data loading code\n"
+                        f"3. NEVER invent or hardcode any data values\n"
+                        f"4. ONLY modify ggplot2 visual elements (themes, labels, colors, geoms)\n"
+                        f"5. Keep all aes() mappings exactly the same\n"
+                        f"6. Return complete modified R code\n"
+                        f"7. No explanations, just code\n"
+                        f"8. Do NOT add ggsave\n"
+                        f"9. Only use base ggplot2 — NO cowplot, NO ggthemes\n"
+                    )
                     try:
-                        preview_png, _ = execute_graph(
-                            st.session_state["graph_r_code_pending"],
-                            st.session_state.get("graph_df")
+                        res = groq_client.chat.completions.create(
+                            model='llama-3.3-70b-versatile',
+                            messages=[{'role': 'user', 'content': enhance_prompt}],
+                            temperature=0
                         )
-                        st.session_state["graph_preview_png"] = preview_png
-                        st.rerun()
-                    except RuntimeError as e:
-                        st.error(f"Preview failed: {e}")
-        with c3:
-            if st.button("❌ Reject Changes", use_container_width=True):
-                st.session_state["graph_r_code_pending"] = None
-                st.session_state["graph_preview_png"] = None
-                st.rerun()
-
-        # Show preview if available
-        if st.session_state.get("graph_preview_png"):
-            st.markdown("**👁️ Preview (not applied yet):**")
-            col_old, col_new = st.columns(2)
-            with col_old:
-                st.markdown("**Current Graph:**")
+                        raw = res.choices[0].message.content
+                    except Exception:
+                        try:
+                            raw = gemini_client.models.generate_content(
+                                model='gemini-2.0-flash', contents=enhance_prompt
+                            ).text
+                        except Exception:
+                            raw = None
+                            st.warning("⚠️ Enhancement failed, using base code.")
+                    
+                    if raw:
+                        import re
+                        # remove all backtick code blocks
+                        raw = re.sub(r'```[rR]?\n?', '', raw)
+                        raw = re.sub(r'```', '', raw)
+                        # remove ggsave from enhanced code
+                        raw = re.sub(r'\+?\s*ggsave\s*\(.*?\)', '', raw, flags=re.DOTALL)
+                        # remove functions from unknown packages
+                        raw = re.sub(r'panel_border\([^)]*\)\s*\+?', '', raw)
+                        raw = re.sub(r'library\(cowplot\)', '', raw)
+                        raw = re.sub(r'library\(ggthemes\)', '', raw)
+                        r_code = raw.strip()
+                        st.session_state["graph_r_code_pending"] = r_code
+                        st.session_state["graph_r_code_original"] = st.session_state.get("graph_r_code", "")
+    
+            except Exception as e:
+                st.error(f"LLM error: {e}")
+                return
+    
+        st.session_state["graph_r_code"] = r_code
+        st.session_state["graph_df"] = df
+        # Show confirm if pending enhancement
+        if st.session_state.get("graph_r_code_pending"):
+            st.warning("⚠️ AI wants to modify your code. Review and confirm:")
+            st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
+            show_code_diff(
+                st.session_state["graph_r_code_original"],
+                st.session_state["graph_r_code_pending"]
+            )
+            
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("✅ Apply Changes", use_container_width=True):
+                    st.session_state["graph_r_code"] = st.session_state["graph_r_code_pending"]
+                    st.session_state["graph_r_code_pending"] = None
+                    st.session_state["graph_preview_png"] = None
+                    st.rerun()
+            with c2:
+                if st.button("👁️ Preview", use_container_width=True):
+                    with st.spinner("Generating preview..."):
+                        try:
+                            preview_png, _ = execute_graph(
+                                st.session_state["graph_r_code_pending"],
+                                st.session_state.get("graph_df")
+                            )
+                            st.session_state["graph_preview_png"] = preview_png
+                            st.rerun()
+                        except RuntimeError as e:
+                            st.error(f"Preview failed: {e}")
+            with c3:
+                if st.button("❌ Reject Changes", use_container_width=True):
+                    st.session_state["graph_r_code_pending"] = None
+                    st.session_state["graph_preview_png"] = None
+                    st.rerun()
+    
+            # Show preview if available
+            if st.session_state.get("graph_preview_png"):
+                st.markdown("**👁️ Preview (not applied yet):**")
+                col_old, col_new = st.columns(2)
+                with col_old:
+                    st.markdown("**Current Graph:**")
+                    if st.session_state.get("graph_png"):
+                        st.image(st.session_state["graph_png"], use_container_width=True)
+                with col_new:
+                    st.markdown("**Preview (pending):**")
+                    st.image(st.session_state["graph_preview_png"], use_container_width=True)
+        
+        with st.spinner("⚙️ Running R..."):
+            try:
+                png_bytes, r_log = execute_graph(r_code, df)
+                st.session_state["graph_png"] = png_bytes
+                st.session_state["graph_log"] = r_log
+                st.session_state["graph_error"] = None
+            except RuntimeError as e:
+                st.session_state["graph_error"] = str(e)
+                st.session_state["graph_png"]   = None
+    
+    # --- OUTPUT ---
+        if st.session_state.get("graph_r_code"):
+            st.subheader("📤 Output")
+            out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
+            with out1:
                 if st.session_state.get("graph_png"):
                     st.image(st.session_state["graph_png"], use_container_width=True)
-            with col_new:
-                st.markdown("**Preview (pending):**")
-                st.image(st.session_state["graph_preview_png"], use_container_width=True)
-    
-    with st.spinner("⚙️ Running R..."):
-        try:
-            png_bytes, r_log = execute_graph(r_code, df)
-            st.session_state["graph_png"] = png_bytes
-            st.session_state["graph_log"] = r_log
-            st.session_state["graph_error"] = None
-        except RuntimeError as e:
-            st.session_state["graph_error"] = str(e)
-            st.session_state["graph_png"]   = None
-
-# --- OUTPUT ---
-    if st.session_state.get("graph_r_code"):
-        st.subheader("📤 Output")
-        out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
-        with out1:
-            if st.session_state.get("graph_png"):
-                st.image(st.session_state["graph_png"], use_container_width=True)
-                st.download_button(
-                    "⬇️ Download PNG",
-                    data=st.session_state["graph_png"],
-                    file_name="graph.png",
-                    mime="image/png"
+                    st.download_button(
+                        "⬇️ Download PNG",
+                        data=st.session_state["graph_png"],
+                        file_name="graph.png",
+                        mime="image/png"
+                    )
+                elif st.session_state.get("graph_error"):
+                    st.error(st.session_state["graph_error"])
+            with out2:
+                edited_code = st.text_area(
+                    "Edit R Code",
+                    value=st.session_state.get("graph_r_code", ""),
+                    height=300,
+                    key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
                 )
-            elif st.session_state.get("graph_error"):
-                st.error(st.session_state["graph_error"])
-        with out2:
-            edited_code = st.text_area(
-                "Edit R Code",
-                value=st.session_state.get("graph_r_code", ""),
-                height=300,
-                key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
-            )
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
-                run_edit = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
-            with btn_col2:
-                st.download_button(
-                    "⬇️ Download R Code",
-                    data=edited_code,
-                    file_name="graph.R",
-                    mime="text/plain",
-                    use_container_width=True
-                )
-            if run_edit:
-                with st.spinner("Running updated code..."):
-                    try:
-                        png_bytes, r_log = execute_graph(
-                            edited_code,
-                            st.session_state.get("graph_df")
-                        )
-                        st.session_state["graph_png"] = png_bytes
-                        st.session_state["graph_log"] = r_log
-                        st.session_state["graph_r_code"] = edited_code
-                        st.rerun()
-                    except RuntimeError as e:
-                        st.error(str(e))
-            log = st.session_state.get("graph_log", "")
-            if log:
-                with st.expander("📋 R Log"):
-                    st.code(log, language="bash")
+                btn_col1, btn_col2 = st.columns(2)
+                with btn_col1:
+                    run_edit = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
+                with btn_col2:
+                    st.download_button(
+                        "⬇️ Download R Code",
+                        data=edited_code,
+                        file_name="graph.R",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+                if run_edit:
+                    with st.spinner("Running updated code..."):
+                        try:
+                            png_bytes, r_log = execute_graph(
+                                edited_code,
+                                st.session_state.get("graph_df")
+                            )
+                            st.session_state["graph_png"] = png_bytes
+                            st.session_state["graph_log"] = r_log
+                            st.session_state["graph_r_code"] = edited_code
+                            st.rerun()
+                        except RuntimeError as e:
+                            st.error(str(e))
+                log = st.session_state.get("graph_log", "")
+                if log:
+                    with st.expander("📋 R Log"):
+                        st.code(log, language="bash")
