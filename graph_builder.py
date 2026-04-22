@@ -438,49 +438,49 @@ def render_graph_builder_tab():
     if st.session_state.get("graph_r_code"):
         st.subheader("📤 Output")
         out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
-          with out1:
-                if st.session_state.get("graph_png"):
-                    st.image(st.session_state["graph_png"], use_container_width=True)
-                    st.download_button(
-                        "⬇️ Download PNG",
-                        data=st.session_state["graph_png"],
-                        file_name="graph.png",
-                        mime="image/png"
-                    )
-                elif st.session_state.get("graph_error"):
-                    st.error(st.session_state["graph_error"])
-            with out2:
-                edited_code = st.text_area(
-                    "Edit R Code",
-                    value=st.session_state.get("graph_r_code", ""),
-                    height=300,
-                    key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
+        with out1:
+            if st.session_state.get("graph_png"):
+                st.image(st.session_state["graph_png"], use_container_width=True)
+                st.download_button(
+                    "⬇️ Download PNG",
+                    data=st.session_state["graph_png"],
+                    file_name="graph.png",
+                    mime="image/png"
                 )
-                btn_col1, btn_col2 = st.columns(2)
-                with btn_col1:
-                    run_edit = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
-                with btn_col2:
-                    st.download_button(
-                        "⬇️ Download R Code",
-                        data=edited_code,
-                        file_name="graph.R",
-                        mime="text/plain",
-                        use_container_width=True
-                    )
-                if run_edit:
-                    with st.spinner("Running updated code..."):
-                        try:
-                            png_bytes, r_log = execute_graph(
-                                edited_code,
-                                st.session_state.get("graph_df")
-                            )
-                            st.session_state["graph_png"]     = png_bytes
-                            st.session_state["graph_log"]     = r_log
-                            st.session_state["graph_r_code"]  = edited_code
-                            st.rerun()
-                        except RuntimeError as e:
-                            st.error(str(e))
-                log = st.session_state.get("graph_log", "")
-                if log:
-                    with st.expander("📋 R Log"):
-                        st.code(log, language="bash")
+            elif st.session_state.get("graph_error"):
+                st.error(st.session_state["graph_error"])
+        with out2:
+            edited_code = st.text_area(
+                "Edit R Code",
+                value=st.session_state.get("graph_r_code", ""),
+                height=300,
+                key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
+            )
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                run_edit = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
+            with btn_col2:
+                st.download_button(
+                    "⬇️ Download R Code",
+                    data=edited_code,
+                    file_name="graph.R",
+                    mime="text/plain",
+                    use_container_width=True
+                )
+            if run_edit:
+                with st.spinner("Running updated code..."):
+                    try:
+                        png_bytes, r_log = execute_graph(
+                            edited_code,
+                            st.session_state.get("graph_df")
+                        )
+                        st.session_state["graph_png"]     = png_bytes
+                        st.session_state["graph_log"]     = r_log
+                        st.session_state["graph_r_code"]  = edited_code
+                        st.rerun()
+                    except RuntimeError as e:
+                        st.error(str(e))
+            log = st.session_state.get("graph_log", "")
+            if log:
+                with st.expander("📋 R Log"):
+                    st.code(log, language="bash")
