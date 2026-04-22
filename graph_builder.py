@@ -433,6 +433,7 @@ def render_graph_builder_tab():
                 st.session_state["graph_png"]   = None
 
     # --- OUTPUT ---
+with right_col:  
     if st.session_state.get("graph_r_code"):
         st.divider()
         st.subheader("📤 Output")
