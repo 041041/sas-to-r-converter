@@ -199,6 +199,20 @@ def render_graph_builder_tab():
     st.subheader("📊 R Graph Builder")
     st.caption("Upload data → configure chart → get ggplot2 code + graph")
     st.divider()
+    # --- SESSION STATE INIT ---
+    for key, default in {
+        "graph_df": None,
+        "graph_r_code": "",
+        "graph_png": None,
+        "graph_log": "",
+        "graph_error": None,
+        "graph_preview_png": None,
+        "graph_r_code_pending": None,
+        "graph_r_code_original": None,
+    }.items():
+        if key not in st.session_state:
+            st.session_state[key] = default
+            
     # --- DATA UPLOAD ---
     st.subheader("📁 Upload Data")
     uploaded = st.file_uploader(
