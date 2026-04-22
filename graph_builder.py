@@ -177,10 +177,10 @@ def render_graph_builder_tab():
     # Always reset review state on fresh page load
     # (guards against stale state from hot-reloads or previous sessions)
     if "graph_builder_initialized" not in st.session_state:
-    st.session_state["graph_r_code_pending"] = None
-    st.session_state["graph_preview_png"] = None
-    st.session_state["_run_r_now"] = False
-    st.session_state["graph_builder_initialized"] = True
+        st.session_state["graph_r_code_pending"] = None
+        st.session_state["graph_preview_png"] = None
+        st.session_state["_run_r_now"] = False
+        st.session_state["graph_builder_initialized"] = True
     for key, default in {
         "graph_df": None,
         "graph_r_code": "",
