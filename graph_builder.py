@@ -236,50 +236,57 @@ def render_graph_builder_tab():
 
     st.divider()
 
-    # --- TWO COLUMN LAYOUT ---
-    left_col, right_col = st.columns([1, 2])
+# --- CONFIGURE CHART (full width, compact rows) ---
+    st.subheader("⚙️ Configure Chart")
+    cols = df.columns.tolist()
+    numeric_cols = df.select_dtypes(include='number').columns.tolist()
+    all_cols_with_none = ["None"] + cols
 
-    with left_col:
-        st.subheader("⚙️ Configure Chart")
-        cols = df.columns.tolist()
-        numeric_cols = df.select_dtypes(include='number').columns.tolist()
-        all_cols_with_none = ["None"] + cols
+    r1a, r1b, r1c, r1d, r1e = st.columns(5)
+    with r1a:
+        chart_type = st.selectbox("📊 Chart Type", CHART_TYPES)
+    with r1b:
+        x_col = st.selectbox("📋 X Axis", cols)
+    with r1c:
+        numeric_default = next(
+            (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 0
+        )
+        y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default)
+    with r1d:
+        color_col = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
+    with r1e:
+        orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
 
-        c1, c2 = st.columns(2)
-        with c1:
-            chart_type  = st.selectbox("📊 Chart Type", CHART_TYPES)
-            x_col       = st.selectbox("📋 X Axis", cols)
-            title       = st.text_input("📝 Title", value=f"{chart_type} of {x_col}")
-            theme       = st.selectbox("🎨 Theme", THEMES)
-            sort_order  = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"])
+    r2a, r2b, r2c, r2d, r2e = st.columns(5)
+    with r2a:
+        title = st.text_input("📝 Title", value=f"{chart_type} of {x_col}")
+    with r2b:
+        theme = st.selectbox("🎨 Theme", THEMES)
+    with r2c:
+        palette = st.selectbox("🖌️ Palette", PALETTES)
+    with r2d:
+        sort_order = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"])
+    with r2e:
+        st.write("")
+        show_values = st.checkbox("🔢 Show Values", value=False)
 
-        with c2:
-            numeric_default = next(
-                (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 0
-            )
-            y_col       = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default)
-            color_col   = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
-            orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
-            palette     = st.selectbox("🖌️ Color Palette", PALETTES)
-            show_values = st.checkbox("🔢 Show Values on Chart", value=False)
+    selections = {
+        "chart_type":   chart_type,
+        "x_col":        x_col,
+        "y_col":        y_col if y_col != "None" else None,
+        "color_col":    color_col if color_col != "None" else None,
+        "title":        title,
+        "theme":        theme,
+        "orientation":  orientation,
+        "palette":      palette,
+        "show_values":  show_values,
+        "sort_order":   sort_order,
+    }
 
-        selections = {
-            "chart_type":   chart_type,
-            "x_col":        x_col,
-            "y_col":        y_col if y_col != "None" else None,
-            "color_col":    color_col if color_col != "None" else None,
-            "title":        title,
-            "theme":        theme,
-            "orientation":  orientation,
-            "palette":      palette,
-            "show_values":  show_values,
-            "sort_order":   sort_order,
-        }
+    col_types  = {c: str(df[c].dtype) for c in cols}
+    df_preview = df.head(3).to_string()
 
-        col_types  = {c: str(df[c].dtype) for c in cols}
-        df_preview = df.head(3).to_string()
-
-        st.divider()
+    st.divider()
 
     # --- CUSTOM ENHANCEMENT ---
     # FIX 1: bind text_area to session_state key so text survives reruns
@@ -427,10 +434,10 @@ def render_graph_builder_tab():
                 st.image(st.session_state["graph_preview_png"], use_container_width=True)
 
     # --- OUTPUT ---
-    with right_col:
-        if st.session_state.get("graph_r_code"):
-            st.subheader("📤 Output")
-            out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
+    st.divider()
+    if st.session_state.get("graph_r_code"):
+        st.subheader("📤 Output")
+        out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
             with out1:
                 if st.session_state.get("graph_png"):
                     st.image(st.session_state["graph_png"], use_container_width=True)
