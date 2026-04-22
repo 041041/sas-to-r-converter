@@ -306,13 +306,13 @@ def render_graph_builder_tab():
     
         st.divider()
         
-        # --- CUSTOM ENHANCEMENT ---
-        custom_request = st.text_area(
-            "✨ Custom Enhancement (optional)",
-            placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
-            height=80,
-            key="custom_request"
-        )
+    # --- CUSTOM ENHANCEMENT ---
+    custom_request = st.text_area(
+        "✨ Custom Enhancement (optional)",
+        placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
+        height=80,
+        key="custom_request"
+    )
     # --- GENERATE BUTTON ---
     if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
         # Validate required fields
