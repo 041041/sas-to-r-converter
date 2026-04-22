@@ -255,10 +255,6 @@ def render_graph_builder_tab():
 
     st.divider()
     
-    # --- TWO COLUMN LAYOUT ---
-    left_col, right_col = st.columns([1, 2])
-    
-    with left_col:
         st.subheader("⚙️ Configure Chart")
         cols = df.columns.tolist()
         numeric_cols = df.select_dtypes(include='number').columns.tolist()
@@ -433,7 +429,6 @@ def render_graph_builder_tab():
                 st.session_state["graph_png"]   = None
 
     # --- OUTPUT ---
-    with right_col:
         if st.session_state.get("graph_r_code"):
             st.subheader("📤 Output")
             out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
