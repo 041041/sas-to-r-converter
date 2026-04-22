@@ -236,7 +236,7 @@ def render_graph_builder_tab():
 
     st.divider()
 
-# --- CONFIGURE CHART (full width, compact rows) ---
+    # --- CONFIGURE CHART (full width, compact rows) ---
     st.subheader("⚙️ Configure Chart")
     cols = df.columns.tolist()
     numeric_cols = df.select_dtypes(include='number').columns.tolist()
