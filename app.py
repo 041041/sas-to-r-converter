@@ -590,7 +590,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     return pipeline_results
 
 # --- STREAMLIT UI ---
-  with st.sidebar:
+with st.sidebar:
       st.header("⚙️ Settings")
       mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
       st.divider()
