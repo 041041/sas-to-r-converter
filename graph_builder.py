@@ -296,6 +296,10 @@ def render_graph_builder_tab():
     df_preview = df.head(3).to_string()
 
     st.divider()
+    st.divider()
+    if st.session_state.get("graph_r_code"):
+        st.subheader("📤 Output")
+        out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
     with out1:
         img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
         if img_to_show:
