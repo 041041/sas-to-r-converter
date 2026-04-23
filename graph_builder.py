@@ -296,8 +296,7 @@ def render_graph_builder_tab():
     df_preview = df.head(3).to_string()
 
     st.divider()
-
-         with out1:
+        with out1:
             img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
             if img_to_show:
                 st.image(img_to_show, use_container_width=True)
