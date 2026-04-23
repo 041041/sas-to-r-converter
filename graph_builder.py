@@ -177,7 +177,7 @@ def render_graph_builder_tab():
                 padding: 5px 10px; border-radius: 8px; margin-bottom: 10px;
                 border-left: 4px solid #e94560;">
         <span style="color:#4CAF50; font-weight:bold; font-size:13px;">📊 Visual Builder</span>
-        <span style="color:#ccc; font-size:13px;"> Upload data → Configure → Generate ggplot2 → Edit & Download</span>
+        <span style="color:#ccc; font-size:10px;"> Upload data → Configure → Generate ggplot2 → Edit & Download</span>
     </div>
     """, unsafe_allow_html=True)
     st.divider()
@@ -207,7 +207,7 @@ def render_graph_builder_tab():
             st.session_state[key] = default
 
     # --- DATA UPLOAD ---
-    st.subheader("📁 Upload Data")
+    st.subheader("#### 📁 Upload Data")
     uploaded = st.file_uploader(
         "Upload CSV or Excel",
         type=["csv", "xlsx", "xls"],
