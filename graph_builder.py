@@ -363,10 +363,16 @@ def render_graph_builder_tab():
             try:
                 r_code = generate_graph_code(selections, df_preview, col_types)
 
+                # Build on top of previously accepted code so cumulative changes are preserved
+                if st.session_state.get("graph_r_code"):
+                    r_code_for_enhancement = st.session_state["graph_r_code"]
+                else:
+                    r_code_for_enhancement = r_code
+
                 if custom_request.strip():
                     enhance_prompt = (
                         f"Modify this ggplot2 R code based on this request: '{custom_request}'\n\n"
-                        f"CURRENT CODE:\n{r_code}\n\n"
+                        f"CURRENT CODE:\n{r_code_for_enhancement}\n\n"
                         f"CRITICAL RULES:\n"
                         f"1. NEVER create or modify the data frame df\n"
                         f"2. NEVER add read.csv() or any data loading code\n"
