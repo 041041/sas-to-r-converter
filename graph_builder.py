@@ -198,7 +198,7 @@ def render_graph_builder_tab():
         "graph_preview_png": None,
         "graph_r_code_pending": None,
         "graph_r_code_original": None,
-        "graph_png_before_preview": None
+        "graph_png_before_preview": None,
         # FIX 1: persist the custom enhancement text across reruns
         "custom_request_text": "",
         "_run_r_now": False,
