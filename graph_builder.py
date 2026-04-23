@@ -485,8 +485,8 @@ def render_graph_builder_tab():
                             st.session_state["graph_df"]
                         )
                         st.session_state["graph_preview_png"] = preview_png
-                        # snapshot current graph before preview
-                        st.session_state["graph_png_before_preview"] = st.session_state.get("graph_png")
+                        # always snapshot from graph_png at click time
+                        st.session_state["graph_png_before_preview"] = st.session_state.get("graph_png") or st.session_state.get("graph_png_accepted")
                         st.rerun()
                     except RuntimeError as e:
                         st.error(f"Preview failed: {e}")
