@@ -410,6 +410,9 @@ def render_graph_builder_tab():
                         st.session_state["graph_r_code"]          = r_code
                         st.session_state["graph_df"]              = df
                         st.session_state["graph_preview_png"]     = None
+                        # Snapshot current graph for preview comparison
+                        if st.session_state.get("graph_png") and not st.session_state.get("graph_png_accepted"):
+                            st.session_state["graph_png_accepted"] = st.session_state["graph_png"]
                         st.rerun()
 
                 st.session_state["graph_r_code_pending"] = None
