@@ -302,8 +302,9 @@ def render_graph_builder_tab():
         st.subheader("📤 Output")
         out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
         with out1:
-            st.write("DEBUG graph_png exists:", st.session_state.get("graph_png") is not None)
-            st.write("DEBUG graph_png_accepted exists:", st.session_state.get("graph_png_accepted") is not None)
+            img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
+            if img_to_show:
+                st.image(img_to_show, use_container_width=True)
             if st.session_state.get("graph_png"):
                 st.image(st.session_state["graph_png"], use_container_width=True)
                 st.download_button(
@@ -451,11 +452,10 @@ def render_graph_builder_tab():
                     st.session_state["graph_r_code"],
                     st.session_state["graph_df"]
                 )
-                st.session_state["graph_png"]   = png_bytes
-                st.session_state["graph_log"]   = r_log
-                st.session_state["graph_error"] = None
                 st.session_state["graph_png"] = png_bytes
                 st.session_state["graph_png_accepted"] = png_bytes
+                st.session_state["graph_log"] = r_log
+                st.session_state["graph_error"] = None
             except RuntimeError as e:
                 st.session_state["graph_error"] = str(e)
                 st.session_state["graph_png"]   = None
@@ -479,8 +479,6 @@ def render_graph_builder_tab():
                 st.session_state["graph_r_code_pending"] = None
                 st.session_state["graph_preview_png"]    = None
                 st.session_state["_run_r_now"]           = True
-                st.session_state["graph_png_accepted"] = st.session_state["graph_png"]
-                st.session_state["graph_png_accepted"] = st.session_state.get("graph_png")
                 st.rerun()
 
         with c2:
