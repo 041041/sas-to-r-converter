@@ -169,8 +169,17 @@ def execute_graph(r_code, df):
 
 # --- MAIN TAB RENDERER ---
 def render_graph_builder_tab():
-    st.subheader("📊 R Graph Builder")
-    st.caption("Upload data → configure chart → get ggplot2 code + graph")
+    st.markdown("""
+    <div style="margin-bottom:5px;">
+        <span style="font-size:28px; font-weight:800; color:white;">📊 R Graph Builder</span>
+    </div>
+    <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
+                padding: 10px 20px; border-radius: 8px; margin-bottom: 15px;
+                border-left: 4px solid #4CAF50;">
+        <span style="color:#4CAF50; font-weight:bold; font-size:13px;">📊 Visual Builder</span>
+        <span style="color:#ccc; font-size:13px;"> Upload data → Configure → Generate ggplot2 → Edit & Download</span>
+    </div>
+    """, unsafe_allow_html=True)
     st.divider()
 
     # --- SESSION STATE INIT ---
