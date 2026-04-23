@@ -441,10 +441,11 @@ def render_graph_builder_tab():
                             st.session_state["graph_df"]
                         )
                         st.session_state["graph_preview_png"] = preview_png
-                        st.session_state["graph_png_before_preview"] = (
-                            st.session_state.get("graph_png_accepted") or
-                            st.session_state.get("graph_png")
-                        )
+                        # Always use accepted graph as the "before" reference
+                        before = st.session_state.get("graph_png_accepted")
+                        if before is None:
+                            before = st.session_state.get("graph_png")
+                        st.session_state["graph_png_before_preview"] = before
                         st.rerun()
                     except RuntimeError as e:
                         st.error(f"Preview failed: {e}")
@@ -459,7 +460,7 @@ def render_graph_builder_tab():
             col_old, col_new = st.columns(2)
             with col_old:
                 st.markdown("**Current Graph:**")
-                before = st.session_state.get("graph_png_before_preview") or st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
+                before = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png_before_preview") or st.session_state.get("graph_png")
                 if before:
                     st.image(before, use_container_width=True)
             with col_new:
