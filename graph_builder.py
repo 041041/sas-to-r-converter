@@ -169,13 +169,9 @@ def execute_graph(r_code, df):
 
 # --- MAIN TAB RENDERER ---
 def render_graph_builder_tab():
-    st.markdown("""
-    <div style="margin-bottom:5px;">
-        <span style="font-size:22px; font-weight:700; color:white;">📊 R Graph Builder</span>
-    </div>""", unsafe_allow_html=True)
+    st.title("📊 R Graph Builder")
     st.caption("Upload data → Configure chart → Generate ggplot2 code → Edit & Download")
     
-
     # --- SESSION STATE INIT ---
     # Always reset review state on fresh page load
     # (guards against stale state from hot-reloads or previous sessions)
