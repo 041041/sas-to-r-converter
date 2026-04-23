@@ -296,25 +296,25 @@ def render_graph_builder_tab():
     df_preview = df.head(3).to_string()
 
     st.divider()
-        with out1:
-            img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
-            if img_to_show:
-                st.image(img_to_show, use_container_width=True)
-                st.download_button(
-                    "⬇️ Download PNG",
-                    data=img_to_show,
-                    file_name="graph.png",
-                    mime="image/png"
+            with out1:
+                img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
+                if img_to_show:
+                    st.image(img_to_show, use_container_width=True)
+                    st.download_button(
+                        "⬇️ Download PNG",
+                        data=img_to_show,
+                        file_name="graph.png",
+                        mime="image/png"
+                    )
+                elif st.session_state.get("graph_error"):
+                    st.error(st.session_state["graph_error"])
+            with out2:
+                edited_code = st.text_area(
+                    "Edit R Code",
+                    value=st.session_state.get("graph_r_code", ""),
+                    height=300,
+                    key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
                 )
-            elif st.session_state.get("graph_error"):
-                st.error(st.session_state["graph_error"])
-        with out2:
-            edited_code = st.text_area(
-                "Edit R Code",
-                value=st.session_state.get("graph_r_code", ""),
-                height=300,
-                key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
-            )
             btn_col1, btn_col2 = st.columns(2)
             with btn_col1:
                 run_edit = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
