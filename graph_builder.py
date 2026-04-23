@@ -294,22 +294,20 @@ def render_graph_builder_tab():
 
     col_types  = {c: str(df[c].dtype) for c in cols}
     df_preview = df.head(3).to_string()
-
-    st.divider()
     st.divider()
     if st.session_state.get("graph_r_code"):
         st.subheader("📤 Output")
         out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
-    with out1:
-        img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
-        if img_to_show:
-            st.image(img_to_show, use_container_width=True)
-            st.download_button(
-                "⬇️ Download PNG",
-                data=img_to_show,
-                file_name="graph.png",
-                mime="image/png"
-            )
+        with out1:
+            img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
+            if img_to_show:
+                st.image(img_to_show, use_container_width=True)
+                st.download_button(
+                    "⬇️ Download PNG",
+                    data=img_to_show,
+                    file_name="graph.png",
+                    mime="image/png"
+                )
         elif st.session_state.get("graph_error"):
             st.error(st.session_state["graph_error"])
     with out2:
