@@ -7,15 +7,8 @@ from graph_builder import render_graph_builder_tab
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
+
 st.markdown("""
-    <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
-                padding: 15px 20px; border-radius: 10px; margin-bottom: 20px;
-                border-left: 4px solid #e94560;">
-        <span style="color:#e94560; font-weight:bold;">⚡ Powered by</span>
-        <span style="color:white;"> Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output</span>
-    </div>
-    """, unsafe_allow_html=True)
- st.markdown("""
     <style>
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-weight: 600; }
@@ -31,9 +24,17 @@ st.markdown("""
         margin-left: 8px;
         font-family: monospace;
     }
+    .stTabs [data-baseweb="tab"] {
+        font-size: 16px;
+        font-weight: 700;
+        padding: 10px 20px;
+    }
+    .stTabs [aria-selected="true"] {
+        border-bottom: 3px solid #e94560 !important;
+        color: #e94560 !important;
+    }
     </style>
     """, unsafe_allow_html=True)
-
 # --- SESSION STATE INIT ---
 for key, default in {
     "sas_input": "",
