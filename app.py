@@ -717,7 +717,7 @@ with main_tab2:
 with main_tab1:
     st.markdown("""
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:5px;">
-        <span style="font-size:28px; font-weight:800; color:white;">🔄 Smart SAS to R Converter</span>
+        <span style="font-size:22px; font-weight:700; color:white;">🔄 Smart SAS to R Converter</span>
     </div>
     <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
                 padding: 10px 20px; border-radius: 8px; margin-bottom: 15px;
@@ -729,12 +729,12 @@ with main_tab1:
     st.divider()
    
     # --- SAS INPUT ---
-    st.markdown("## 📋 SAS Code")
+    st.markdown("#### 📋 SAS Code")
     sas_script = st.text_area(
-      "sas", height=250, label_visibility="collapsed",
-      placeholder="Paste your SAS code here...",
-      value=st.session_state.sas_input,
-      key="sas_input"
+        "sas", height=250, label_visibility="collapsed",
+        placeholder="Paste your SAS code here...",
+        value=st.session_state.sas_input,
+        key="sas_input"
     )
     
     # --- FILE UPLOAD — only shown in validate mode ---
