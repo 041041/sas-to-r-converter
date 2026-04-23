@@ -302,6 +302,8 @@ def render_graph_builder_tab():
         st.subheader("📤 Output")
         out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
         with out1:
+            st.write("DEBUG graph_png exists:", st.session_state.get("graph_png") is not None)
+            st.write("DEBUG graph_png_accepted exists:", st.session_state.get("graph_png_accepted") is not None)
             if st.session_state.get("graph_png"):
                 st.image(st.session_state["graph_png"], use_container_width=True)
                 st.download_button(
