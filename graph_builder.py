@@ -180,7 +180,6 @@ def render_graph_builder_tab():
         <span style="color:#ccc; font-size:10px;"> Upload data → Configure → Generate ggplot2 → Edit & Download</span>
     </div>
     """, unsafe_allow_html=True)
-    st.divider()
 
     # --- SESSION STATE INIT ---
     # Always reset review state on fresh page load
@@ -207,7 +206,7 @@ def render_graph_builder_tab():
             st.session_state[key] = default
 
     # --- DATA UPLOAD ---
-    st.subheader("#### 📁 Upload Data")
+    st.markdown("<p style='font-size:14px; font-weight:600; color:#aaa; margin-bottom:5px;'>📁 Upload Data</p>", unsafe_allow_html=True)
     uploaded = st.file_uploader(
         "Upload CSV or Excel",
         type=["csv", "xlsx", "xls"],
