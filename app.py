@@ -592,15 +592,18 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     return pipeline_results
     
 with st.sidebar:
-  st.header("⚙️ Settings")
-  mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
-  st.divider()
-  r_dialect = st.radio("R Dialect", ["Base R", "Modern R (tidyverse)"])
-
-  st.divider()
-
-  st.header("📖 How to use")
-  st.markdown("""
+    st.markdown("### 🗂️ Navigation")
+    page = st.radio("", ["🔄 SAS Converter", "📊 Graph Builder"], label_visibility="collapsed")
+    st.divider()
+    
+    if page == "🔄 SAS Converter":
+        st.header("⚙️ Settings")
+        mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
+        st.divider()
+        r_dialect = st.radio("R Dialect", ["Base R", "Modern R (tidyverse)"])
+        st.divider()
+        st.header("📖 How to use")
+        st.markdown("""
 **Convert Only:**
 1. Paste SAS code → Run
 2. Download R script
@@ -609,66 +612,47 @@ with st.sidebar:
 **Convert + Validate:**
 1. Paste SAS code
 2. Upload expected CSV or Excel
- - filename = dataset name
- - *Single file auto-maps to final step!*
+   - filename = dataset name
+   - *Single file auto-maps to final step!*
 3. Run → see ✅ MATCH / ❌ MISMATCH
 """)
-
-  st.divider()
-
-  st.header("✨ What this app does")
-  st.markdown("""
+        st.divider()
+        st.header("✨ What this app does")
+        st.markdown("""
 🔄 Converts SAS code to R automatically
-
 ✅ Executes & validates R output
-
 🔧 Auto-fixes R errors on failure
-
 🔄 Fix & Retry on output mismatch
-
 📊 Side by side SAS vs R comparison
-
 ⏱️ Per-step timing metrics
-
 📥 Downloads full R script
 """)
-
-  st.divider()
-
-  st.header("📋 Supported SAS")
-  st.markdown("""
+        st.divider()
+        st.header("📋 Supported SAS")
+        st.markdown("""
 ✅ DATA step (SET, IF/ELSE, mutate)
-
 ✅ PROC SORT
-
 ✅ PROC MEANS
-
 ✅ PROC FREQ
-
 ✅ PROC SQL (JOIN, GROUP BY, HAVING)
-
 ✅ PROC TRANSPOSE
 """)
-
-  st.divider()
-
-  st.header("🔜 Coming Soon")
-  st.markdown("""
+        st.divider()
+        st.header("🔜 Coming Soon")
+        st.markdown("""
 🔶 SAS Macros *(in development)*
 """)
-
-  st.divider()
-
-  st.header("💡 Tips")
-  st.markdown("""
+        st.divider()
+        st.header("💡 Tips")
+        st.markdown("""
 - Name CSV same as SAS dataset
 - Single CSV auto-maps to final step
 - Use **Modern R** for cleaner code
 - Use **Base R** for maximum compatibility
 """)
+        st.caption("Built with Gemini + Groq + Rscript")
 
-  st.caption("Built with Gemini + Groq + Rscript")
-  elif page == "📊 Graph Builder":
+    elif page == "📊 Graph Builder":
         st.header("📊 Graph Builder")
         st.markdown("""
 **How to use:**
@@ -701,7 +685,6 @@ with st.sidebar:
 - Show Values = labels on bars
 """)
         st.caption("Powered by Groq + ggplot2")
-
 # --- STREAMLIT UI ---
 if page == "🔄 SAS Converter":
   st.title("🔄 Smart SAS to R Converter")
