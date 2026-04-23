@@ -12,7 +12,13 @@ st.markdown("""
     <style>
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .block-container { padding-top: 1rem !important; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-weight: 600; }
+    .stTabs [data-baseweb="tab"] {
+        font-size: 18px;
+        font-weight: 700;
+        padding: 12px 28px;
+        letter-spacing: 0.5px;
+        text-transform: uppercase;
+    }
     .step-card { border: 1px solid #e6e9ef; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
     .timing-badge {
         display: inline-block;
