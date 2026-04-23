@@ -729,7 +729,7 @@ with main_tab1:
     st.divider()
    
     # --- SAS INPUT ---
-    st.markdown("### 📋 SAS Code")
+    st.markdown("## 📋 SAS Code")
     sas_script = st.text_area(
       "sas", height=250, label_visibility="collapsed",
       placeholder="Paste your SAS code here...",
