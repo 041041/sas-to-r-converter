@@ -317,10 +317,10 @@ def render_graph_builder_tab():
                     height=300,
                     key=f"edited_r_code_{hash(st.session_state.get('graph_r_code', ''))}"
                 )
-            btn_col1, btn_col2 = st.columns(2)
-            with btn_col1:
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
                 run_edit = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
-            with btn_col2:
+        with btn_col2:
                 st.download_button(
                     "⬇️ Download R Code",
                     data=edited_code,
