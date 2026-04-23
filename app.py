@@ -11,6 +11,7 @@ st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layo
 st.markdown("""
     <style>
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
+    .block-container { padding-top: 1rem !important; }
     .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-weight: 600; }
     .step-card { border: 1px solid #e6e9ef; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
     .timing-badge {
@@ -726,10 +727,9 @@ with main_tab1:
         <span style="color:#ccc; font-size:10px;"> Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output</span>
     </div>
     """, unsafe_allow_html=True)
-    st.divider()
    
     # --- SAS INPUT ---
-    st.markdown("#### 📋 SAS Code")
+    st.markdown("<p style='font-size:14px; font-weight:600; color:#aaa; margin-bottom:5px;'>📋 SAS Code</p>", unsafe_allow_html=True)
     sas_script = st.text_area(
         "sas", height=250, label_visibility="collapsed",
         placeholder="Paste your SAS code here...",
