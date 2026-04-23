@@ -185,6 +185,7 @@ def render_graph_builder_tab():
         "graph_df": None,
         "graph_r_code": "",
         "graph_png": None,
+        "graph_png_accepted": None,
         "graph_log": "",
         "graph_error": None,
         "graph_preview_png": None,
@@ -328,9 +329,10 @@ def render_graph_builder_tab():
                             edited_code,
                             st.session_state.get("graph_df")
                         )
-                        st.session_state["graph_png"]     = png_bytes
-                        st.session_state["graph_log"]     = r_log
-                        st.session_state["graph_r_code"]  = edited_code
+                        st.session_state["graph_png"]          = png_bytes
+                        st.session_state["graph_png_accepted"] = png_bytes
+                        st.session_state["graph_log"]          = r_log
+                        st.session_state["graph_r_code"]       = edited_code
                         st.rerun()
                     except RuntimeError as e:
                         st.error(str(e))
@@ -453,6 +455,7 @@ def render_graph_builder_tab():
                 st.session_state["graph_r_code_pending"] = None
                 st.session_state["graph_preview_png"]    = None
                 st.session_state["_run_r_now"]           = True
+                st.session_state["graph_png_accepted"] = st.session_state["graph_png"]
                 st.rerun()
 
         with c2:
@@ -480,9 +483,10 @@ def render_graph_builder_tab():
             st.markdown("**👁️ Preview (not applied yet):**")
             col_old, col_new = st.columns(2)
             with col_old:
-                st.markdown("**Current Graph:**")
-                if st.session_state.get("graph_png"):
-                    st.image(st.session_state["graph_png"], use_container_width=True)
+                    st.markdown("**Current Graph:**")
+                    current = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
+                    if current:
+                        st.image(current, use_container_width=True)
             with col_new:
                 st.markdown("**Preview (pending):**")
                 st.image(st.session_state["graph_preview_png"], use_container_width=True)
