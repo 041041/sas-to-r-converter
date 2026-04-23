@@ -343,6 +343,8 @@ def render_graph_builder_tab():
                         st.session_state["graph_png_accepted"] = png_bytes
                         st.session_state["graph_log"]          = r_log
                         st.session_state["graph_r_code"]       = edited_code
+                        st.session_state["graph_png"] = png_bytes
+                        st.session_state["graph_png_accepted"] = png_bytes 
                         st.rerun()
                     except RuntimeError as e:
                         st.error(str(e))
@@ -452,6 +454,8 @@ def render_graph_builder_tab():
                 st.session_state["graph_png"]   = png_bytes
                 st.session_state["graph_log"]   = r_log
                 st.session_state["graph_error"] = None
+                st.session_state["graph_png"] = png_bytes
+                st.session_state["graph_png_accepted"] = png_bytes
             except RuntimeError as e:
                 st.session_state["graph_error"] = str(e)
                 st.session_state["graph_png"]   = None
@@ -476,6 +480,7 @@ def render_graph_builder_tab():
                 st.session_state["graph_preview_png"]    = None
                 st.session_state["_run_r_now"]           = True
                 st.session_state["graph_png_accepted"] = st.session_state["graph_png"]
+                st.session_state["graph_png_accepted"] = st.session_state.get("graph_png")
                 st.rerun()
 
         with c2:
