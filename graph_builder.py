@@ -237,7 +237,7 @@ def render_graph_builder_tab():
         next((all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 0)
     )
     color_default = all_cols_with_none.index(saved_color) if saved_color in all_cols_with_none else 0
-
+    st.write("DEBUG saved_color:", saved_color, "in list:", saved_color in all_cols_with_none)
     r1a, r1b, r1c, r1d, r1e = st.columns(5)
     with r1a:
         chart_type = st.selectbox("📊 Chart Type", CHART_TYPES, key="graph_chart_type")
