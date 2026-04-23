@@ -173,12 +173,7 @@ def render_graph_builder_tab():
     <div style="margin-bottom:5px;">
         <span style="font-size:22px; font-weight:700; color:white;">📊 R Graph Builder</span>
     </div>
-    <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
-                padding: 5px 10px; border-radius: 8px; margin-bottom: 10px;
-                border-left: 4px solid #e94560;">
-        <span style="color:#4CAF50; font-weight:bold; font-size:13px;">📊 Visual Builder</span>
-        <span style="color:#ccc; font-size:10px;"> Upload data → Configure → Generate ggplot2 → Edit & Download</span>
-    </div>
+    st.caption("Upload data → Configure chart → Generate ggplot2 code → Edit & Download")
     """, unsafe_allow_html=True)
 
     # --- SESSION STATE INIT ---
