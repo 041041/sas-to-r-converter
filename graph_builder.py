@@ -297,19 +297,13 @@ def render_graph_builder_tab():
 
     st.divider()
 
-    # --- OUTPUT ---
-    if st.session_state.get("graph_r_code"):
-        st.subheader("📤 Output")
-        out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
-        with out1:
+    with out1:
             img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
             if img_to_show:
                 st.image(img_to_show, use_container_width=True)
-            if st.session_state.get("graph_png"):
-                st.image(st.session_state["graph_png"], use_container_width=True)
                 st.download_button(
                     "⬇️ Download PNG",
-                    data=st.session_state["graph_png"],
+                    data=img_to_show,
                     file_name="graph.png",
                     mime="image/png"
                 )
