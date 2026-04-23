@@ -7,6 +7,32 @@ from graph_builder import render_graph_builder_tab
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
+st.markdown("""
+    <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
+                padding: 15px 20px; border-radius: 10px; margin-bottom: 20px;
+                border-left: 4px solid #e94560;">
+        <span style="color:#e94560; font-weight:bold;">⚡ Powered by</span>
+        <span style="color:white;"> Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output</span>
+    </div>
+    """, unsafe_allow_html=True)
+ st.markdown("""
+    <style>
+    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
+    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; font-weight: 600; }
+    .step-card { border: 1px solid #e6e9ef; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
+    .timing-badge {
+        display: inline-block;
+        background: #f0f2f6;
+        border: 1px solid #d0d4de;
+        border-radius: 12px;
+        padding: 2px 10px;
+        font-size: 0.78em;
+        color: #555;
+        margin-left: 8px;
+        font-family: monospace;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # --- SESSION STATE INIT ---
 for key, default in {
@@ -673,8 +699,15 @@ with main_tab2:
     render_graph_builder_tab()
 
 with main_tab1:
-    st.title("🔄 Smart SAS to R Converter")
-    st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
+    st.markdown("## 🔄 Smart SAS to R Converter")
+    st.markdown("""
+    <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
+                padding: 15px 20px; border-radius: 10px; margin-bottom: 20px;
+                border-left: 4px solid #e94560;">
+        <span style="color:#e94560; font-weight:bold;">⚡ Powered by</span>
+        <span style="color:white;"> Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output</span>
+    </div>
+    """, unsafe_allow_html=True)
     st.divider()
    
     # --- SAS INPUT ---
