@@ -719,7 +719,7 @@ with main_tab1:
     st.markdown("""
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:5px;">
         <span style="font-size:22px; font-weight:700; color:white;">🔄 Smart SAS to R Converter</span>
-    </div>
+    </div>""")
     st.caption("⚡ Powered by: Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output")
    
     # --- SAS INPUT ---
