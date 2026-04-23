@@ -33,6 +33,19 @@ st.markdown("""
         border-bottom: 3px solid #e94560 !important;
         color: #e94560 !important;
     }
+    /* Tab content headings */
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+        font-family: 'Segoe UI', sans-serif;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+    }
+    /* Main tabs styling */
+    .stTabs [data-baseweb="tab"] {
+        font-family: 'Segoe UI', sans-serif;
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.3px;
+    }
     </style>
     """, unsafe_allow_html=True)
 # --- SESSION STATE INIT ---
