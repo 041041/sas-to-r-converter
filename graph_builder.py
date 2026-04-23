@@ -503,7 +503,7 @@ def render_graph_builder_tab():
                     before = st.session_state.get("graph_png_before_preview") or st.session_state.get("graph_png")
                     if before:
                         st.image(before, use_container_width=True)
-                with col_new:
+            with col_new:
                     st.markdown("**Preview (pending):**")
                     if st.session_state.get("graph_preview_png"):
                         st.image(st.session_state["graph_preview_png"], use_container_width=True)
