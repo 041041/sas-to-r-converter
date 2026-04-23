@@ -169,6 +169,16 @@ def render_graph_builder_tab():
         "graph_r_code_original": None,
         "custom_request_text": "",
         "_run_r_now": False,
+        "graph_chart_type": "Bar Chart",
+        "graph_x_col": None,
+        "graph_y_col": None,
+        "graph_color_col": None,
+        "graph_orientation": "vertical",
+        "graph_title": "",
+        "graph_theme": "minimal",
+        "graph_palette": "default",
+        "graph_sort_order": "none",
+        "graph_show_values": False,
     }.items():
         if key not in st.session_state:
             st.session_state[key] = default
@@ -220,31 +230,31 @@ def render_graph_builder_tab():
 
     r1a, r1b, r1c, r1d, r1e = st.columns(5)
     with r1a:
-        chart_type = st.selectbox("📊 Chart Type", CHART_TYPES)
+        chart_type = st.selectbox("📊 Chart Type", CHART_TYPES, key="graph_chart_type")
     with r1b:
-        x_col = st.selectbox("📋 X Axis", cols)
+        x_col = st.selectbox("📋 X Axis", cols, key="graph_x_col")
     with r1c:
         numeric_default = next(
             (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 0
         )
-        y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default)
+        y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default, key="graph_y_col")
     with r1d:
-        color_col = st.selectbox("🎨 Color By", all_cols_with_none, index=0)
+        color_col = st.selectbox("🎨 Color By", all_cols_with_none, index=0, key="graph_color_col")
     with r1e:
-        orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"])
+        orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"], key="graph_orientation")
 
     r2a, r2b, r2c, r2d, r2e = st.columns(5)
     with r2a:
-        title = st.text_input("📝 Title", value=f"{chart_type} of {x_col}")
+        title = st.text_input("📝 Title", value=f"{chart_type} of {x_col}", key="graph_title")
     with r2b:
-        theme = st.selectbox("🎨 Theme", THEMES)
+        theme = st.selectbox("🎨 Theme", THEMES, key="graph_theme")
     with r2c:
-        palette = st.selectbox("🖌️ Palette", PALETTES)
+        palette = st.selectbox("🖌️ Palette", PALETTES, key="graph_palette")
     with r2d:
-        sort_order = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"])
+        sort_order = st.selectbox("📏 Sort Bars", ["none", "asc", "desc"], key="graph_sort_order")
     with r2e:
         st.write("")
-        show_values = st.checkbox("🔢 Show Values", value=False)
+        show_values = st.checkbox("🔢 Show Values", value=False, key="graph_show_values")
 
     selections = {
         "chart_type":   chart_type,
