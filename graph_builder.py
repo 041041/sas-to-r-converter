@@ -171,7 +171,8 @@ def execute_graph(r_code, df):
 def render_graph_builder_tab():
     st.title("📊 R Graph Builder")
     st.caption("Upload data → Configure chart → Generate ggplot2 code → Edit & Download")
-    
+    st.divider()
+ 
     # --- SESSION STATE INIT ---
     # Always reset review state on fresh page load
     # (guards against stale state from hot-reloads or previous sessions)
