@@ -390,6 +390,10 @@ def render_graph_builder_tab():
                         f"7. No explanations, just code\n"
                         f"8. Do NOT add ggsave\n"
                         f"9. Only use base ggplot2 — NO cowplot, NO ggthemes\n"
+                        f"10. NEVER change aes() mappings — keep fill, x, y exactly as is\n"
+                        f"11. NEVER remove fill= or color= from aes()\n"
+                        f"12. NEVER change geom type or position\n"
+                        f"13. ONLY modify theme(), labs(), legend.position — nothing else\n"
                     )
                     raw = None
                     try:
