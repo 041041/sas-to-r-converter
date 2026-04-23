@@ -297,7 +297,7 @@ def render_graph_builder_tab():
 
     st.divider()
 
-    with out1:
+     with out1:
             img_to_show = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
             if img_to_show:
                 st.image(img_to_show, use_container_width=True)
@@ -309,7 +309,7 @@ def render_graph_builder_tab():
                 )
             elif st.session_state.get("graph_error"):
                 st.error(st.session_state["graph_error"])
-    with out2:
+     with out2:
             edited_code = st.text_area(
                 "Edit R Code",
                 value=st.session_state.get("graph_r_code", ""),
