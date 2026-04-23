@@ -227,19 +227,29 @@ def render_graph_builder_tab():
     cols = df.columns.tolist()
     numeric_cols = df.select_dtypes(include='number').columns.tolist()
     all_cols_with_none = ["None"] + cols
+    # Restore previous selections if columns match
+    saved_x = st.session_state.get("graph_x_col")
+    saved_y = st.session_state.get("graph_y_col") 
+    saved_color = st.session_state.get("graph_color_col")
+    
+    x_default = cols.index(saved_x) if saved_x in cols else 0
+    y_default = all_cols_with_none.index(saved_y) if saved_y in all_cols_with_none else (
+        next((all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 0)
+    )
+    color_default = all_cols_with_none.index(saved_color) if saved_color in all_cols_with_none else 0
 
     r1a, r1b, r1c, r1d, r1e = st.columns(5)
     with r1a:
         chart_type = st.selectbox("📊 Chart Type", CHART_TYPES, key="graph_chart_type")
     with r1b:
-        x_col = st.selectbox("📋 X Axis", cols, key="graph_x_col")
+        x_col = st.selectbox("📋 X Axis", cols, index=x_default)
+        st.session_state["graph_x_col"] = x_col
     with r1c:
-        numeric_default = next(
-            (all_cols_with_none.index(c) for c in numeric_cols if c in all_cols_with_none), 0
-        )
-        y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=numeric_default, key="graph_y_col")
+        y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=y_default)
+        st.session_state["graph_y_col"] = y_col
     with r1d:
-        color_col = st.selectbox("🎨 Color By", all_cols_with_none, index=0, key="graph_color_col")
+        color_col = st.selectbox("🎨 Color By", all_cols_with_none, index=color_default)
+        st.session_state["graph_color_col"] = color_col
     with r1e:
         orientation = st.selectbox("📐 Orientation", ["vertical", "horizontal"], key="graph_orientation")
 
