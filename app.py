@@ -8,55 +8,6 @@ from graph_builder import render_graph_builder_tab
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
-st.markdown("""
-    <style>
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .block-container { padding-top: 1rem !important; }
-    .stTabs [data-baseweb="tab"] {
-        font-size: 18px;
-        font-weight: 700;
-        padding: 12px 28px;
-        letter-spacing: 0.5px;
-        text-transform: uppercase;
-    }
-    .step-card { border: 1px solid #e6e9ef; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
-    .timing-badge {
-        display: inline-block;
-        background: #f0f2f6;
-        border: 1px solid #d0d4de;
-        border-radius: 12px;
-        padding: 2px 10px;
-        font-size: 0.78em;
-        color: #555;
-        margin-left: 8px;
-        font-family: monospace;
-    }
-    .stTabs [data-baseweb="tab"] {
-        font-size: 16px;
-        font-weight: 700;
-        padding: 10px 20px;
-    }
-    .stTabs [aria-selected="true"] {
-        border-bottom: 3px solid #e94560 !important;
-        color: #e94560 !important;
-    }
-    /* Tab content headings */
-    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-        font-family: 'Segoe UI', sans-serif;
-        font-weight: 700;
-        letter-spacing: -0.5px;
-    }
-    /* Main tabs styling */
-    .stTabs [data-baseweb="tab"] {
-        font-family: 'Segoe UI', sans-serif;
-        font-size: 15px;
-        font-weight: 600;
-        letter-spacing: 0.3px;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-
 # --- SESSION STATE INIT ---
 for key, default in {
     "sas_input": "",
@@ -112,6 +63,8 @@ if not GEMINI_API_KEY or not GROQ_API_KEY:
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 groq_client   = Groq(api_key=GROQ_API_KEY)
+# --- NAVIGATION ---
+page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder"])
 
 # --- SAS TO R FUNCTION MAPPING ---
 SAS_TO_R = {
@@ -639,7 +592,12 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     return pipeline_results
 
 # --- STREAMLIT UI ---
-with st.sidebar:
+if page == "🔄 SAS Converter":
+  st.title("🔄 Smart SAS to R Converter")
+  st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
+  st.divider()
+   
+  with st.sidebar:
       st.header("⚙️ Settings")
       mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
       st.divider()
@@ -716,35 +674,24 @@ with st.sidebar:
   """)
   
       st.caption("Built with Gemini + Groq + Rscript")
-main_tab1, main_tab2 = st.tabs(["🔄 SAS Converter", "📊 Graph Builder"])
-
-with main_tab2:
-    render_graph_builder_tab()
-
-with main_tab1:
-    st.markdown("""
-    <div style="display:flex; align-items:center; gap:10px; margin-bottom:5px;">
-        <span style="font-size:18px; font-weight:700; color:white;">🔄 Smart SAS to R Converter</span>
-    </div>""", unsafe_allow_html=True)
-    st.caption("⚡ Powered by: Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output")
-   
-    # --- SAS INPUT ---
-    st.markdown("<p style='font-size:14px; font-weight:600; color:#aaa; margin-bottom:5px;'>📋 SAS Code</p>", unsafe_allow_html=True)
-    sas_script = st.text_area(
-        "sas", height=250, label_visibility="collapsed",
-        placeholder="Paste your SAS code here...",
-        value=st.session_state.sas_input,
-        key="sas_input"
-    )
-    
-    # --- FILE UPLOAD — only shown in validate mode ---
-    uploaded_csvs = st.session_state.uploaded_csvs
-    
-    if mode == "Convert + Execute + Validate":
+  
+  # --- SAS INPUT ---
+  st.subheader("📋 SAS Code")
+  sas_script = st.text_area(
+      "sas", height=250, label_visibility="collapsed",
+      placeholder="Paste your SAS code here...",
+      value=st.session_state.sas_input,
+      key="sas_input"
+  )
+  
+  # --- FILE UPLOAD — only shown in validate mode ---
+  uploaded_csvs = st.session_state.uploaded_csvs
+  
+  if mode == "Convert + Execute + Validate":
       st.divider()
       st.subheader("📊 Expected SAS Outputs")
       st.caption("Upload CSV or Excel files. The app auto-maps a single uploaded file to the final step.")
-    
+  
       # ── NEW: Accept both CSV and Excel ──
       uploaded = st.file_uploader(
           "Upload CSV or Excel files",
@@ -752,23 +699,23 @@ with main_tab1:
           accept_multiple_files=True,
           key="uploader_" + str(st.session_state.get("upload_key", 0))
       )
-    
+  
       if uploaded:
           st.session_state.uploaded_csvs = {}
           uploaded_csvs = st.session_state.uploaded_csvs
           cols = st.columns(min(len(uploaded), 3))
-    
+  
           for i, f in enumerate(uploaded):
               name = os.path.splitext(f.name)[0].upper().strip()
               ext = os.path.splitext(f.name)[1].lower()
-    
+  
               try:
                   # ── Route by extension ──
                   if ext in (".xlsx", ".xls"):
                       # Let user pick sheet if multiple sheets exist
                       xls = pd.ExcelFile(f)
                       sheet_names = xls.sheet_names
-    
+  
                       if len(sheet_names) > 1:
                           f.seek(0)
                           chosen_sheet = st.selectbox(
@@ -783,18 +730,18 @@ with main_tab1:
                           df = safe_read_excel(f, sheet_name=0)
                   else:
                       df = safe_read_csv(f)
-    
+  
                   uploaded_csvs[name] = df
                   st.session_state.uploaded_csvs[name] = df
-    
+  
                   with cols[i % 3]:
                       icon = "📗" if ext in (".xlsx", ".xls") else "📄"
                       st.markdown(f"**{icon} {name}** ({df.shape[0]}r × {df.shape[1]}c)")
                       st.dataframe(df, use_container_width=True, height=140)
-    
+  
               except Exception as e:
                   st.error(f"Failed to load {name}: {str(e)}")
-    
+  
       with st.expander("Or paste CSV text manually"):
           manual_csv = st.text_area(
               "Paste CSV here", height=100,
@@ -809,27 +756,27 @@ with main_tab1:
                   st.dataframe(df, height=140)
               except Exception as e:
                   st.error(f"Parse error: {e}")
-    
-    # --- RUN / CLEAR BUTTONS ---
-    st.divider()
-    col_run, col_clear = st.columns([5, 1])
-    with col_run:
+  
+  # --- RUN / CLEAR BUTTONS ---
+  st.divider()
+  col_run, col_clear = st.columns([5, 1])
+  with col_run:
       run_btn = st.button("⚡ Run", type="primary", use_container_width=True)
-    with col_clear:
+  with col_clear:
       st.button("🗑️ Clear", on_click=clear_all, use_container_width=True)
-    
-    # --- MAIN LOGIC ---
-    if run_btn:
+  
+  # --- MAIN LOGIC ---
+  if run_btn:
       st.session_state.pipeline_run = False  # force fresh run
       st.session_state.fix_results = {}
       st.session_state.retry_counts = {}
-    
-    if run_btn or st.session_state.get("pipeline_run"):
+  
+  if run_btn or st.session_state.get("pipeline_run"):
       if not sas_script.strip():
           st.warning("Paste some SAS code first."); st.stop()
       st.divider()
       
-    # --- MACRO EXPANSION ---
+  # --- MACRO EXPANSION ---
       original_sas = sas_script
       sas_script = expand_macros(sas_script)
       if sas_script != original_sas:
@@ -839,30 +786,30 @@ with main_tab1:
           st.subheader("Generated R Code")
           steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL | re.IGNORECASE)
           if not steps: st.error("No valid SAS steps found."); st.stop()
-    
+  
           all_r = []
           known_tables = []
           total_steps = len(steps)
-    
+  
           # ── PROGRESS BAR for Convert Only ──
           prog = st.progress(0, text=f"Starting conversion of {total_steps} step(s)...")
           status = st.empty()
           overall_start = time.time()
-    
+  
           for i, step in enumerate(steps, 1):
               out_name_match = re.search(r"(?:^\s*data\s+|out\s*=\s*|create\s+table\s+)([\w.]+)", step, re.I | re.M)
               sort_inplace_match = re.search(r"proc\s+sort\s+data\s*=\s*([\w.]+)", step, re.I)
-    
+  
               if out_name_match:
                   sname = out_name_match.group(1).split('.')[-1].upper().strip()
               elif sort_inplace_match and not re.search(r"out\s*=", step, re.I):
                   sname = sort_inplace_match.group(1).split('.')[-1].upper().strip()
               else:
                   sname = f"Step{i}"
-    
+  
               prog.progress((i - 1) / total_steps, text=f"Converting step {i}/{total_steps}: {sname}...")
               status.markdown(f"⏳ **Step {i}/{total_steps}** — `{sname}`")
-    
+  
               with st.expander(f"Step {i}: {sname}", expanded=True):
                   t1, t2 = st.tabs(["SAS", "Generated R"])
                   with t1: st.code(step.strip(), language="sas")
@@ -879,12 +826,12 @@ with main_tab1:
                               st.success(f"✅ {sname} converted — ⏱️ {format_elapsed(elapsed)}")
                           except Exception as e:
                               st.error(f"❌ {e}")
-    
+  
           prog.progress(1.0, text=f"✅ All {total_steps} steps converted!")
           status.empty()
           total_elapsed = time.time() - overall_start
           st.info(f"🏁 Total conversion time: **{format_elapsed(total_elapsed)}**")
-    
+  
           if all_r:
               st.divider()
               full_script_text = "\n".join(all_r)
@@ -893,15 +840,15 @@ with main_tab1:
               st.subheader("📥 Full R Script")
               st.code(full_script_text, language="r")
               st.download_button("⬇️ Download .R", data=full_script_text, file_name="converted.R", mime="text/plain", use_container_width=True)
-    
+  
       else:
           st.subheader("Conversion + Execution + Validation")
-    
+  
           # ── PROGRESS BAR + STATUS for pipeline mode ──
           prog = st.progress(0, text="Initialising pipeline...")
           status = st.empty()
           overall_start = time.time()
-    
+  
           if not st.session_state.get("pipeline_run"):
               results = []
               try:
@@ -918,37 +865,37 @@ with main_tab1:
                   import traceback
                   st.code(traceback.format_exc())
                   st.stop()
-    
+  
           results = st.session_state.get("pipeline_results", [])
-    
+  
           total_elapsed = time.time() - overall_start
           st.info(f"🏁 Total pipeline time: **{format_elapsed(total_elapsed)}**")
-    
+  
           iresults = st.session_state.get("pipeline_results", results)
           if not results: st.error("No steps processed."); st.stop()
-    
+  
           all_r = []
           for res in results:
               cmp = res["comparison"]
               match = cmp["match"] if cmp else None
-    
+  
               badge = "⚪ INTERMEDIATE"
               if res["error"]: badge = "⚠️ ERROR"
               elif res["is_final"] and match is None: badge = "🏁 FINAL (Unvalidated)"
               elif match is True: badge = "✅ MATCH"
               elif match is False: badge = "❌ MISMATCH"
-    
+  
               # ── Timing summary for the header ──
               timing_str = ""
               if res["elapsed_total"] is not None:
                   timing_str = f"  ⏱️ {format_elapsed(res['elapsed_total'])}"
-    
+  
               header = f"{badge} — {res['name']}{timing_str}"
-    
+  
               with st.expander(header, expanded=True):
                   if res["error"]:
                       st.error(f"Pipeline broke here: {res['error']}")
-    
+  
                   # ── Show detailed timing breakdown ──
                   if res["elapsed_total"] is not None:
                       t_cols = st.columns(3)
@@ -960,12 +907,12 @@ with main_tab1:
                           st.metric("⚙️ R Exec Time", exec_t)
                       with t_cols[2]:
                           st.metric("🕐 Total Step Time", format_elapsed(res["elapsed_total"]))
-    
+  
                   t1, t2, t3, t4, t5, t6 = st.tabs(["SAS Code", "Generated R", "R Output", "SAS vs R", "Validation", "R Log"])
                   
                   with t1:
                       st.code(res["step"], language="sas")
-    
+  
                   with t2:
                       # show fixed code if available
                       fix_result = st.session_state.get("fix_results", {}).get(res["name"])
@@ -993,7 +940,7 @@ with main_tab1:
                               st.code(datalines_r, language="r")
                               all_r.append(f"# --- {res['name']} ---\n{datalines_r}\n{res['name']} <- df\n")
                               st.success(f"✅ Successfully parsed {df_r.shape[0]} rows × {df_r.shape[1]} cols")
-    
+  
                   with t3:
                       if res["r_output"] is not None:
                           st.markdown("**⚙️ R Generated Output**")
@@ -1009,7 +956,7 @@ with main_tab1:
                           )
                       else:
                           st.info("No data output for this step.")
-    
+  
                   with t4:
                       if res["r_output"] is not None:
                           # only show SAS vs R for final step
@@ -1097,12 +1044,12 @@ with main_tab1:
                   with t6:
                       log = res.get("r_log") or "✅ No warnings or messages."
                       st.code(log, language="bash")
-    
+  
           st.divider()
           st.subheader("📊 Summary")
           valid_steps = [r for r in results if r["comparison"] and r["comparison"]["match"] is not None]
           matches = [r for r in valid_steps if r["comparison"]["match"]]
-    
+  
           # ── Timing summary table ──
           timing_rows = []
           for r in results:
@@ -1115,16 +1062,16 @@ with main_tab1:
                             "❌" if (r["comparison"] and r["comparison"]["match"] is False) else
                             "⚠️" if r["error"] else "⚪"
               })
-    
+  
           c1, c2, c3, c4 = st.columns(4)
           c1.metric("Total Steps", len(results))
           c2.metric("Validated", len(valid_steps))
           c3.metric("Matched ✅", len(matches))
           c4.metric("Total Time", format_elapsed(total_elapsed))
-    
+  
           st.markdown("**⏱️ Step-by-Step Timing**")
           st.dataframe(pd.DataFrame(timing_rows), use_container_width=True, hide_index=True)
-    
+  
           if all_r:
               st.divider()
               full_script_text = "\n".join(all_r)
@@ -1133,4 +1080,6 @@ with main_tab1:
               st.subheader("📥 Full R Script")
               st.code(full_script_text, language="r")
               st.download_button("⬇️ Download .R Script", data=full_script_text, file_name="converted_pipeline.R", mime="text/plain", use_container_width=True)
-                
+          
+if page == "📊 Graph Builder":
+    render_graph_builder_tab()         
