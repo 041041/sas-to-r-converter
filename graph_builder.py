@@ -3,6 +3,13 @@ import pandas as pd
 import streamlit as st
 from groq import Groq
 from google import genai
+
+def clear_graph():
+    for key in ["graph_df", "graph_r_code", "graph_png", "graph_png_accepted",
+                "graph_log", "graph_error", "graph_preview_png",
+                "graph_r_code_pending", "graph_r_code_original"]:
+        st.session_state[key] = None
+    st.session_state["graph_r_code"] = ""
  
 def show_code_diff(old_code, new_code):
     """Shows highlighted diff between old and new code."""
@@ -353,7 +360,13 @@ def render_graph_builder_tab():
     )
 
     # --- GENERATE BUTTON ---
-    if st.button("🎨 Generate Graph", type="primary", use_container_width=True):
+    btn1, btn2 = st.columns([4, 1])
+    with btn1:
+        generate = st.button("🎨 Generate Graph", type="primary", use_container_width=True)
+    with btn2:
+        st.button("🗑️ Clear", on_click=clear_graph, use_container_width=True)
+    
+    if generate:
         if chart_type in ["Bar Chart", "Line Chart", "Scatter Plot", "Area Chart"] and not selections.get("y_col"):
             st.error("⚠️ Please select a Y axis column for this chart type!")
             st.stop()
