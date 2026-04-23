@@ -63,8 +63,6 @@ if not GEMINI_API_KEY or not GROQ_API_KEY:
 
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 groq_client   = Groq(api_key=GROQ_API_KEY)
-# --- NAVIGATION ---
-page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder"])
 
 # --- SAS TO R FUNCTION MAPPING ---
 SAS_TO_R = {
