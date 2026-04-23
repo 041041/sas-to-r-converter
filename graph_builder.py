@@ -257,7 +257,8 @@ def render_graph_builder_tab():
 
     r2a, r2b, r2c, r2d, r2e = st.columns(5)
     with r2a:
-        title = st.text_input("📝 Title", value=f"{chart_type} of {x_col}", key="graph_title")
+        saved_title = st.session_state.get("graph_title") or f"{chart_type} of {x_col}"
+        title = st.text_input("📝 Title", value=saved_title, key="graph_title")
     with r2b:
         theme = st.selectbox("🎨 Theme", THEMES, key="graph_theme")
     with r2c:
