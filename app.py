@@ -678,13 +678,13 @@ with main_tab1:
     st.divider()
    
   # --- SAS INPUT ---
-  st.subheader("📋 SAS Code")
-  sas_script = st.text_area(
+   st.subheader("📋 SAS Code")
+   sas_script = st.text_area(
       "sas", height=250, label_visibility="collapsed",
       placeholder="Paste your SAS code here...",
       value=st.session_state.sas_input,
       key="sas_input"
-  )
+   )
   
   # --- FILE UPLOAD — only shown in validate mode ---
   uploaded_csvs = st.session_state.uploaded_csvs
