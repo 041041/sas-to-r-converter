@@ -48,6 +48,8 @@ st.markdown("""
     }
     </style>
     """, unsafe_allow_html=True)
+
+
 # --- SESSION STATE INIT ---
 for key, default in {
     "sas_input": "",
@@ -727,7 +729,7 @@ with main_tab1:
     st.divider()
    
     # --- SAS INPUT ---
-    st.subheader("📋 SAS Code")
+    st.subheader("#📋 SAS Code")
     sas_script = st.text_area(
       "sas", height=250, label_visibility="collapsed",
       placeholder="Paste your SAS code here...",
