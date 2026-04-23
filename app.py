@@ -720,11 +720,6 @@ with main_tab1:
     <div style="display:flex; align-items:center; gap:10px; margin-bottom:5px;">
         <span style="font-size:22px; font-weight:700; color:white;">🔄 Smart SAS to R Converter</span>
     </div>
-    <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
-                padding: 5px 10px; border-radius: 8px; margin-bottom: 10px;
-                border-left: 4px solid #e94560;">
-    </div>
-    """, unsafe_allow_html=True)
     st.caption("⚡ Powered by: Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output")
    
     # --- SAS INPUT ---
