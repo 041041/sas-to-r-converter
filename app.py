@@ -8,7 +8,6 @@ from graph_builder import render_graph_builder_tab
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
 
-# --- SESSION STATE INIT ---
 for key, default in {
     "sas_input": "",
     "upload_key": 0,
@@ -17,7 +16,17 @@ for key, default in {
     "retry_counts": {},
     "fix_results": {},
     "pipeline_results": [],
-    "pipeline_run": False
+    "pipeline_run": False,
+    "work_library": {},
+    "graph_df": None,
+    "graph_r_code": "",
+    "graph_png": None,
+    "graph_log": "",
+    "graph_error": None,
+    "graph_preview_png": None,
+    "graph_r_code_pending": None,
+    "graph_r_code_original": None,
+    "page": "🔄 SAS Converter"
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -591,7 +600,9 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     
 with st.sidebar:
     st.markdown("### 🗂️ Navigation")
-    page = st.radio("", ["🔄 SAS Converter", "📊 Graph Builder"], label_visibility="collapsed")
+    page = st.radio("", ["🔄 SAS Converter", "📊 Graph Builder"], 
+                   label_visibility="collapsed",
+                   key="page")
     st.divider()
     
     if page == "🔄 SAS Converter":
