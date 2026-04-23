@@ -10,15 +10,12 @@ def clear_graph():
                 "graph_r_code_pending", "graph_r_code_original"]:
         st.session_state[key] = None
     st.session_state["graph_r_code"] = ""
- 
+
 def show_code_diff(old_code, new_code):
-    """Shows highlighted diff between old and new code."""
     import difflib
     old_lines = old_code.splitlines()
     new_lines = new_code.splitlines()
-    
     diff = difflib.unified_diff(old_lines, new_lines, lineterm='')
-    
     html = ["<pre style='font-family:monospace; font-size:13px; line-height:1.5;'>"]
     for line in diff:
         if line.startswith('+++') or line.startswith('---') or line.startswith('@@'):
@@ -30,7 +27,6 @@ def show_code_diff(old_code, new_code):
         else:
             html.append(f"<span style='color:#ccc; display:block'>{line}</span>")
     html.append("</pre>")
-    
     st.markdown("".join(html), unsafe_allow_html=True)
 
 # --- CLIENTS ---
@@ -44,25 +40,11 @@ GROQ_API_KEY   = get_secret("GROQ_API_KEY")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 groq_client   = Groq(api_key=GROQ_API_KEY)
 
-# --- CHART TYPES ---
-CHART_TYPES = [
-    "Bar Chart",
-    "Line Chart", 
-    "Scatter Plot",
-    "Histogram",
-    "Box Plot",
-    "Pie Chart",
-    "Area Chart",
-    "Heatmap"
-]
-
+CHART_TYPES = ["Bar Chart", "Line Chart", "Scatter Plot", "Histogram", "Box Plot", "Pie Chart", "Area Chart", "Heatmap"]
 THEMES = ["minimal", "classic", "dark", "light", "bw", "void"]
 PALETTES = ["default", "Blues", "Reds", "Greens", "Spectral", "Set1", "Set2"]
 
-# --- GENERATE GGPLOT CODE ---
 def generate_graph_code(selections, df_preview, col_types):
-    """Builds ggplot2 code directly from selections."""
-    
     chart_type  = selections['chart_type']
     x_col       = selections['x_col']
     y_col       = selections.get('y_col')
@@ -85,7 +67,7 @@ def generate_graph_code(selections, df_preview, col_types):
         aes_str = f"aes(x={x_aes}, y={y_col}, fill={color_col})" if y_col else f"aes(x={x_aes}, fill={color_col})"
     else:
         aes_str = f"aes(x={x_aes}, y={y_col})" if y_col else f"aes(x={x_aes})"
-        
+
     if chart_type == "Bar Chart":
         geom = "geom_bar(stat='identity', position='dodge')" if color_col else "geom_bar(stat='identity', fill='steelblue')"
     elif chart_type == "Line Chart":
@@ -106,13 +88,12 @@ def generate_graph_code(selections, df_preview, col_types):
 
     palette_line = f" +\n  scale_fill_brewer(palette='{palette}')" if (color_col and palette != "default") else ""
 
+    values_line = ""
     if show_values and y_col:
         if color_col:
             values_line = f" +\n  geom_text(aes(label={y_col}), position=position_stack(vjust=0.5), size=3, color='white')"
         else:
             values_line = f" +\n  geom_text(aes(label={y_col}), vjust=-0.5, size=3)"
-    else:
-        values_line = ""
 
     flip_line = "\n  + coord_flip()" if orientation == "horizontal" else ""
 
@@ -130,9 +111,7 @@ p
 """
     return code
 
-# --- EXECUTE R AND RETURN PNG ---
 def execute_graph(r_code, df):
-    """Runs ggplot2 code via Rscript and returns PNG bytes."""
     with tempfile.TemporaryDirectory() as d:
         inp_path    = os.path.join(d, "input.csv")
         plot_path   = os.path.join(d, "output_plot.png")
@@ -160,10 +139,7 @@ def execute_graph(r_code, df):
         with open(script_path, "w") as f:
             f.write(full_script)
 
-        res = subprocess.run(
-            ["Rscript", script_path],
-            capture_output=True, text=True, timeout=30
-        )
+        res = subprocess.run(["Rscript", script_path], capture_output=True, text=True, timeout=30)
 
         if res.returncode != 0:
             raise RuntimeError(f"R Error:\n{res.stderr}")
@@ -174,32 +150,23 @@ def execute_graph(r_code, df):
         else:
             raise RuntimeError("Plot file was not created.")
 
-# --- MAIN TAB RENDERER ---
 def render_graph_builder_tab():
     st.title("📊 R Graph Builder")
     st.caption("Upload data → Configure chart → Generate ggplot2 code → Edit & Download")
     st.divider()
- 
+
     # --- SESSION STATE INIT ---
-    # Always reset review state on fresh page load
-    # (guards against stale state from hot-reloads or previous sessions)
-    if "graph_builder_initialized" not in st.session_state:
-        st.session_state["graph_r_code_pending"] = None
-        st.session_state["graph_preview_png"] = None
-        st.session_state["_run_r_now"] = False
-        st.session_state["graph_builder_initialized"] = True
     for key, default in {
         "graph_df": None,
         "graph_r_code": "",
         "graph_png": None,
         "graph_png_accepted": None,
+        "graph_png_before_preview": None,
         "graph_log": "",
         "graph_error": None,
         "graph_preview_png": None,
         "graph_r_code_pending": None,
         "graph_r_code_original": None,
-        "graph_png_before_preview": None,
-        # FIX 1: persist the custom enhancement text across reruns
         "custom_request_text": "",
         "_run_r_now": False,
     }.items():
@@ -245,7 +212,7 @@ def render_graph_builder_tab():
 
     st.divider()
 
-    # --- CONFIGURE CHART (full width, compact rows) ---
+    # --- CONFIGURE CHART ---
     st.subheader("⚙️ Configure Chart")
     cols = df.columns.tolist()
     numeric_cols = df.select_dtypes(include='number').columns.tolist()
@@ -294,7 +261,10 @@ def render_graph_builder_tab():
 
     col_types  = {c: str(df[c].dtype) for c in cols}
     df_preview = df.head(3).to_string()
+
     st.divider()
+
+    # --- OUTPUT ---
     if st.session_state.get("graph_r_code"):
         st.subheader("📤 Output")
         out1, out2 = st.tabs(["📊 Graph", "💻 R Code"])
@@ -310,7 +280,8 @@ def render_graph_builder_tab():
                 )
             elif st.session_state.get("graph_error"):
                 st.error(st.session_state["graph_error"])
-with out2:
+
+        with out2:
             edited_code = st.text_area(
                 "Edit R Code",
                 value=st.session_state.get("graph_r_code", ""),
@@ -331,10 +302,7 @@ with out2:
             if run_edit:
                 with st.spinner("Running updated code..."):
                     try:
-                        png_bytes, r_log = execute_graph(
-                            edited_code,
-                            st.session_state.get("graph_df")
-                        )
+                        png_bytes, r_log = execute_graph(edited_code, st.session_state.get("graph_df"))
                         st.session_state["graph_png"] = png_bytes
                         st.session_state["graph_png_accepted"] = png_bytes
                         st.session_state["graph_log"] = r_log
@@ -348,12 +316,11 @@ with out2:
                     st.code(log, language="bash")
 
     # --- CUSTOM ENHANCEMENT ---
-    # FIX 1: bind text_area to session_state key so text survives reruns
     custom_request = st.text_area(
         "✨ Custom Enhancement (optional)",
-        placeholder="e.g. Add trend line, highlight outliers, use dark theme, add percentage labels...",
+        placeholder="e.g. Add trend line, move legend to bottom, use dark theme...",
         height=80,
-        key="custom_request_text",   # bound directly to session_state
+        key="custom_request_text",
     )
 
     # --- GENERATE BUTTON ---
@@ -362,7 +329,7 @@ with out2:
         generate = st.button("🎨 Generate Graph", type="primary", use_container_width=True)
     with btn2:
         st.button("🗑️ Clear", on_click=clear_graph, use_container_width=True)
-    
+
     if generate:
         if chart_type in ["Bar Chart", "Line Chart", "Scatter Plot", "Area Chart"] and not selections.get("y_col"):
             st.error("⚠️ Please select a Y axis column for this chart type!")
@@ -377,19 +344,18 @@ with out2:
                         f"Modify this ggplot2 R code based on this request: '{custom_request}'\n\n"
                         f"CURRENT CODE:\n{r_code}\n\n"
                         f"CRITICAL RULES:\n"
-                        f"1. NEVER create or modify the data frame df — it already exists\n"
+                        f"1. NEVER create or modify the data frame df\n"
                         f"2. NEVER add read.csv() or any data loading code\n"
                         f"3. NEVER invent or hardcode any data values\n"
                         f"4. ONLY modify ggplot2 visual elements (themes, labels, colors, geoms)\n"
-                        f"5. Keep all aes() mappings exactly the same\n"
-                        f"6. Return complete modified R code\n"
-                        f"7. No explanations, just code\n"
-                        f"8. Do NOT add ggsave\n"
-                        f"9. Only use base ggplot2 — NO cowplot, NO ggthemes\n"
-                        f"10. NEVER change aes() mappings — keep fill, x, y exactly as is\n"
-                        f"11. NEVER remove fill= or color= from aes()\n"
-                        f"12. NEVER change geom type or position\n"
-                        f"13. ONLY modify theme(), labs(), legend.position — nothing else\n"
+                        f"5. NEVER change aes() mappings — keep fill, x, y exactly as is\n"
+                        f"6. NEVER remove fill= or color= from aes()\n"
+                        f"7. NEVER change geom type or position\n"
+                        f"8. ONLY modify theme(), labs(), legend.position\n"
+                        f"9. Return complete modified R code\n"
+                        f"10. No explanations, just code\n"
+                        f"11. Do NOT add ggsave\n"
+                        f"12. Only use base ggplot2 — NO cowplot, NO ggthemes\n"
                     )
                     raw = None
                     try:
@@ -415,8 +381,6 @@ with out2:
                         raw = re.sub(r'library\(cowplot\)', '', raw)
                         raw = re.sub(r'library\(ggthemes\)', '', raw)
                         enhanced_code = raw.strip()
-                        # Store pending — do NOT touch graph_png so the existing
-                        # graph keeps showing in right_col during review
                         st.session_state["graph_r_code_pending"]  = enhanced_code
                         st.session_state["graph_r_code_original"] = r_code
                         st.session_state["graph_r_code"]          = r_code
@@ -424,7 +388,6 @@ with out2:
                         st.session_state["graph_preview_png"]     = None
                         st.rerun()
 
-                # No custom request — flag R to run immediately
                 st.session_state["graph_r_code_pending"] = None
                 st.session_state["graph_r_code"]         = r_code
                 st.session_state["graph_df"]             = df
@@ -434,7 +397,7 @@ with out2:
                 st.error(f"Code generation error: {e}")
                 st.stop()
 
-    # Run R whenever flagged (Generate with no custom, or Apply Changes)
+    # --- RUN R ---
     if st.session_state.get("_run_r_now") and not st.session_state.get("graph_r_code_pending"):
         st.session_state["_run_r_now"] = False
         with st.spinner("⚙️ Running R..."):
@@ -449,11 +412,10 @@ with out2:
                 st.session_state["graph_error"] = None
             except RuntimeError as e:
                 st.session_state["graph_error"] = str(e)
-                st.session_state["graph_png"]   = None
+                st.session_state["graph_png"] = None
         st.rerun()
 
-    # Review block lives OUTSIDE Generate button block
-    # so it persists across reruns and the three buttons actually work
+    # --- REVIEW PENDING CHANGES ---
     if st.session_state.get("graph_r_code_pending"):
         st.warning("⚠️ AI wants to modify your code. Review and confirm:")
         st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
@@ -465,13 +427,11 @@ with out2:
         c1, c2, c3 = st.columns(3)
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True):
-                # Move pending → active; _run_r_now flag triggers R execution below
                 st.session_state["graph_r_code"]         = st.session_state["graph_r_code_pending"]
                 st.session_state["graph_r_code_pending"] = None
                 st.session_state["graph_preview_png"]    = None
                 st.session_state["_run_r_now"]           = True
                 st.rerun()
-
         with c2:
             if st.button("👁️ Preview", use_container_width=True):
                 with st.spinner("Generating preview..."):
@@ -481,16 +441,15 @@ with out2:
                             st.session_state["graph_df"]
                         )
                         st.session_state["graph_preview_png"] = preview_png
-                        # always snapshot from graph_png at click time
-                        st.session_state["graph_png_before_preview"] = st.session_state.get("graph_png") or st.session_state.get("graph_png_accepted")
+                        st.session_state["graph_png_before_preview"] = (
+                            st.session_state.get("graph_png_accepted") or
+                            st.session_state.get("graph_png")
+                        )
                         st.rerun()
                     except RuntimeError as e:
                         st.error(f"Preview failed: {e}")
-
         with c3:
             if st.button("❌ Reject Changes", use_container_width=True):
-                # Discard pending — graph_png already holds the original graph,
-                # so nothing disappears; just clear the review UI
                 st.session_state["graph_r_code_pending"] = None
                 st.session_state["graph_preview_png"]    = None
                 st.rerun()
@@ -499,11 +458,11 @@ with out2:
             st.markdown("**👁️ Preview (not applied yet):**")
             col_old, col_new = st.columns(2)
             with col_old:
-                    st.markdown("**Current Graph:**")
-                    before = st.session_state.get("graph_png_before_preview") or st.session_state.get("graph_png")
-                    if before:
-                        st.image(before, use_container_width=True)
+                st.markdown("**Current Graph:**")
+                before = st.session_state.get("graph_png_before_preview") or st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
+                if before:
+                    st.image(before, use_container_width=True)
             with col_new:
-                    st.markdown("**Preview (pending):**")
-                    if st.session_state.get("graph_preview_png"):
-                        st.image(st.session_state["graph_preview_png"], use_container_width=True)
+                st.markdown("**Preview (pending):**")
+                if st.session_state.get("graph_preview_png"):
+                    st.image(st.session_state["graph_preview_png"], use_container_width=True)
