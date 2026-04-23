@@ -723,10 +723,9 @@ with main_tab1:
     <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
                 padding: 5px 10px; border-radius: 8px; margin-bottom: 10px;
                 border-left: 4px solid #e94560;">
-        <span style="color:#e94560; font-weight:bold; font-size:13px;">⚡ Powered by</span>
-        <span style="color:#ccc; font-size:10px;"> Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output</span>
     </div>
     """, unsafe_allow_html=True)
+    st.caption("⚡ Powered by: Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output")
    
     # --- SAS INPUT ---
     st.markdown("<p style='font-size:14px; font-weight:600; color:#aaa; margin-bottom:5px;'>📋 SAS Code</p>", unsafe_allow_html=True)
