@@ -700,13 +700,15 @@ with main_tab2:
     render_graph_builder_tab()
 
 with main_tab1:
-    st.markdown("## 🔄 Smart SAS to R Converter")
     st.markdown("""
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:5px;">
+        <span style="font-size:28px; font-weight:800; color:white;">🔄 Smart SAS to R Converter</span>
+    </div>
     <div style="background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
-                padding: 15px 20px; border-radius: 10px; margin-bottom: 20px;
+                padding: 10px 20px; border-radius: 8px; margin-bottom: 15px;
                 border-left: 4px solid #e94560;">
-        <span style="color:#e94560; font-weight:bold;">⚡ Powered by</span>
-        <span style="color:white;"> Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output</span>
+        <span style="color:#e94560; font-weight:bold; font-size:13px;">⚡ Powered by</span>
+        <span style="color:#ccc; font-size:13px;"> Gemini 2.0 Flash + Groq Llama 3.3 | Executes R via Rscript | Auto-validates output</span>
     </div>
     """, unsafe_allow_html=True)
     st.divider()
