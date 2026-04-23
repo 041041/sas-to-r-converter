@@ -590,91 +590,124 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
         status_text.empty()
 
     return pipeline_results
+    
+with st.sidebar:
+  st.header("⚙️ Settings")
+  mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
+  st.divider()
+  r_dialect = st.radio("R Dialect", ["Base R", "Modern R (tidyverse)"])
+
+  st.divider()
+
+  st.header("📖 How to use")
+  st.markdown("""
+**Convert Only:**
+1. Paste SAS code → Run
+2. Download R script
+
+---
+**Convert + Validate:**
+1. Paste SAS code
+2. Upload expected CSV or Excel
+ - filename = dataset name
+ - *Single file auto-maps to final step!*
+3. Run → see ✅ MATCH / ❌ MISMATCH
+""")
+
+  st.divider()
+
+  st.header("✨ What this app does")
+  st.markdown("""
+🔄 Converts SAS code to R automatically
+
+✅ Executes & validates R output
+
+🔧 Auto-fixes R errors on failure
+
+🔄 Fix & Retry on output mismatch
+
+📊 Side by side SAS vs R comparison
+
+⏱️ Per-step timing metrics
+
+📥 Downloads full R script
+""")
+
+  st.divider()
+
+  st.header("📋 Supported SAS")
+  st.markdown("""
+✅ DATA step (SET, IF/ELSE, mutate)
+
+✅ PROC SORT
+
+✅ PROC MEANS
+
+✅ PROC FREQ
+
+✅ PROC SQL (JOIN, GROUP BY, HAVING)
+
+✅ PROC TRANSPOSE
+""")
+
+  st.divider()
+
+  st.header("🔜 Coming Soon")
+  st.markdown("""
+🔶 SAS Macros *(in development)*
+""")
+
+  st.divider()
+
+  st.header("💡 Tips")
+  st.markdown("""
+- Name CSV same as SAS dataset
+- Single CSV auto-maps to final step
+- Use **Modern R** for cleaner code
+- Use **Base R** for maximum compatibility
+""")
+
+  st.caption("Built with Gemini + Groq + Rscript")
+  elif page == "📊 Graph Builder":
+        st.header("📊 Graph Builder")
+        st.markdown("""
+**How to use:**
+1. Upload CSV or Excel
+2. Configure chart options
+3. Click Generate Graph
+4. Edit code if needed
+5. Download PNG or R code
+
+---
+**Supported Charts:**
+📊 Bar Chart
+📈 Line Chart
+🔵 Scatter Plot
+📉 Histogram
+📦 Box Plot
+🥧 Pie Chart
+🌊 Area Chart
+
+---
+**✨ Custom Enhancement:**
+- *"move legend to bottom"*
+- *"use dark theme"*
+- *"add trend line"*
+
+---
+**💡 Tips:**
+- Color By = grouped bars
+- Sort bars by value
+- Show Values = labels on bars
+""")
+        st.caption("Powered by Groq + ggplot2")
 
 # --- STREAMLIT UI ---
 if page == "🔄 SAS Converter":
   st.title("🔄 Smart SAS to R Converter")
   st.caption("Gemini 2.0 Flash + Groq fallback | Executes R via Rscript | Compares output vs SAS expected")
   st.divider()
-   
-  with st.sidebar:
-      st.header("⚙️ Settings")
-      mode = st.radio("App Mode", ["Convert Only", "Convert + Execute + Validate"])
-      st.divider()
-      r_dialect = st.radio("R Dialect", ["Base R", "Modern R (tidyverse)"])
-  
-      st.divider()
-  
-      st.header("📖 How to use")
-      st.markdown("""
-  **Convert Only:**
-  1. Paste SAS code → Run
-  2. Download R script
-  
-  ---
-  **Convert + Validate:**
-  1. Paste SAS code
-  2. Upload expected CSV or Excel
-     - filename = dataset name
-     - *Single file auto-maps to final step!*
-  3. Run → see ✅ MATCH / ❌ MISMATCH
-  """)
-  
-      st.divider()
-  
-      st.header("✨ What this app does")
-      st.markdown("""
-  🔄 Converts SAS code to R automatically
-  
-  ✅ Executes & validates R output
-  
-  🔧 Auto-fixes R errors on failure
-  
-  🔄 Fix & Retry on output mismatch
-  
-  📊 Side by side SAS vs R comparison
-  
-  ⏱️ Per-step timing metrics
-  
-  📥 Downloads full R script
-  """)
-  
-      st.divider()
-  
-      st.header("📋 Supported SAS")
-      st.markdown("""
-  ✅ DATA step (SET, IF/ELSE, mutate)
-  
-  ✅ PROC SORT
-  
-  ✅ PROC MEANS
-  
-  ✅ PROC FREQ
-  
-  ✅ PROC SQL (JOIN, GROUP BY, HAVING)
-  
-  ✅ PROC TRANSPOSE
-  """)
-  
-      st.divider()
-  
-      st.header("🔜 Coming Soon")
-      st.markdown("""
-  🔶 SAS Macros *(in development)*
-  """)
-  
-      st.divider()
-  
-      st.header("💡 Tips")
-      st.markdown("""
-  - Name CSV same as SAS dataset
-  - Single CSV auto-maps to final step
-  - Use **Modern R** for cleaner code
-  - Use **Base R** for maximum compatibility
-  """)
-  
-      st.caption("Built with Gemini + Groq + Rscript")
-  
+     
   # --- SAS INPUT ---
   st.subheader("📋 SAS Code")
   sas_script = st.text_area(
