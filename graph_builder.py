@@ -248,7 +248,6 @@ def render_graph_builder_tab():
         y_col = st.selectbox("📈 Y Axis", all_cols_with_none, index=y_default)
         st.session_state["graph_y_col"] = y_col
     with r1d:
-        with r1d:
         color_col = st.selectbox("🎨 Color By", all_cols_with_none, 
                                   index=color_default,
                                   key="graph_color_col_widget")
