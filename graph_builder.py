@@ -172,9 +172,9 @@ def render_graph_builder_tab():
     st.markdown("""
     <div style="margin-bottom:5px;">
         <span style="font-size:22px; font-weight:700; color:white;">📊 R Graph Builder</span>
-    </div>
+    </div>""", unsafe_allow_html=True)
     st.caption("Upload data → Configure chart → Generate ggplot2 code → Edit & Download")
-    """, unsafe_allow_html=True)
+    
 
     # --- SESSION STATE INIT ---
     # Always reset review state on fresh page load
