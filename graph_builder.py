@@ -308,8 +308,8 @@ def render_graph_builder_tab():
                     file_name="graph.png",
                     mime="image/png"
                 )
-        elif st.session_state.get("graph_error"):
-            st.error(st.session_state["graph_error"])
+            elif st.session_state.get("graph_error"):
+                st.error(st.session_state["graph_error"])
         with out2:
                 edited_code = st.text_area(
                     "Edit R Code",
