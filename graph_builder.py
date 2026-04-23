@@ -198,6 +198,7 @@ def render_graph_builder_tab():
         "graph_preview_png": None,
         "graph_r_code_pending": None,
         "graph_r_code_original": None,
+        "graph_png_before_preview": None
         # FIX 1: persist the custom enhancement text across reruns
         "custom_request_text": "",
         "_run_r_now": False,
@@ -480,6 +481,8 @@ def render_graph_builder_tab():
                             st.session_state["graph_df"]
                         )
                         st.session_state["graph_preview_png"] = preview_png
+                        # snapshot current graph before preview
+                        st.session_state["graph_png_before_preview"] = st.session_state.get("graph_png")
                         st.rerun()
                     except RuntimeError as e:
                         st.error(f"Preview failed: {e}")
@@ -497,9 +500,10 @@ def render_graph_builder_tab():
             col_old, col_new = st.columns(2)
             with col_old:
                     st.markdown("**Current Graph:**")
-                    current = st.session_state.get("graph_png_accepted") or st.session_state.get("graph_png")
-                    if current:
-                        st.image(current, use_container_width=True)
-            with col_new:
-                st.markdown("**Preview (pending):**")
-                st.image(st.session_state["graph_preview_png"], use_container_width=True)
+                    before = st.session_state.get("graph_png_before_preview") or st.session_state.get("graph_png")
+                    if before:
+                        st.image(before, use_container_width=True)
+                with col_new:
+                    st.markdown("**Preview (pending):**")
+                    if st.session_state.get("graph_preview_png"):
+                        st.image(st.session_state["graph_preview_png"], use_container_width=True)
