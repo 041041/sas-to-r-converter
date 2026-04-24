@@ -390,6 +390,12 @@ def render_graph_builder_tab():
                         f"You MUST preserve ALL existing theme(), labs(), legend, color and style settings exactly as they are. "
                         f"ONLY add or modify what is explicitly requested in this request. "
                         f"Do NOT remove, reset or simplify any existing customizations.\n"
+                        f"14. If the request requires a structural change (like faceting, paneling, flipping axes, "
+                        f"changing geom type), you MUST still carry over ALL theme() settings, legend.position, "
+                        f"plot.title, axis.text, color palettes and labs() from the CURRENT CODE exactly as they are. "
+                        f"Structural changes and style preservation are NOT mutually exclusive.\n"
+                        f"15. Before writing the output, mentally check: does my output have the same theme(), "
+                        f"legend.position, labs() and color settings as the CURRENT CODE? If not, add them back.\n"
                     )
                     raw = None
                     try:
