@@ -590,14 +590,20 @@ def render_table_builder_tab():
     st.write(f"DEBUG run_now: {st.session_state.get('_tbl_run_now')}")
     st.write(f"DEBUG custom: '{st.session_state.get('tbl_custom_text', '')}'")
     if st.button("🏥 Generate Table", type="primary", use_container_width=True):
+        st.write("DEBUG: button clicked")
 
         # Validation
         if "Table 1" in table_type and not selections.get("variables"):
             st.error("⚠️ Please select at least one variable to summarise.")
             st.stop()
 
+        st.write("DEBUG: passed validation")
+
         with st.spinner("🤖 Generating R code..."):
             try:
+                st.write("DEBUG: inside try")
+                r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
+                st.write(f"DEBUG: r_code generated, custom='{custom_request.strip()}'")
                 # Generate base code from selections
                 if "Table 1" in table_type:
                     r_code = generate_table1_code(selections)
