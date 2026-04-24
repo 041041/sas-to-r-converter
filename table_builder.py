@@ -586,6 +586,9 @@ def render_table_builder_tab():
     )
 
     # ── Generate button ──────────────────────────────────────────────────
+    st.write(f"DEBUG pending: {st.session_state.get('tbl_r_code_pending')}")
+    st.write(f"DEBUG run_now: {st.session_state.get('_tbl_run_now')}")
+    st.write(f"DEBUG custom: '{st.session_state.get('tbl_custom_text', '')}'")
     if st.button("🏥 Generate Table", type="primary", use_container_width=True):
 
         # Validation
