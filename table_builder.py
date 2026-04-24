@@ -646,7 +646,9 @@ def render_table_builder_tab():
                 st.session_state["_tbl_run_now"]       = True
 
             except Exception as e:
+                import traceback
                 st.error(f"Code generation error: {e}")
+                st.code(traceback.format_exc())
                 st.stop()
 
     # ── R execution block ─────────────────────────────────────────────────
