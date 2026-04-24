@@ -617,8 +617,6 @@ def render_table_builder_tab():
 
                     if raw:
                         enhanced_code = clean_llm_output(raw)
-                        # Store pending — do NOT touch tbl_output_bytes
-                        # so existing table stays visible during review
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
                         st.session_state["tbl_r_code_original"] = r_code_for_enhancement
                         st.session_state["tbl_r_code"]          = r_code_for_enhancement
@@ -626,7 +624,14 @@ def render_table_builder_tab():
                         st.session_state["tbl_preview_bytes"]   = None
                         st.rerun()
                     else:
+                        # LLM failed — fall back to base code and run immediately
                         st.warning("⚠️ Enhancement failed, using base code.")
+                        st.session_state["tbl_r_code_pending"] = None
+                        st.session_state["tbl_r_code"]         = r_code
+                        st.session_state["tbl_df"]             = df
+                        st.session_state["_tbl_run_now"]       = True
+                    # Stop here — don't fall through to the no-custom block
+                    st.stop()
 
                 # No custom request — run immediately
                 st.session_state["tbl_r_code_pending"] = None
