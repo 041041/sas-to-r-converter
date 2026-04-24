@@ -369,6 +369,7 @@ def render_table_builder_tab():
         "tbl_r_code_pending":  None,
         "tbl_r_code_original": None,
         "tbl_preview_bytes":   None,
+        "tbl_preview_html":    None,
         "_tbl_run_now":        False,
         "tbl_custom_text":     "",
         "tbl_output_format":   "Word (.docx)",
@@ -650,12 +651,13 @@ def render_table_builder_tab():
             if st.button("👁️ Preview", use_container_width=True, key="tbl_preview"):
                 with st.spinner("Generating preview..."):
                     try:
-                        prev_bytes, _, _ = execute_table(
+                        prev_html, prev_bytes, _, _ = execute_table(
                             st.session_state["tbl_r_code_pending"],
                             st.session_state["tbl_df"],
                             st.session_state["tbl_output_format"]
                         )
                         st.session_state["tbl_preview_bytes"] = prev_bytes
+                        st.session_state["tbl_preview_html"]  = prev_html
                         st.rerun()
                     except RuntimeError as e:
                         st.error(f"Preview failed: {e}")
