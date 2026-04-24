@@ -4,6 +4,7 @@ import streamlit as st
 from google import genai
 from groq import Groq
 from graph_builder import render_graph_builder_tab
+from table_builder import render_table_builder_tab
 
 
 # --- CONFIGURATION ---
@@ -601,9 +602,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     
 with st.sidebar:
     st.markdown("### 🗂️ Navigation")
-    page = st.radio("", ["🔄 SAS Converter", "📊 Graph Builder"], 
-                   label_visibility="collapsed",
-                   key="page")
+    tab1, tab2, tab3 = st.tabs(["🔄 SAS Converter", "📊 Graph Builder", "🏥 Clinical Tables"])
     st.divider()
     
     if page == "🔄 SAS Converter":
@@ -1107,5 +1106,8 @@ if page == "🔄 SAS Converter":
               st.code(full_script_text, language="r")
               st.download_button("⬇️ Download .R Script", data=full_script_text, file_name="converted_pipeline.R", mime="text/plain", use_container_width=True)
           
-if page == "📊 Graph Builder":
-    render_graph_builder_tab()         
+with tab2:
+    render_graph_builder_tab()
+
+with tab3:
+    render_table_builder_tab()         
