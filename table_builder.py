@@ -286,7 +286,6 @@ def clean_llm_output(raw):
         raw = re.sub(fn, '', raw)
 
     # Remove duplicate consecutive %>% steps (LLM repetition loop)
-    import re
     # Collapse repeated modify_header / tab_style / tab_options blocks
     raw = re.sub(r'(%>%\s*modify_header\s*\([^)]*\)\s*){2,}', 
                  lambda m: m.group(0).split('%>%')[0] + '%>%' + re.search(r'modify_header\s*\([^)]*\)', m.group(0)).group(0),
