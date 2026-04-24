@@ -470,6 +470,7 @@ def render_graph_builder_tab():
             if st.button("👁️ Preview", use_container_width=True):
                 with st.spinner("Generating preview..."):
                     try:
+                        st.code(st.session_state["graph_r_code_pending"], language="r")
                         preview_png, _ = execute_graph(
                             st.session_state["graph_r_code_pending"],
                             st.session_state["graph_df"]
