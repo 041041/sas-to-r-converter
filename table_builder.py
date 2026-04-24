@@ -620,7 +620,7 @@ def render_table_builder_tab():
                 else:
                     r_code_for_enhancement = r_code
 
-                if custom_request.strip():
+                iif custom_request.strip():
                     prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
                     raw    = call_llm(prompt, groq_client, gemini_client)
 
@@ -639,6 +639,13 @@ def render_table_builder_tab():
                         st.session_state["tbl_r_code"]         = r_code
                         st.session_state["tbl_df"]             = df
                         st.session_state["_tbl_run_now"]       = True
+
+                else:
+                    # No custom request — run immediately
+                    st.session_state["tbl_r_code_pending"] = None
+                    st.session_state["tbl_r_code"]         = r_code
+                    st.session_state["tbl_df"]             = df
+                    st.session_state["_tbl_run_now"]       = True
                     # Stop here — don't fall through to the no-custom block
                     st.stop()
 
