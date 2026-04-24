@@ -386,6 +386,10 @@ def render_graph_builder_tab():
                         f"10. No explanations, just code\n"
                         f"11. Do NOT add ggsave\n"
                         f"12. Only use base ggplot2 — NO cowplot, NO ggthemes\n"
+                        f"13. MOST IMPORTANT — the CURRENT CODE already has previous accepted changes. "
+                        f"You MUST preserve ALL existing theme(), labs(), legend, color and style settings exactly as they are. "
+                        f"ONLY add or modify what is explicitly requested in this request. "
+                        f"Do NOT remove, reset or simplify any existing customizations.\n"
                     )
                     raw = None
                     try:
