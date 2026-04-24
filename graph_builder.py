@@ -412,7 +412,7 @@ def render_graph_builder_tab():
                         raw = re.sub(r'library\(ggthemes\)', '', raw)
                         enhanced_code = raw.strip()
                         st.session_state["graph_r_code_pending"]  = enhanced_code
-                        st.session_state["graph_r_code_original"] = r_code
+                        st.session_state["graph_r_code_original"] = r_code_for_enhancement
                         st.session_state["graph_r_code"]          = r_code
                         st.session_state["graph_df"]              = df
                         st.session_state["graph_preview_png"]     = None
