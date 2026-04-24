@@ -408,13 +408,16 @@ def render_table_builder_tab():
             st.session_state[key] = default
 
     # ── R package check ─────────────────────────────────────────────────
-    st.session_state.pop("tbl_pkgs_checked", None)  # force recheck — remove this line after packages install
+    # ── R package check (runs once per session only) ─────────────────────
     if "tbl_pkgs_checked" not in st.session_state:
-        with st.spinner("🔧 Checking R packages..."):
-            ok, err = ensure_r_packages()
-            st.session_state["tbl_pkgs_checked"] = True
-            if not ok:
-                st.warning(f"Some R packages may be missing:\n{err}")
+        st.info("🔧 Installing R packages on first run — this takes 2-5 minutes...")
+        ok, err = ensure_r_packages()
+        st.session_state["tbl_pkgs_checked"] = True
+        if ok:
+            st.success("✅ R packages ready!")
+            st.rerun()
+        else:
+            st.warning(f"Some R packages may be missing:\n{err}")
 
     gemini_client, groq_client = _make_clients()
 
