@@ -47,6 +47,10 @@ if (length(missing) > 0) {{
   message("Installing: ", paste(missing, collapse=", "))
   install.packages(missing, repos="https://cloud.r-project.org", lib=user_lib, quiet=FALSE)
 }}
+# Force upgrade broom if version is too old
+if (packageVersion("broom") < "1.0.8") {{
+  install.packages("broom", repos="https://cloud.r-project.org", lib=user_lib, quiet=FALSE)
+}}
 message("All packages ready")
 """.format(pkgs=", ".join(f'"{p}"' for p in REQUIRED_R_PACKAGES))
 
@@ -125,7 +129,8 @@ tbl <- df %>%
     export_code = f"""
 gt_tbl <- as_gt(tbl)
 # Save HTML for screen display
-htmltools::save_html(as_raw_html(gt_tbl), file = html_path)
+html_content <- as_raw_html(gt_tbl)
+writeLines(html_content, html_path)
 # Save PDF via pagedown
 pagedown::chrome_print(html_path, output = output_path, wait = 5)
 """
@@ -177,9 +182,15 @@ ae_summary <- df %>%
 
     export_code = f"""
 gt_tbl <- gt(ae_summary) %>%
-  tab_header(title = "{title}")
-# Save HTML for screen display
-htmltools::save_html(as_raw_html(gt_tbl), file = html_path)
+  tab_header(title = md("**{title}**")) %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_column_labels()
+  ) %>%
+  opt_stylize(style = 1)
+# Save HTML for screen display  
+html_content <- as_raw_html(gt_tbl)
+writeLines(html_content, html_path)
 # Save PDF via pagedown
 pagedown::chrome_print(html_path, output = output_path, wait = 5)
 """
@@ -356,7 +367,6 @@ def render_table_builder_tab():
 
     # ── R package check ─────────────────────────────────────────────────
     st.session_state.pop("tbl_pkgs_checked", None)  # force recheck — remove this line after packages install
-    st.session_state.pop("tbl_pkgs_checked", None)
     if "tbl_pkgs_checked" not in st.session_state:
         with st.spinner("🔧 Checking R packages..."):
             ok, err = ensure_r_packages()
