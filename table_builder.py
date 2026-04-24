@@ -33,7 +33,7 @@ def _make_clients():
 # ─────────────────────────────────────────────
 # R PACKAGE AUTO-INSTALLER
 # ─────────────────────────────────────────────
-REQUIRED_R_PACKAGES = ["gtsummary", "flextable", "officer", "dplyr", "webshot2", "gt"]
+REQUIRED_R_PACKAGES = ["gtsummary", "flextable", "officer", "dplyr", "gt", "broom", "pagedown", "htmltools"]
 
 def ensure_r_packages():
     """Install missing R packages silently on first run."""
@@ -125,10 +125,10 @@ tbl <- df %>%
     export_code = f"""
 gt_tbl <- as_gt(tbl)
 # Save HTML for screen display
-gtsave(gt_tbl, filename = html_path)
-# Save PDF for download
-gtsave(gt_tbl, filename = output_path)
-"""
+htmltools::save_html(as_raw_html(gt_tbl), file = html_path)
+# Save PDF via pagedown
+pagedown::chrome_print(html_path, output = output_path, wait = 5)
+"""x
 
     code = f"""library(dplyr)
 library(gtsummary)
@@ -179,9 +179,9 @@ ae_summary <- df %>%
 gt_tbl <- gt(ae_summary) %>%
   tab_header(title = "{title}")
 # Save HTML for screen display
-gtsave(gt_tbl, filename = html_path)
-# Save PDF for download
-gtsave(gt_tbl, filename = output_path)
+htmltools::save_html(as_raw_html(gt_tbl), file = html_path)
+# Save PDF via pagedown
+pagedown::chrome_print(html_path, output = output_path, wait = 5)
 """
 
     code = f"""library(dplyr)
@@ -356,6 +356,7 @@ def render_table_builder_tab():
 
     # ── R package check ─────────────────────────────────────────────────
     st.session_state.pop("tbl_pkgs_checked", None)  # force recheck — remove this line after packages install
+    st.session_state.pop("tbl_pkgs_checked", None)
     if "tbl_pkgs_checked" not in st.session_state:
         with st.spinner("🔧 Checking R packages..."):
             ok, err = ensure_r_packages()
