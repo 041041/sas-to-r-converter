@@ -39,9 +39,12 @@ def ensure_r_packages():
     """Install missing R packages silently on first run."""
     install_script = """
 pkgs <- c({pkgs})
+user_lib <- Sys.getenv("R_LIBS_USER")
+if (!dir.exists(user_lib)) dir.create(user_lib, recursive=TRUE)
+.libPaths(c(user_lib, .libPaths()))
 missing <- pkgs[!pkgs %in% installed.packages()[,"Package"]]
 if (length(missing) > 0) {{
-  install.packages(missing, repos="https://cloud.r-project.org", quiet=TRUE)
+  install.packages(missing, repos="https://cloud.r-project.org", lib=user_lib, quiet=TRUE)
 }}
 """.format(pkgs=", ".join(f'"{p}"' for p in REQUIRED_R_PACKAGES))
 
@@ -254,6 +257,8 @@ def execute_table(r_code, df, output_format):
         df.to_csv(inp_path, index=False)
 
         full_script = "\n".join([
+            "user_lib <- Sys.getenv('R_LIBS_USER')",
+            "if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))",
             "suppressPackageStartupMessages({",
             "  library(dplyr); library(gtsummary); library(flextable)",
             "  library(officer); library(gt); library(tidyr)",
