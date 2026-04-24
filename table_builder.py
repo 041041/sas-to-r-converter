@@ -655,16 +655,16 @@ def render_table_builder_tab():
         st.session_state["_tbl_run_now"] = False
         with st.spinner("⚙️ Running R..."):
             try:
-                        html_str, out_bytes, ext, r_log = execute_table(
-                            st.session_state["tbl_r_code"],
-                            st.session_state["tbl_df"],
-                            st.session_state["tbl_output_format"]
-                        )
-                        st.session_state["tbl_output_bytes"] = out_bytes
-                        st.session_state["tbl_output_ext"]   = ext
-                        st.session_state["tbl_html"]         = html_str
-                        st.session_state["tbl_log"]          = r_log
-                        st.session_state["tbl_error"]        = None
+                html_str, out_bytes, ext, r_log = execute_table(
+                    st.session_state["tbl_r_code"],
+                    st.session_state["tbl_df"],
+                    st.session_state["tbl_output_format"]
+                )
+                st.session_state["tbl_output_bytes"] = out_bytes
+                st.session_state["tbl_output_ext"]   = ext
+                st.session_state["tbl_html"]         = html_str
+                st.session_state["tbl_log"]          = r_log
+                st.session_state["tbl_error"]        = None
             except RuntimeError as e:
                 st.session_state["tbl_error"]        = str(e)
                 st.session_state["tbl_output_bytes"] = None
