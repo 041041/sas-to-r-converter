@@ -14,7 +14,7 @@ TABLE_TYPES = [
 
 STAT_OPTIONS = ["Mean (SD)", "Median (IQR)", "Mean (SD) + Median (IQR)"]
 
-OUTPUT_FORMATS = ["Word (.docx)", "PDF (.pdf)"]
+OUTPUT_FORMATS = ["PDF (.pdf)"]
 
 # ─────────────────────────────────────────────
 # API CLIENTS
@@ -122,14 +122,11 @@ tbl <- df %>%
   modify_caption("**{title}**")
 """
 
-    if "Word" in output_fmt:
-        export_code = f"""
-ft <- as_flex_table(tbl)
-save_as_docx(ft, path = output_path)
-"""
-    else:
-        export_code = f"""
+export_code = f"""
 gt_tbl <- as_gt(tbl)
+# Save HTML for screen display
+gtsave(gt_tbl, filename = html_path)
+# Save PDF for download
 gtsave(gt_tbl, filename = output_path)
 """
 
@@ -179,18 +176,12 @@ ae_summary <- df %>%
   select({soc_col}, {pt_col}, `n (%)`)
 """
 
-    if "Word" in output_fmt:
-        export_code = f"""
-ft <- flextable(ae_summary) %>%
-  set_caption(caption = "{title}") %>%
-  bold(part = "header") %>%
-  autofit()
-save_as_docx(ft, path = output_path)
-"""
-    else:
-        export_code = f"""
+    export_code = f"""
 gt_tbl <- gt(ae_summary) %>%
   tab_header(title = "{title}")
+# Save HTML for screen display
+gtsave(gt_tbl, filename = html_path)
+# Save PDF for download
 gtsave(gt_tbl, filename = output_path)
 """
 
@@ -261,12 +252,13 @@ def clean_llm_output(raw):
 # R EXECUTOR
 # ─────────────────────────────────────────────
 def execute_table(r_code, df, output_format):
-    """Run R code, return (output_bytes, extension, stderr)."""
-    ext = ".docx" if "Word" in output_format else ".pdf"
+    """Run R code, return (html_str, output_bytes, extension, stderr)."""
+    ext = ".pdf"
 
     with tempfile.TemporaryDirectory() as d:
         inp_path    = os.path.join(d, "input.csv")
         out_path    = os.path.join(d, f"output_table{ext}")
+        html_path   = os.path.join(d, "output_table.html")
         script_path = os.path.join(d, "script.R")
 
         df.to_csv(inp_path, index=False)
@@ -280,6 +272,7 @@ def execute_table(r_code, df, output_format):
             "})",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
             f'output_path <- "{out_path}"',
+            f'html_path <- "{html_path}"',
             r_code,
         ])
 
@@ -297,8 +290,14 @@ def execute_table(r_code, df, output_format):
         if not os.path.exists(out_path):
             raise RuntimeError("Output file was not created.\n" + res.stderr)
 
+        # Read HTML for screen display
+        html_str = ""
+        if os.path.exists(html_path):
+            with open(html_path, "r") as f:
+                html_str = f.read()
+
         with open(out_path, "rb") as f:
-            return f.read(), ext, res.stderr
+            return html_str, f.read(), ext, res.stderr
 
 
 # ─────────────────────────────────────────────
@@ -342,6 +341,7 @@ def render_table_builder_tab():
         "tbl_df":              None,
         "tbl_r_code":          "",
         "tbl_output_bytes":    None,
+        "tbl_html":            None,
         "tbl_output_ext":      ".docx",
         "tbl_log":             "",
         "tbl_error":           None,
@@ -466,16 +466,14 @@ def render_table_builder_tab():
         out1, out2 = st.tabs(["📊 Table", "💻 R Code"])
 
         with out1:
-            if st.session_state.get("tbl_output_bytes"):
-                ext  = st.session_state.get("tbl_output_ext", ".docx")
-                mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" \
-                       if ext == ".docx" else "application/pdf"
-                st.success("✅ Table generated successfully!")
+            if st.session_state.get("tbl_html"):
+                import streamlit.components.v1 as components
+                components.html(st.session_state["tbl_html"], height=600, scrolling=True)
                 st.download_button(
-                    f"⬇️ Download Table ({ext})",
+                    "⬇️ Download PDF",
                     data=st.session_state["tbl_output_bytes"],
-                    file_name=f"clinical_table{ext}",
-                    mime=mime,
+                    file_name="clinical_table.pdf",
+                    mime="application/pdf",
                     use_container_width=True
                 )
             elif st.session_state.get("tbl_error"):
@@ -505,13 +503,14 @@ def render_table_builder_tab():
             if run_edited:
                 with st.spinner("Running updated code..."):
                     try:
-                        out_bytes, ext, r_log = execute_table(
+                        html_str, out_bytes, ext, r_log = execute_table(
                             edited_code,
                             st.session_state["tbl_df"],
                             st.session_state["tbl_output_format"]
                         )
                         st.session_state["tbl_output_bytes"] = out_bytes
                         st.session_state["tbl_output_ext"]   = ext
+                        st.session_state["tbl_html"]         = html_str
                         st.session_state["tbl_log"]          = r_log
                         st.session_state["tbl_r_code"]       = edited_code
                         st.session_state["tbl_error"]        = None
