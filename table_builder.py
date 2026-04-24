@@ -39,13 +39,15 @@ def ensure_r_packages():
     """Install missing R packages silently on first run."""
     install_script = """
 pkgs <- c({pkgs})
-user_lib <- Sys.getenv("R_LIBS_USER")
+user_lib <- path.expand("~/R/library")
 if (!dir.exists(user_lib)) dir.create(user_lib, recursive=TRUE)
 .libPaths(c(user_lib, .libPaths()))
 missing <- pkgs[!pkgs %in% installed.packages()[,"Package"]]
 if (length(missing) > 0) {{
-  install.packages(missing, repos="https://cloud.r-project.org", lib=user_lib, quiet=TRUE)
+  message("Installing: ", paste(missing, collapse=", "))
+  install.packages(missing, repos="https://cloud.r-project.org", lib=user_lib, quiet=FALSE)
 }}
+message("All packages ready")
 """.format(pkgs=", ".join(f'"{p}"' for p in REQUIRED_R_PACKAGES))
 
     with tempfile.NamedTemporaryFile(suffix=".R", mode="w", delete=False) as f:
@@ -257,7 +259,7 @@ def execute_table(r_code, df, output_format):
         df.to_csv(inp_path, index=False)
 
         full_script = "\n".join([
-            "user_lib <- Sys.getenv('R_LIBS_USER')",
+            "user_lib <- path.expand('~/R/library')",
             "if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))",
             "suppressPackageStartupMessages({",
             "  library(dplyr); library(gtsummary); library(flextable)",
@@ -341,6 +343,7 @@ def render_table_builder_tab():
             st.session_state[key] = default
 
     # ── R package check ─────────────────────────────────────────────────
+    st.session_state.pop("tbl_pkgs_checked", None)  # force recheck — remove this line after packages install
     if "tbl_pkgs_checked" not in st.session_state:
         with st.spinner("🔧 Checking R packages..."):
             ok, err = ensure_r_packages()
