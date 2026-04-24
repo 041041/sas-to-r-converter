@@ -2,7 +2,7 @@ import os, re, subprocess, tempfile
 import pandas as pd
 import streamlit as st
 from groq import Groq
-from google import genai
+from google import genai 
 
 # ─────────────────────────────────────────────
 # CONSTANTS  — easy to extend
