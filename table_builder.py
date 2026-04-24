@@ -226,6 +226,8 @@ def build_enhance_prompt(current_code, custom_request):
         f"and reorder with gtsummary's own column tools, NOT gt cols_move before as_gt().\n"
         f"- NEVER apply gt functions directly on a tbl_summary object.\n"
         f"- NEVER invent function names.\n"
+        f"- NEVER repeat the same function call more than once in the pipe chain.\n"
+        f"- Each function like modify_header, modify_caption must appear AT MOST once.\n"
     )
 
 
@@ -282,6 +284,26 @@ def clean_llm_output(raw):
     ]
     for fn in invalid_fns:
         raw = re.sub(fn, '', raw)
+
+    # Remove duplicate consecutive %>% steps (LLM repetition loop)
+    import re
+    # Collapse repeated modify_header / tab_style / tab_options blocks
+    raw = re.sub(r'(%>%\s*modify_header\s*\([^)]*\)\s*){2,}', 
+                 lambda m: m.group(0).split('%>%')[0] + '%>%' + re.search(r'modify_header\s*\([^)]*\)', m.group(0)).group(0),
+                 raw, flags=re.DOTALL)
+
+    # Simpler fallback — deduplicate any repeated identical lines
+    lines = raw.splitlines()
+    seen = []
+    deduped = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped and stripped in seen and stripped.startswith('%>%'):
+            continue
+        deduped.append(line)
+        if stripped:
+            seen.append(stripped)
+    raw = '\n'.join(deduped)
 
     # Restore TABLE_DONE if LLM removed it
     if 'TABLE_DONE' not in raw:
