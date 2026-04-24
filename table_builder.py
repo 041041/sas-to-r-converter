@@ -14,7 +14,7 @@ TABLE_TYPES = [
 
 STAT_OPTIONS = ["Mean (SD)", "Median (IQR)", "Mean (SD) + Median (IQR)"]
 
-OUTPUT_FORMATS = ["PDF (.pdf)"]
+OUTPUT_FORMATS = ["HTML (.html)"]
 
 # ─────────────────────────────────────────────
 # API CLIENTS
@@ -33,7 +33,7 @@ def _make_clients():
 # ─────────────────────────────────────────────
 # R PACKAGE AUTO-INSTALLER
 # ─────────────────────────────────────────────
-REQUIRED_R_PACKAGES = ["gtsummary", "flextable", "officer", "dplyr", "gt", "broom", "pagedown", "htmltools"]
+REQUIRED_R_PACKAGES = ["gtsummary", "flextable", "officer", "dplyr", "gt", "broom", "htmltools"]
 
 def ensure_r_packages():
     """Install missing R packages silently on first run."""
@@ -128,11 +128,9 @@ tbl <- df %>%
 
     export_code = f"""
 gt_tbl <- as_gt(tbl)
-# Save HTML for screen display
 html_content <- as_raw_html(gt_tbl)
 writeLines(html_content, html_path)
-# Save PDF via pagedown
-pagedown::chrome_print(html_path, output = output_path, wait = 5)
+writeLines(html_content, output_path)
 """
 
     code = f"""library(dplyr)
@@ -188,11 +186,9 @@ gt_tbl <- gt(ae_summary) %>%
     locations = cells_column_labels()
   ) %>%
   opt_stylize(style = 1)
-# Save HTML for screen display  
 html_content <- as_raw_html(gt_tbl)
 writeLines(html_content, html_path)
-# Save PDF via pagedown
-pagedown::chrome_print(html_path, output = output_path, wait = 5)
+writeLines(html_content, output_path)
 """
 
     code = f"""library(dplyr)
@@ -263,7 +259,7 @@ def clean_llm_output(raw):
 # ─────────────────────────────────────────────
 def execute_table(r_code, df, output_format):
     """Run R code, return (html_str, output_bytes, extension, stderr)."""
-    ext = ".pdf"
+    ext = ".html"
 
     with tempfile.TemporaryDirectory() as d:
         inp_path    = os.path.join(d, "input.csv")
@@ -480,10 +476,10 @@ def render_table_builder_tab():
                 import streamlit.components.v1 as components
                 components.html(st.session_state["tbl_html"], height=600, scrolling=True)
                 st.download_button(
-                    "⬇️ Download PDF",
+                    "⬇️ Download HTML",
                     data=st.session_state["tbl_output_bytes"],
-                    file_name="clinical_table.pdf",
-                    mime="application/pdf",
+                    file_name="clinical_table.html",
+                    mime="text/html",
                     use_container_width=True
                 )
             elif st.session_state.get("tbl_error"):
