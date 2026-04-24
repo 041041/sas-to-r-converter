@@ -285,29 +285,31 @@ def clean_llm_output(raw):
     for fn in invalid_fns:
         raw = re.sub(fn, '', raw)
 
-    # Remove duplicate consecutive %>% steps (LLM repetition loop)
-    # Collapse repeated modify_header / tab_style / tab_options blocks
-    raw = re.sub(r'(%>%\s*modify_header\s*\([^)]*\)\s*){2,}', 
-                 lambda m: m.group(0).split('%>%')[0] + '%>%' + re.search(r'modify_header\s*\([^)]*\)', m.group(0)).group(0),
-                 raw, flags=re.DOTALL)
+# Remove repeated modify_header blocks — keep only the first occurrence
+    # Strategy: find all modify_header calls and keep only the last one
+    # (last is most likely the intended one from the new request)
+    modify_header_pattern = re.compile(
+        r'%>%\s*modify_header\s*\([^)]*\)',
+        re.DOTALL
+    )
+    matches = list(modify_header_pattern.finditer(raw))
+    if len(matches) > 1:
+        # Keep only the last modify_header, remove all previous ones
+        for match in matches[:-1]:
+            raw = raw.replace(match.group(0), '', 1)
 
-    # Simpler fallback — deduplicate any repeated identical lines
+    # Also deduplicate any other repeated pipe steps line by line
     lines = raw.splitlines()
-    seen = []
     deduped = []
+    prev_stripped = None
     for line in lines:
         stripped = line.strip()
-        if stripped and stripped in seen and stripped.startswith('%>%'):
+        if stripped and stripped == prev_stripped:
             continue
         deduped.append(line)
         if stripped:
-            seen.append(stripped)
+            prev_stripped = stripped
     raw = '\n'.join(deduped)
-
-    # Restore TABLE_DONE if LLM removed it
-    if 'TABLE_DONE' not in raw:
-        raw = raw.rstrip() + '\ncat("TABLE_DONE")\n'
-    return raw.strip()
 
 
 # ─────────────────────────────────────────────
