@@ -460,10 +460,11 @@ def render_graph_builder_tab():
         c1, c2, c3 = st.columns(3)
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True):
-                st.session_state["graph_r_code"]         = st.session_state["graph_r_code_pending"]
-                st.session_state["graph_r_code_pending"] = None
-                st.session_state["graph_preview_png"]    = None
-                st.session_state["_run_r_now"]           = True
+                st.session_state["graph_r_code"]          = st.session_state["graph_r_code_pending"]
+                st.session_state["graph_r_code_original"] = None
+                st.session_state["graph_r_code_pending"]  = None
+                st.session_state["graph_preview_png"]     = None
+                st.session_state["_run_r_now"]            = True
                 st.rerun()
         with c2:
             if st.button("👁️ Preview", use_container_width=True):
