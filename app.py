@@ -602,7 +602,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     
 with st.sidebar:
     st.markdown("### 🗂️ Navigation")
-    tab1, tab2, tab3 = st.tabs(["🔄 SAS Converter", "📊 Graph Builder", "🏥 Clinical Tables"])
+    page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder", "🏥 Clinical Tables"])
     st.divider()
     
     if page == "🔄 SAS Converter":
@@ -1106,8 +1106,8 @@ if page == "🔄 SAS Converter":
               st.code(full_script_text, language="r")
               st.download_button("⬇️ Download .R Script", data=full_script_text, file_name="converted_pipeline.R", mime="text/plain", use_container_width=True)
           
-with tab2:
+if page == "📊 Graph Builder":
     render_graph_builder_tab()
 
-with tab3:
-    render_table_builder_tab()         
+if page == "🏥 Clinical Tables":
+    render_table_builder_tab()        
