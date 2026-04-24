@@ -128,7 +128,7 @@ gt_tbl <- as_gt(tbl)
 htmltools::save_html(as_raw_html(gt_tbl), file = html_path)
 # Save PDF via pagedown
 pagedown::chrome_print(html_path, output = output_path, wait = 5)
-"""x
+"""
 
     code = f"""library(dplyr)
 library(gtsummary)
