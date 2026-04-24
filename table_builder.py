@@ -130,7 +130,7 @@ gtsave(gt_tbl, filename = html_path)
 gtsave(gt_tbl, filename = output_path)
 """
 
-    code = f"""library(dplyr)
+code = f"""library(dplyr)
 library(gtsummary)
 library(flextable)
 library(officer)
