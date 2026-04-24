@@ -216,9 +216,12 @@ def build_enhance_prompt(current_code, custom_request):
         f"RULES:\n"
         f"- Touch ONLY what the request asks. Preserve everything else exactly.\n"
         f"- Never add read.csv, hardcoded data, or data loading code.\n"
-        f"- Never remove or change the output_path variable — it is set externally.\n"
+        f"- Never remove or change the output_path or html_path variables.\n"
         f"- Keep all library() calls that are already present.\n"
-        f"- Keep the cat('TABLE_DONE') line at the end.\n"
+        f"- Keep the writeLines and cat('TABLE_DONE') lines at the end.\n"
+        f"- Only use REAL gtsummary functions: modify_caption, modify_header, modify_footnote, "
+        f"add_overall, add_p, bold_labels, bold_levels, italicize_labels, tab_style, tab_options.\n"
+        f"- NEVER invent function names. If unsure, use tab_options() or tab_style() from gt instead.\n"
         f"- Return ONLY complete R code. No explanations, no markdown fences.\n"
     )
 
@@ -248,6 +251,18 @@ def clean_llm_output(raw):
     raw = re.sub(r'```', '', raw)
     raw = re.sub(r'read\.csv\s*\(.*?\)', '', raw)
     raw = re.sub(r'read\.xlsx\s*\(.*?\)', '', raw)
+
+    # Remove hallucinated gtsummary functions that don't exist
+    invalid_fns = [
+        r'modify_title\s*\([^)]*\)\s*%>%?',
+        r'modify_title\s*\([^)]*\)',
+        r'add_significance\s*\([^)]*\)\s*%>%?',
+        r'bold_p\s*\([^)]*\)\s*%>%?',
+        r'italicize_levels\s*\([^)]*\)\s*%>%?',
+    ]
+    for fn in invalid_fns:
+        raw = re.sub(fn, '', raw)
+
     # Restore TABLE_DONE if LLM removed it
     if 'TABLE_DONE' not in raw:
         raw = raw.rstrip() + '\ncat("TABLE_DONE")\n'
