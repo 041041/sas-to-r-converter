@@ -107,21 +107,8 @@ tbl <- df %>%
                      all_categorical() ~ "{{n}} ({{p}}%)"),
     missing = "no"
   ) %>%
-  add_overall() %>%
+  add_overall(last = FALSE) %>%
   add_p() %>%
-  bold_labels() %>%
-  modify_caption("**{title}**")
-"""
-    else:
-        tbl_code = f"""
-{factor_hint}
-tbl <- df %>%
-  select(all_of({vars_r})) %>%
-  tbl_summary(
-    statistic = list(all_continuous() ~ {stat_str},
-                     all_categorical() ~ "{{n}} ({{p}}%)"),
-    missing = "no"
-  ) %>%
   bold_labels() %>%
   modify_caption("**{title}**")
 """
