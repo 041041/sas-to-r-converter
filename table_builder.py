@@ -122,7 +122,7 @@ tbl <- df %>%
   modify_caption("**{title}**")
 """
 
-export_code = f"""
+    export_code = f"""
 gt_tbl <- as_gt(tbl)
 # Save HTML for screen display
 gtsave(gt_tbl, filename = html_path)
@@ -130,7 +130,7 @@ gtsave(gt_tbl, filename = html_path)
 gtsave(gt_tbl, filename = output_path)
 """
 
-code = f"""library(dplyr)
+    code = f"""library(dplyr)
 library(gtsummary)
 library(flextable)
 library(officer)
@@ -141,8 +141,7 @@ library(gt)
 {export_code}
 cat("TABLE_DONE")
 """
-      return code
-
+    return code
 
 def generate_ae_code(selections):
     """Generate Adverse Events summary R code from selections."""
