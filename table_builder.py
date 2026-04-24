@@ -219,10 +219,13 @@ def build_enhance_prompt(current_code, custom_request):
         f"- Never remove or change the output_path or html_path variables.\n"
         f"- Keep all library() calls that are already present.\n"
         f"- Keep the writeLines and cat('TABLE_DONE') lines at the end.\n"
-        f"- Only use REAL gtsummary functions: modify_caption, modify_header, modify_footnote, "
-        f"add_overall, add_p, bold_labels, bold_levels, italicize_labels, tab_style, tab_options.\n"
-        f"- NEVER invent function names. If unsure, use tab_options() or tab_style() from gt instead.\n"
-        f"- Return ONLY complete R code. No explanations, no markdown fences.\n"
+        f"- Only use REAL gtsummary functions on tbl_summary objects: modify_caption, modify_header, "
+        f"modify_footnote, add_overall, add_p, bold_labels, bold_levels, italicize_labels.\n"
+        f"- Only use gt functions (tab_style, tab_options, cols_move, cols_align) AFTER as_gt(tbl) conversion.\n"
+        f"- To move the Overall column, use: tbl <- tbl %>% modify_header(all_stat_cols() ~ '**{{level}}**') "
+        f"and reorder with gtsummary's own column tools, NOT gt cols_move before as_gt().\n"
+        f"- NEVER apply gt functions directly on a tbl_summary object.\n"
+        f"- NEVER invent function names.\n"
     )
 
 
@@ -251,6 +254,23 @@ def clean_llm_output(raw):
     raw = re.sub(r'```', '', raw)
     raw = re.sub(r'read\.csv\s*\(.*?\)', '', raw)
     raw = re.sub(r'read\.xlsx\s*\(.*?\)', '', raw)
+
+    # Remove gt functions incorrectly applied before as_gt() conversion
+    # These must only be applied on gt objects, not tbl_summary objects
+    invalid_fns_on_tbl = [
+        r'\s*%>%\s*tab_style\s*\([^)]*\)',
+        r'\s*%>%\s*tab_options\s*\([^)]*\)',
+        r'\s*%>%\s*cols_move\s*\([^)]*\)',
+        r'\s*%>%\s*cols_align\s*\([^)]*\)',
+    ]
+    # Only remove these if they appear before as_gt()
+    as_gt_pos = raw.find('as_gt(')
+    if as_gt_pos > 0:
+        before_as_gt = raw[:as_gt_pos]
+        after_as_gt  = raw[as_gt_pos:]
+        for fn in invalid_fns_on_tbl:
+            before_as_gt = re.sub(fn, '', before_as_gt)
+        raw = before_as_gt + after_as_gt
 
     # Remove hallucinated gtsummary functions that don't exist
     invalid_fns = [
