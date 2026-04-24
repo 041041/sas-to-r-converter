@@ -81,8 +81,20 @@ def generate_table1_code(selections):
     else:
         stat_str = '"{mean} ({sd}); {median} ({p25}, {p75})"'
 
+    # Auto-exclude subject ID from variables
+    subj_col = selections.get("subj_col")
+    clean_vars = [v for v in vars_list if v != subj_col]
+    vars_r = "c(" + ", ".join(f'"{v}"' for v in clean_vars) + ")"
+
+    # Build factor conversion for character columns
+    factor_hint = f"""
+# Convert character columns to factors for proper categorical display
+df <- df %>% mutate(across(where(is.character), as.factor))
+"""
+
     if group_col:
         tbl_code = f"""
+{factor_hint}
 tbl <- df %>%
   select(all_of(c({vars_r}, "{group_col}"))) %>%
   tbl_summary(
@@ -98,6 +110,7 @@ tbl <- df %>%
 """
     else:
         tbl_code = f"""
+{factor_hint}
 tbl <- df %>%
   select(all_of({vars_r})) %>%
   tbl_summary(
