@@ -141,7 +141,7 @@ library(gt)
 {export_code}
 cat("TABLE_DONE")
 """
-return code
+ return code
 
 
 def generate_ae_code(selections):
