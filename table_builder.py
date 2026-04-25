@@ -629,10 +629,6 @@ def render_table_builder_tab():
 
         with st.spinner("🤖 Generating R code..."):
             try:
-                st.write("DEBUG: inside try")
-                r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
-                st.write(f"DEBUG: r_code generated, custom='{custom_request.strip()}'")
-                # Generate base code from selections
                 if "Table 1" in table_type:
                     r_code = generate_table1_code(selections)
                 else:
