@@ -248,12 +248,18 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     existing = extract_existing_footnotes(current_code)
 
     if existing:
-        # Append to existing footnote
         combined = f"{existing}; {new_footnote_text}"
-        # Use string replace instead of re.sub to avoid special char issues
-        old_fn = re.search(r"modify_footnote\s*\([^)]+\)", current_code).group(0)
-        new_fn = f"modify_footnote(everything() ~ '{combined}')"
-        updated = current_code.replace(old_fn, new_fn, 1)
+        # Find the full modify_footnote(...) call using a more precise pattern
+        # that handles nested parentheses like everything()
+        old_fn = re.search(
+            r"modify_footnote\s*\(everything\(\)\s*~\s*['\"][^'\"]*['\"]\)",
+            current_code
+        )
+        if old_fn:
+            new_fn = f"modify_footnote(everything() ~ '{combined}')"
+            updated = current_code.replace(old_fn.group(0), new_fn, 1)
+        else:
+            updated = current_code
     else:
         # Insert after bold_labels()
         if "bold_labels()" in current_code:
