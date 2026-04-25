@@ -662,7 +662,6 @@ def render_table_builder_tab():
                         enhanced_code = merge_footnotes(r_code_for_enhancement, enhanced_code)
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
                         st.session_state["tbl_r_code_original"] = r_code_for_enhancement
-                        st.session_state["tbl_r_code"]          = r_code_for_enhancement
                         st.session_state["tbl_df"]              = df
                         st.session_state["tbl_preview_bytes"]   = None
                         st.write("DEBUG original footnotes:", extract_existing_footnotes(r_code_for_enhancement))
