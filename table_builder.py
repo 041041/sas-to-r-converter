@@ -134,20 +134,31 @@ cat("TABLE_DONE")
     return code
 
 def merge_footnotes(old_code, new_code):
-    """Extract footnote from old code and merge into new code."""
-    # Extract old footnote
-    old_match = re.search(r"modify_footnote\s*\(\s*everything\(\)\s*~\s*['\"]([^'\"]+)['\"]", old_code)
-    new_match = re.search(r"modify_footnote\s*\(\s*everything\(\)\s*~\s*['\"]([^'\"]+)['\"]", new_code)
+    """Always preserve all footnotes from old code in new code."""
+    # Find all footnotes in old code
+    old_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', old_code)
+    new_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', new_code)
     
-    if old_match and new_match:
+    st.write("DEBUG merge - old:", old_match.group(1) if old_match else "NONE")
+    st.write("DEBUG merge - new:", new_match.group(1) if new_match else "NONE")
+    
+    if old_match:
         old_text = old_match.group(1)
-        new_text = new_match.group(1)
-        if old_text not in new_text:
-            combined = f"{old_text}; {new_text}"
-            new_code = re.sub(
-                r"modify_footnote\s*\(\s*everything\(\)\s*~\s*['\"][^'\"]+['\"]\s*\)",
-                f'modify_footnote(everything() ~ "{combined}")',
-                new_code
+        if new_match:
+            new_text = new_match.group(1)
+            # Only append if old text not already in new
+            if old_text not in new_text:
+                combined = f"{old_text}; {new_text}"
+                new_code = re.sub(
+                    r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"][^\'"]+[\'"]\s*\)',
+                    f'modify_footnote(everything() ~ "{combined}")',
+                    new_code
+                )
+        else:
+            # New code has no footnote — inject old one
+            new_code = new_code.replace(
+                'modify_caption(',
+                f'modify_footnote(everything() ~ "{old_text}") %>%\n  modify_caption('
             )
     return new_code
     
