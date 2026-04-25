@@ -144,7 +144,7 @@ library(gt)
 {export_code}
 cat("TABLE_DONE")
 """
-    return code
+        return code
 
 def merge_footnotes(old_code, new_code):
     """Always preserve all footnotes from old code in new code."""
