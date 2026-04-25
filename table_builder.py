@@ -727,14 +727,14 @@ def render_table_builder_tab():
                 st.markdown("**Current (accepted):**")
                 if st.session_state.get("tbl_html"):
                     st.components.v1.html(
-                        st.session_state["tbl_html"],
-                        height=400,
-                        scrolling=True
-                    )
+                    f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
+                    height=400,
+                    scrolling=True
+                 )
             with col2:
                 st.markdown("**Preview (pending):**")
                 st.components.v1.html(
-                    st.session_state["tbl_preview_html"],
+                    f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
                     height=400,
                     scrolling=True
                 )
