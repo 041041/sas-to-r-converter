@@ -457,6 +457,10 @@ def render_table_builder_tab():
         st.session_state["_tbl_run_now"]        = False
         st.session_state["tbl_initialized"]     = True
 
+    if st.session_state.get("_debug_accepted"):
+        st.sidebar.markdown("**Last Accepted Code:**")
+        st.sidebar.code(st.session_state["_debug_accepted"], language="r")
+
     for key, default in {
         "tbl_df":              None,
         "tbl_r_code":          "",
@@ -748,8 +752,9 @@ def render_table_builder_tab():
 
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True, key="tbl_apply"):
-                st.sidebar.write("DEBUG: Apply clicked, saving:", st.session_state.get("tbl_r_code_pending", "")[:100])
-                st.session_state["tbl_r_code"]          = st.session_state["tbl_r_code_pending"]
+                accepted = st.session_state.get("tbl_r_code_pending", "")
+                st.session_state["tbl_r_code"]          = accepted
+                st.session_state["_debug_accepted"]     = accepted[:300]
                 st.session_state["tbl_r_code_original"] = None
                 st.session_state["tbl_r_code_pending"]  = None
                 st.session_state["tbl_preview_bytes"]   = None
