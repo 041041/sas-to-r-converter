@@ -230,6 +230,49 @@ cat("TABLE_DONE")
 # ─────────────────────────────────────────────
 # LLM ENHANCEMENT  — same pattern as graph_builder
 # ─────────────────────────────────────────────
+def extract_existing_footnotes(code):
+    """Extract existing footnote text from R code."""
+    match = re.search(
+        r"modify_footnote\s*\([^~]+~\s*['\"]([^'\"]+)['\"]",
+        code,
+        re.DOTALL
+    )
+    return match.group(1) if match else None
+
+
+def apply_footnote_in_python(current_code, new_footnote_text):
+    """Add or append footnote directly in Python without LLM."""
+    existing = extract_existing_footnotes(current_code)
+
+    if existing:
+        # Append to existing footnote
+        combined = f"{existing}; {new_footnote_text}"
+        updated = re.sub(
+            r"modify_footnote\s*\([^)]+\)",
+            f"modify_footnote(everything() ~ '{combined}')",
+            current_code
+        )
+    else:
+        # Insert after bold_labels()
+        if "bold_labels()" in current_code:
+            updated = current_code.replace(
+                "bold_labels()",
+                f"bold_labels() %>%\n  modify_footnote(everything() ~ '{new_footnote_text}')"
+            )
+        elif "modify_caption" in current_code:
+            updated = current_code.replace(
+                "modify_caption",
+                f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption"
+            )
+        elif "as_gt(" in current_code:
+            updated = current_code.replace(
+                "as_gt(",
+                f"modify_footnote(everything() ~ '{new_footnote_text}')\n\ngt_tbl <- as_gt("
+            )
+        else:
+            updated = current_code
+
+    return updated
 def build_enhance_prompt(current_code, custom_request):
     existing_footnote = extract_existing_footnotes(current_code)
     
@@ -685,9 +728,26 @@ def render_table_builder_tab():
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
                 if custom_request.strip():
-                    st.write("DEBUG tbl_r_code:", st.session_state.get("tbl_r_code", "")[:200])
-                    st.write("DEBUG r_code_for_enhancement:", r_code_for_enhancement[:200])
                     # Handle footnote requests directly in Python — no LLM needed
+                    footnote_keywords = ["footnote", "foot note", "note", "annotation"]
+                    is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
+
+                    if is_footnote_request:
+                        # Extract just the footnote text from the request
+                        footnote_text = custom_request
+                        for prefix in ["add footnote", "add a footnote", "add note",
+                                       "add annotation", "footnote:", "footnote"]:
+                            footnote_text = re.sub(prefix, "", footnote_text, flags=re.IGNORECASE).strip()
+                        footnote_text = footnote_text.strip('"\'').strip()
+
+                        enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
+                        st.session_state["tbl_r_code_pending"]  = enhanced_code
+                        st.session_state["tbl_r_code_original"] = r_code_for_enhancement
+                        st.session_state["tbl_r_code"]          = r_code_for_enhancement
+                        st.session_state["tbl_df"]              = df
+                        st.session_state["tbl_preview_bytes"]   = None
+                        st.rerun()
+
                     prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
                     raw    = call_llm(prompt, groq_client, gemini_client)
 
