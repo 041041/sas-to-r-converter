@@ -664,6 +664,10 @@ def render_table_builder_tab():
 
     # ── R execution block ─────────────────────────────────────────────────
     # Lives OUTSIDE generate button block so it runs on every rerun when flagged
+    st.write("DEBUG before review - pending:", st.session_state.get("tbl_r_code_pending") is not None)
+    st.write("DEBUG run_now:", st.session_state.get("_tbl_run_now"))
+    if st.session_state.get("tbl_r_code_pending"):
+        st.warning("⚠️ AI wants to modify your code. Review and confirm:")
     if st.session_state.get("_tbl_run_now") and not st.session_state.get("tbl_r_code_pending"):
         st.session_state["_tbl_run_now"] = False
         with st.spinner("⚙️ Running R..."):
