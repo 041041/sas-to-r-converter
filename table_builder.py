@@ -785,6 +785,31 @@ def render_table_builder_tab():
             st.session_state["tbl_r_code"]         = r_code
             st.session_state["tbl_df"]             = df
             st.session_state["_tbl_run_now"]       = True
+            else:
+                prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
+                raw    = call_llm(prompt, groq_client, gemini_client)
+
+                if raw:
+                    enhanced_code = clean_llm_output(raw)
+                    st.session_state["tbl_r_code_pending"]  = enhanced_code
+                    st.session_state["tbl_r_code_original"] = r_code_for_enhancement
+                    # DO NOT update tbl_r_code here — only update after Apply
+                    st.session_state["tbl_df"]              = df
+                    st.session_state["tbl_preview_bytes"]   = None
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Enhancement failed, using base code.")
+                    st.session_state["tbl_r_code_pending"] = None
+                    st.session_state["tbl_r_code"]         = r_code
+                    st.session_state["tbl_df"]             = df
+                    st.session_state["_tbl_run_now"]       = True
+
+        else:
+            # No custom request — fresh generate, reset everything
+            st.session_state["tbl_r_code_pending"] = None
+            st.session_state["tbl_r_code"]         = r_code
+            st.session_state["tbl_df"]             = df
+            st.session_state["_tbl_run_now"]       = True
 
                     prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
                     raw    = call_llm(prompt, groq_client, gemini_client)
