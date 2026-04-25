@@ -710,7 +710,7 @@ def render_table_builder_tab():
     # key bound to session_state so text survives reruns
     custom_request = st.text_area(
         "✨ Custom Enhancement (optional)",
-        placeholder="e.g. Add footnote, bold p-values < 0.05, change font size, add spanning header...",
+        placeholder="e.g. Add footnote 'Source: Clinical Study Report' | bold p-values | change font size",
         height=80,
         key="tbl_custom_text",
     )
@@ -741,15 +741,24 @@ def render_table_builder_tab():
                     is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
 
                     if is_footnote_request:
-                        # Extract just the footnote text — take content after colon or quotes
-                        footnote_text = custom_request
-                        # Remove common prefixes
-                        for prefix in ["add footnote", "add a footnote", "add note",
-                                       "add annotation", "footnote:"]:
-                            footnote_text = re.sub(prefix, "", footnote_text, flags=re.IGNORECASE).strip()
-                        # Remove surrounding quotes
-                        footnote_text = footnote_text.strip('"\'').strip()
-                        # Final cleanup — remove any remaining quotes
+                        # Try to extract quoted text first — "add footnote 'xyz'" → xyz
+                        quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
+                        if quoted:
+                            footnote_text = quoted.group(1).strip()
+                        else:
+                            # Remove common prefixes and take remainder
+                            footnote_text = custom_request
+                            for prefix in [
+                                "please add footnote", "add a footnote saying",
+                                "add footnote saying", "add footnote:",
+                                "add a footnote", "add footnote",
+                                "add note", "add annotation"
+                            ]:
+                                footnote_text = re.sub(
+                                    prefix, "", footnote_text, flags=re.IGNORECASE
+                                ).strip()
+                            footnote_text = footnote_text.strip('"\'').strip()
+                        # Remove any remaining quotes
                         footnote_text = footnote_text.replace("'", "").replace('"', '').strip()
 
                         enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
