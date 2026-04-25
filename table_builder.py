@@ -630,7 +630,7 @@ def render_table_builder_tab():
         if "Table 1" in table_type and not selections.get("variables"):
             st.error("⚠️ Please select at least one variable to summarise.")
             st.stop()
-
+        st.write("HAS FN:", "modify_footnote" in (st.session_state.get("tbl_r_code") or ""))
         with st.spinner("🤖 Generating R code..."):
             try:
                 if "Table 1" in table_type:
