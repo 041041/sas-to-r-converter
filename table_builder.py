@@ -216,7 +216,7 @@ def build_enhance_prompt(current_code, custom_request):
         f"- NEVER apply gt functions directly on a tbl_summary object.\n"
         f"- NEVER invent function names.\n"
         f"- NEVER repeat the same function call more than once in the pipe chain.\n"
-        f"- Each function like modify_header, modify_caption must appear AT MOST once.\n"
+        f"- modify_footnote must appear AT MOST once. If code already has modify_footnote, REPLACE it don't add another.\n"
     )
 
 
@@ -284,6 +284,15 @@ def clean_llm_output(raw):
     matches = list(modify_header_pattern.finditer(raw))
     if len(matches) > 1:
         # Keep only the last modify_header, remove all previous ones
+        for match in matches[:-1]:
+            raw = raw.replace(match.group(0), '', 1)
+    # Deduplicate modify_footnote — keep only last
+    footnote_pattern = re.compile(
+        r'%>%\s*modify_footnote\s*\([^)]*\)',
+        re.DOTALL
+    )
+    matches = list(footnote_pattern.finditer(raw))
+    if len(matches) > 1:
         for match in matches[:-1]:
             raw = raw.replace(match.group(0), '', 1)
 
