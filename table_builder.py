@@ -126,14 +126,14 @@ tbl <- df %>%
   modify_caption("**{title}**")
 """
 
-    export_code = f"""
+        export_code = f"""
 gt_tbl <- as_gt(tbl)
 html_content <- as_raw_html(gt_tbl)
 writeLines(html_content, html_path)
 writeLines(html_content, output_path)
 """
 
-    code = f"""library(dplyr)
+        code = f"""library(dplyr)
 library(gtsummary)
 library(flextable)
 library(officer)
