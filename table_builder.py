@@ -208,7 +208,7 @@ def build_enhance_prompt(current_code, custom_request):
         f"GTSUMMARY RULES:\n"
         f"5. Only use REAL functions: modify_caption, modify_header, modify_footnote, add_overall, add_p, bold_labels, bold_levels, italicize_labels.\n"
         f"6. modify_footnote syntax: modify_footnote(everything() ~ 'text') — NEVER plain string.\n"
-        f"7. For multiple footnotes combine into ONE call: modify_footnote(everything() ~ 'note1; note2; note3').\n"
+        f"7. For multiple footnotes: if code already has modify_footnote(everything() ~ 'note1'), and request adds 'note2', output must be modify_footnote(everything() ~ 'note1; note2'). PRESERVE existing footnote text and APPEND new text.\n"
         f"8. Each function appears AT MOST once — if already exists, REPLACE it not add another.\n\n"
         f"GT RULES:\n"
         f"9. gt functions (tab_style, tab_options, cols_move) ONLY after as_gt(tbl).\n"
