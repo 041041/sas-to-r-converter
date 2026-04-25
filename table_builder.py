@@ -248,7 +248,7 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     existing = extract_existing_footnotes(current_code)
 
     if existing:
-        combined = f"{existing}; {new_footnote_text}"
+        combined = f"{existing}\n{new_footnote_text}"
         # Find the full modify_footnote(...) call using a more precise pattern
         # that handles nested parentheses like everything()
         old_fn = re.search(
