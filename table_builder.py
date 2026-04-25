@@ -111,9 +111,20 @@ tbl <- df %>%
   add_p() %>%
   bold_labels() %>%
   modify_caption("**{title}**")
-"""
+"""  # noqa
     else:
         tbl_code = f"""
+{factor_hint}
+tbl <- df %>%
+  select(all_of({vars_r})) %>%
+  tbl_summary(
+    statistic = list(all_continuous() ~ {stat_str},
+                     all_categorical() ~ "{{n}} ({{p}}%)"),
+    missing = "no"
+  ) %>%
+  bold_labels() %>%
+  modify_caption("**{title}**")
+"""  # noqa
 {factor_hint}
 tbl <- df %>%
   select(all_of({vars_r})) %>%
