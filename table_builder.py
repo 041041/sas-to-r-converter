@@ -621,9 +621,9 @@ def render_table_builder_tab():
                 else:
                     r_code = generate_ae_code(selections)
 
-                # Always use fresh base code for enhancement
-                # to avoid cumulative duplicates
-                r_code_for_enhancement = r_code
+                # Use accepted code as base to preserve previous changes
+                # but deduplicate in clean_llm_output
+                r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
                 if custom_request.strip():
                     prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
