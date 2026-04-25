@@ -725,52 +725,66 @@ def render_table_builder_tab():
             st.stop()
 
         with st.spinner("🤖 Generating R code..."):
-            try:
-                r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
+    try:
+        r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
 
-                # For enhancement, ALWAYS use previously accepted code if it exists
-                r_code_for_enhancement = st.session_state["tbl_r_code"] if st.session_state.get("tbl_r_code") else r_code
+        # ALWAYS build on previously accepted code for enhancements
+        # Never overwrite tbl_r_code here — only Apply Changes should do that
+        r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
-                # Sync session state tbl_r_code to accepted code immediately
-                # so debug and future enhancements always see the latest accepted version
-                if not custom_request.strip():
-                    st.session_state["tbl_r_code"] = r_code
+        if custom_request.strip():
+            footnote_keywords = ["footnote", "foot note", "note", "annotation"]
+            is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
 
-                r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
+            if is_footnote_request:
+                quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
+                if quoted:
+                    footnote_text = quoted.group(1).strip()
+                else:
+                    footnote_text = custom_request
+                    for prefix in [
+                        "please add footnote", "add a footnote saying",
+                        "add footnote saying", "add footnote:",
+                        "add a footnote", "add footnote",
+                        "add note", "add annotation"
+                    ]:
+                        footnote_text = re.sub(prefix, "", footnote_text, flags=re.IGNORECASE).strip()
+                    footnote_text = footnote_text.strip('"\'').strip()
+                footnote_text = footnote_text.replace("'", "").replace('"', '').strip()
 
-                if custom_request.strip():
-                    # Handle footnote requests directly in Python — no LLM needed
-                    footnote_keywords = ["footnote", "foot note", "note", "annotation"]
-                    is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
+                enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
+                st.session_state["tbl_r_code_pending"]  = enhanced_code
+                st.session_state["tbl_r_code_original"] = r_code_for_enhancement
+                # DO NOT update tbl_r_code here — only update after Apply
+                st.session_state["tbl_df"]              = df
+                st.session_state["tbl_preview_bytes"]   = None
+                st.rerun()
 
-                    if is_footnote_request:
-                        # Try to extract quoted text first — "add footnote 'xyz'" → xyz
-                        quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
-                        if quoted:
-                            footnote_text = quoted.group(1).strip()
-                        else:
-                            # Remove common prefixes and take remainder
-                            footnote_text = custom_request
-                            for prefix in [
-                                "please add footnote", "add a footnote saying",
-                                "add footnote saying", "add footnote:",
-                                "add a footnote", "add footnote",
-                                "add note", "add annotation"
-                            ]:
-                                footnote_text = re.sub(
-                                    prefix, "", footnote_text, flags=re.IGNORECASE
-                                ).strip()
-                            footnote_text = footnote_text.strip('"\'').strip()
-                        # Remove any remaining quotes
-                        footnote_text = footnote_text.replace("'", "").replace('"', '').strip()
+            else:
+                prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
+                raw    = call_llm(prompt, groq_client, gemini_client)
 
-                        enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
-                        st.session_state["tbl_r_code_pending"]  = enhanced_code
-                        st.session_state["tbl_r_code_original"] = r_code_for_enhancement
-                        st.session_state["tbl_r_code"]          = r_code_for_enhancement
-                        st.session_state["tbl_df"]              = df
-                        st.session_state["tbl_preview_bytes"]   = None
-                        st.rerun()
+                if raw:
+                    enhanced_code = clean_llm_output(raw)
+                    st.session_state["tbl_r_code_pending"]  = enhanced_code
+                    st.session_state["tbl_r_code_original"] = r_code_for_enhancement
+                    # DO NOT update tbl_r_code here — only update after Apply
+                    st.session_state["tbl_df"]              = df
+                    st.session_state["tbl_preview_bytes"]   = None
+                    st.rerun()
+                else:
+                    st.warning("⚠️ Enhancement failed, using base code.")
+                    st.session_state["tbl_r_code_pending"] = None
+                    st.session_state["tbl_r_code"]         = r_code
+                    st.session_state["tbl_df"]             = df
+                    st.session_state["_tbl_run_now"]       = True
+
+        else:
+            # No custom request — fresh generate, reset everything
+            st.session_state["tbl_r_code_pending"] = None
+            st.session_state["tbl_r_code"]         = r_code
+            st.session_state["tbl_df"]             = df
+            st.session_state["_tbl_run_now"]       = True
 
                     prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
                     raw    = call_llm(prompt, groq_client, gemini_client)
