@@ -135,18 +135,13 @@ cat("TABLE_DONE")
 
 def merge_footnotes(old_code, new_code):
     """Always preserve all footnotes from old code in new code."""
-    # Find all footnotes in old code
     old_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', old_code)
     new_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', new_code)
-    
-    st.write("DEBUG merge - old:", old_match.group(1) if old_match else "NONE")
-    st.write("DEBUG merge - new:", new_match.group(1) if new_match else "NONE")
-    
+
     if old_match:
         old_text = old_match.group(1)
         if new_match:
             new_text = new_match.group(1)
-            # Only append if old text not already in new
             if old_text not in new_text:
                 combined = f"{old_text}; {new_text}"
                 new_code = re.sub(
@@ -155,7 +150,6 @@ def merge_footnotes(old_code, new_code):
                     new_code
                 )
         else:
-            # New code has no footnote — inject old one
             new_code = new_code.replace(
                 'modify_caption(',
                 f'modify_footnote(everything() ~ "{old_text}") %>%\n  modify_caption('
@@ -629,14 +623,10 @@ def render_table_builder_tab():
 
     # ── Generate button ──────────────────────────────────────────────────
     if st.button("🏥 Generate Table", type="primary", use_container_width=True):
-        st.write("DEBUG: button clicked")
-
         # Validation
         if "Table 1" in table_type and not selections.get("variables"):
             st.error("⚠️ Please select at least one variable to summarise.")
             st.stop()
-
-        st.write("DEBUG: passed validation")
 
         with st.spinner("🤖 Generating R code..."):
             try:
@@ -646,10 +636,6 @@ def render_table_builder_tab():
                     r_code = generate_ae_code(selections)
 
                 # Use accepted code as base to preserve previous changes
-                # but deduplicate in clean_llm_output
-                existing = st.session_state.get("tbl_r_code", "")
-                st.write("DEBUG tbl_r_code has footnote:", "modify_footnote" in existing)
-                st.write("DEBUG tbl_r_code snippet:", existing[existing.find("modify_footnote"):existing.find("modify_footnote")+100] if "modify_footnote" in existing else "NONE")
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
                 if custom_request.strip():
@@ -662,13 +648,12 @@ def render_table_builder_tab():
                         enhanced_code = merge_footnotes(r_code_for_enhancement, enhanced_code)
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
                         st.session_state["tbl_r_code_original"] = r_code_for_enhancement
+                        # KEY FIX: save r_code_for_enhancement so next enhancement builds on it
+                        st.session_state["tbl_r_code"]          = r_code_for_enhancement
                         st.session_state["tbl_df"]              = df
                         st.session_state["tbl_preview_bytes"]   = None
-                        st.write("DEBUG original footnotes:", extract_existing_footnotes(r_code_for_enhancement))
-                        st.write("DEBUG enhanced footnotes:", extract_existing_footnotes(enhanced_code))
                         st.rerun()
                     else:
-                        # LLM failed — fall back to base code and run immediately
                         st.warning("⚠️ Enhancement failed, using base code.")
                         st.session_state["tbl_r_code_pending"] = None
                         st.session_state["tbl_r_code"]         = r_code
@@ -676,7 +661,6 @@ def render_table_builder_tab():
                         st.session_state["_tbl_run_now"]       = True
 
                 else:
-                    # No custom request — run immediately
                     st.session_state["tbl_r_code_pending"] = None
                     st.session_state["tbl_r_code"]         = r_code
                     st.session_state["tbl_df"]             = df
@@ -689,9 +673,6 @@ def render_table_builder_tab():
                 st.stop()
 
     # ── R execution block ─────────────────────────────────────────────────
-    # Lives OUTSIDE generate button block so it runs on every rerun when flagged
-    st.write("DEBUG before review - pending:", st.session_state.get("tbl_r_code_pending") is not None)
-    st.write("DEBUG run_now:", st.session_state.get("_tbl_run_now"))
     if st.session_state.get("_tbl_run_now") and not st.session_state.get("tbl_r_code_pending"):
         st.session_state["_tbl_run_now"] = False
         with st.spinner("⚙️ Running R..."):
@@ -712,8 +693,6 @@ def render_table_builder_tab():
         st.rerun()
 
     # ── Review block ──────────────────────────────────────────────────────
-    # Lives OUTSIDE generate button block — persists across reruns
-    st.write("DEBUG review check:", st.session_state.get("tbl_r_code_pending") is not None)
     if st.session_state.get("tbl_r_code_pending"):
         st.warning("⚠️ AI wants to modify your code. Review and confirm:")
         st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
