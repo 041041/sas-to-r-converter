@@ -2,19 +2,13 @@ import os, re, subprocess, tempfile
 import pandas as pd
 import streamlit as st
 from groq import Groq
-from google import genai 
+from google import genai
 
 # ─────────────────────────────────────────────
-# CONSTANTS  — easy to extend
+# CONSTANTS
 # ─────────────────────────────────────────────
-TABLE_TYPES = [
-    "Table 1 — Demographics & Baseline",
-    "Adverse Events Summary",
-]
-
+TABLE_TYPES  = ["Table 1 — Demographics & Baseline", "Adverse Events Summary"]
 STAT_OPTIONS = ["Mean (SD)", "Median (IQR)", "Mean (SD) + Median (IQR)"]
-
-OUTPUT_FORMATS = ["HTML (.html)"]
 
 # ─────────────────────────────────────────────
 # API CLIENTS
@@ -33,50 +27,43 @@ def _make_clients():
 # ─────────────────────────────────────────────
 # R PACKAGE AUTO-INSTALLER
 # ─────────────────────────────────────────────
-REQUIRED_R_PACKAGES = ["gtsummary", "flextable", "officer", "dplyr", "gt", "broom", "htmltools"]
+REQUIRED_R_PACKAGES = ["gtsummary", "flextable", "officer", "dplyr", "gt", "broom", "htmltools", "tidyr"]
 
 def ensure_r_packages():
-    """Install missing R packages silently on first run."""
     install_script = """
-pkgs <- c({pkgs})
+pkgs <- c("gtsummary", "flextable", "officer", "dplyr", "gt", "broom", "htmltools", "tidyr")
 user_lib <- path.expand("~/R/library")
 if (!dir.exists(user_lib)) dir.create(user_lib, recursive=TRUE)
 .libPaths(c(user_lib, .libPaths()))
 missing <- pkgs[!pkgs %in% installed.packages()[,"Package"]]
-if (length(missing) > 0) {{
+if (length(missing) > 0) {
   message("Installing: ", paste(missing, collapse=", "))
   install.packages(missing, repos="https://cloud.r-project.org", lib=user_lib, quiet=FALSE)
-}}
-# Force upgrade broom if version is too old
-if (packageVersion("broom") < "1.0.8") {{
+}
+if (packageVersion("broom") < "1.0.8") {
   install.packages("broom", repos="https://cloud.r-project.org", lib=user_lib, quiet=FALSE)
-}}
+}
 message("All packages ready")
-""".format(pkgs=", ".join(f'"{p}"' for p in REQUIRED_R_PACKAGES))
-
+"""
     with tempfile.NamedTemporaryFile(suffix=".R", mode="w", delete=False) as f:
         f.write(install_script)
         script_path = f.name
-
-    result = subprocess.run(
-        ["Rscript", script_path],
-        capture_output=True, text=True, timeout=120
-    )
+    result = subprocess.run(["Rscript", script_path], capture_output=True, text=True, timeout=600)
     os.unlink(script_path)
     return result.returncode == 0, result.stderr
 
 # ─────────────────────────────────────────────
-# CODE GENERATORS  — pure Python, no LLM
+# CODE GENERATORS
 # ─────────────────────────────────────────────
 def generate_table1_code(selections):
-    """Generate gtsummary Table 1 R code from selections."""
-    vars_list    = selections["variables"]
-    group_col    = selections.get("group_col")
-    title        = selections.get("title", "Table 1 — Baseline Characteristics")
-    stat_option  = selections.get("stat_option", "Mean (SD)")
-    output_fmt   = selections.get("output_format", "Word (.docx)")
+    vars_list   = selections["variables"]
+    group_col   = selections.get("group_col")
+    title       = selections.get("title", "Table 1 — Baseline Characteristics")
+    stat_option = selections.get("stat_option", "Mean (SD)")
+    subj_col    = selections.get("subj_col")
 
-    vars_r = "c(" + ", ".join(f'"{v}"' for v in vars_list) + ")"
+    clean_vars = [v for v in vars_list if v != subj_col]
+    vars_r = "c(" + ", ".join(f'"{v}"' for v in clean_vars) + ")"
 
     if stat_option == "Mean (SD)":
         stat_str = '"{mean} ({sd})"'
@@ -85,20 +72,11 @@ def generate_table1_code(selections):
     else:
         stat_str = '"{mean} ({sd}); {median} ({p25}, {p75})"'
 
-    # Auto-exclude subject ID from variables
-    subj_col = selections.get("subj_col")
-    clean_vars = [v for v in vars_list if v != subj_col]
-    vars_r = "c(" + ", ".join(f'"{v}"' for v in clean_vars) + ")"
-
-    # Build factor conversion for character columns
-    factor_hint = f"""
-# Convert character columns to factors for proper categorical display
-df <- df %>% mutate(across(where(is.character), as.factor))
-"""
+    factor_line = "df <- df %>% mutate(across(where(is.character), as.factor))"
 
     if group_col:
         tbl_code = (
-            f"\n{factor_hint}\n"
+            f"{factor_line}\n\n"
             f"tbl <- df %>%\n"
             f'  select(all_of(c({vars_r}, "{group_col}"))) %>%\n'
             f"  tbl_summary(\n"
@@ -107,14 +85,14 @@ df <- df %>% mutate(across(where(is.character), as.factor))
             f'                     all_categorical() ~ "{{n}} ({{p}}%)"),\n'
             f'    missing = "no"\n'
             f"  ) %>%\n"
-            f"  add_overall(last = TRUE) %>%\n"
+            f"  add_overall(last = FALSE) %>%\n"
             f"  add_p() %>%\n"
             f"  bold_labels() %>%\n"
-            f'  modify_caption("**{title}**")\n'
+            f'  modify_caption("**{title}**")'
         )
     else:
         tbl_code = (
-            f"\n{factor_hint}\n"
+            f"{factor_line}\n\n"
             f"tbl <- df %>%\n"
             f"  select(all_of({vars_r})) %>%\n"
             f"  tbl_summary(\n"
@@ -123,59 +101,30 @@ df <- df %>% mutate(across(where(is.character), as.factor))
             f'    missing = "no"\n'
             f"  ) %>%\n"
             f"  bold_labels() %>%\n"
-            f'  modify_caption("**{title}**")\n'
+            f'  modify_caption("**{title}**")'
         )
 
-    export_code = f"""
-gt_tbl <- as_gt(tbl)
-html_content <- as_raw_html(gt_tbl)
-writeLines(html_content, html_path)
-writeLines(html_content, output_path)
-"""
-
-    code = f"""library(dplyr)
+    return f"""library(dplyr)
 library(gtsummary)
-library(flextable)
-library(officer)
 library(gt)
 
 # df is already loaded
 {tbl_code}
-{export_code}
+
+gt_tbl <- as_gt(tbl)
+html_content <- as_raw_html(gt_tbl)
+writeLines(html_content, html_path)
+writeLines(html_content, output_path)
 cat("TABLE_DONE")
 """
-    return code
 
-def merge_footnotes(old_code, new_code):
-    """Always preserve all footnotes from old code in new code."""
-    old_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', old_code)
-    new_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', new_code)
-    if old_match:
-        old_text = old_match.group(1)
-        if new_match:
-            new_text = new_match.group(1)
-            if old_text not in new_text:
-                combined = f"{old_text}; {new_text}"
-                new_code = re.sub(
-                    r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"][^\'"]+[\'"]\s*\)',
-                    f'modify_footnote(everything() ~ "{combined}")',
-                    new_code
-                )
-        else:
-            new_code = new_code.replace(
-                'modify_caption(',
-                f'modify_footnote(everything() ~ "{old_text}") %>%\n  modify_caption('
-            )
-    return new_code
-    
+
 def generate_ae_code(selections):
-    """Generate Adverse Events summary R code from selections."""
-    soc_col     = selections.get("soc_col", "SOC")
-    pt_col      = selections.get("pt_col", "PT")
-    group_col   = selections.get("group_col")
-    subj_col    = selections.get("subj_col", "USUBJID")
-    title       = selections.get("title", "Adverse Events Summary")
-    output_fmt  = selections.get("output_format", "Word (.docx)")
+    soc_col   = selections.get("soc_col", "SOC")
+    pt_col    = selections.get("pt_col", "PT")
+    group_col = selections.get("group_col")
+    subj_col  = selections.get("subj_col", "USUBJID")
+    title     = selections.get("title", "Adverse Events Summary")
 
     if group_col:
         count_code = f"""
@@ -200,7 +149,13 @@ ae_summary <- df %>%
   select({soc_col}, {pt_col}, `n (%)`)
 """
 
-    export_code = f"""
+    return f"""library(dplyr)
+library(tidyr)
+library(gt)
+
+# df is already loaded
+{count_code}
+
 gt_tbl <- gt(ae_summary) %>%
   tab_header(title = md("**{title}**")) %>%
   tab_style(
@@ -208,131 +163,100 @@ gt_tbl <- gt(ae_summary) %>%
     locations = cells_column_labels()
   ) %>%
   opt_stylize(style = 1)
+
 html_content <- as_raw_html(gt_tbl)
 writeLines(html_content, html_path)
 writeLines(html_content, output_path)
-"""
-
-    code = f"""library(dplyr)
-library(tidyr)
-library(flextable)
-library(officer)
-library(gt)
-
-# df is already loaded
-{count_code}
-{export_code}
 cat("TABLE_DONE")
 """
-    return code
-
 
 # ─────────────────────────────────────────────
-# LLM ENHANCEMENT  — same pattern as graph_builder
+# FOOTNOTE HANDLING — pure Python, no LLM
 # ─────────────────────────────────────────────
 def extract_existing_footnotes(code):
-    """Extract existing footnote text from R code."""
-    match = re.search(
-        r"modify_footnote\s*\([^~]+~\s*['\"]([^'\"]+)['\"]",
-        code,
-        re.DOTALL
+    matches = re.findall(
+        r'modify_footnote\s*\([^~]+~\s*[\'"]([^\'"]+)[\'"]',
+        code, re.DOTALL
     )
-    return match.group(1) if match else None
+    return matches
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
-    """Add or append footnote directly in Python without LLM."""
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
+    existing_list = extract_existing_footnotes(current_code)
 
-    existing = extract_existing_footnotes(current_code)
-
-    if existing:
-        # Count existing modify_footnote calls to target a different column each time
-        fn_count = len(re.findall(r"modify_footnote", current_code))
-        # Target different selectors so gtsummary creates separate footnote numbers
-        selectors = [
-            "all_continuous()",
-            "all_categorical()",
-            "starts_with('label')",
-            "everything()"
-        ]
-        selector = selectors[min(fn_count, len(selectors) - 1)]
-        new_fn_call = f"modify_footnote({selector} ~ '{new_footnote_text}')"
-
-        # Insert the new modify_footnote after the last existing one
-        last_fn = list(re.finditer(r"modify_footnote\s*\([^)]+\(\)[^)]*\)", current_code))[-1]
-        insert_pos = last_fn.end()
-        updated = current_code[:insert_pos] + f" %>%\n  {new_fn_call}" + current_code[insert_pos:]
+    if existing_list:
+        all_matches = list(re.finditer(
+            r'modify_footnote\s*\(\s*\w+[^)]*\(\)[^)]*\)',
+            current_code
+        ))
+        if all_matches:
+            last_match = all_matches[-1]
+            insert_pos = last_match.end()
+            new_call = f" %>%\n  modify_footnote(all_stat_cols() ~ '{new_footnote_text}')"
+            updated = current_code[:insert_pos] + new_call + current_code[insert_pos:]
+        else:
+            updated = current_code.replace(
+                'modify_caption(',
+                f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
+            )
     else:
-        # Insert after bold_labels()
         if "bold_labels()" in current_code:
             updated = current_code.replace(
                 "bold_labels()",
                 f"bold_labels() %>%\n  modify_footnote(everything() ~ '{new_footnote_text}')"
             )
-        elif "modify_caption" in current_code:
+        elif "modify_caption(" in current_code:
             updated = current_code.replace(
-                "modify_caption",
-                f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption"
-            )
-        elif "as_gt(" in current_code:
-            updated = current_code.replace(
-                "as_gt(",
-                f"modify_footnote(everything() ~ '{new_footnote_text}')\n\ngt_tbl <- as_gt("
+                "modify_caption(",
+                f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
             )
         else:
             updated = current_code
 
     return updated
+
+
+def extract_footnote_text_from_request(custom_request):
+    quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
+    if quoted:
+        return quoted.group(1).strip()
+    text = custom_request
+    for prefix in [
+        "please add footnote", "add a footnote saying",
+        "add footnote saying", "add footnote:",
+        "add a footnote", "add footnote",
+        "add note", "add annotation"
+    ]:
+        text = re.sub(prefix, "", text, flags=re.IGNORECASE).strip()
+    return text.strip('"\'').strip()
+
+
+# ─────────────────────────────────────────────
+# LLM ENHANCEMENT
+# ─────────────────────────────────────────────
 def build_enhance_prompt(current_code, custom_request):
-    existing_footnote = extract_existing_footnotes(current_code)
-    
-    # If request is about footnotes, handle it in Python directly
-    # instead of trusting LLM to preserve existing footnotes
-    footnote_keywords = ["footnote", "foot note", "note", "annotation"]
-    is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
-    
-    if is_footnote_request and existing_footnote:
-        footnote_instruction = (
-            f"8. FOOTNOTE CRITICAL: The existing footnote is exactly: '{existing_footnote}'. "
-            f"The new combined footnote MUST be: '{existing_footnote}; {custom_request}'. "
-            f"Replace the existing modify_footnote() call with: "
-            f"modify_footnote(everything() ~ '{existing_footnote}; ADD_NEW_TEXT_HERE'). "
-            f"Keep ALL other code exactly the same.\n"
-        )
-    elif is_footnote_request and not existing_footnote:
-        footnote_instruction = (
-            f"8. No existing footnote. Add: modify_footnote(everything() ~ 'NEW_TEXT') "
-            f"after bold_labels() in the tbl pipe chain.\n"
-        )
-    else:
-        footnote_instruction = (
-            f"8. This request is NOT about footnotes. "
-            f"Do NOT touch any existing modify_footnote() call — preserve it exactly.\n"
-        )
     return (
-        f"You are a clinical R table code editor.\n\n"
+        f"You are a clinical R table code editor. Apply ONLY the requested change.\n\n"
         f"EXISTING CODE:\n```r\n{current_code}\n```\n\n"
         f"REQUEST: {custom_request}\n\n"
         f"RULES:\n"
         f"1. Touch ONLY what the request asks. Preserve everything else exactly.\n"
         f"2. Never add data loading code (read.csv, read.xlsx, hardcoded data).\n"
         f"3. Never remove output_path, html_path, writeLines, or cat('TABLE_DONE').\n"
-        f"4. Keep all existing library() calls.\n\n"
-        f"GTSUMMARY RULES:\n"
-        f"5. Only use REAL functions: modify_caption, modify_header, modify_footnote, add_overall, add_p, bold_labels, bold_levels, italicize_labels.\n"
-        f"6. modify_footnote syntax: modify_footnote(everything() ~ 'text') — NEVER plain string.\n"
-        f"7. Each function appears AT MOST once — if already exists, REPLACE it not add another.\n"
-        f"{footnote_instruction}"
-        f"GT RULES:\n"
-        f"9. gt functions (tab_style, tab_options, cols_move) ONLY after as_gt(tbl).\n"
-        f"10. NEVER apply gt functions on tbl_summary objects.\n"
-        f"11. NEVER invent function names.\n\n"
-        f"Return ONLY the complete modified R code. No explanations."
+        f"4. Keep all existing library() calls.\n"
+        f"5. Only use REAL gtsummary functions: modify_caption, modify_header, modify_footnote, "
+        f"add_overall, add_p, bold_labels, bold_levels, italicize_labels.\n"
+        f"6. gt functions (tab_style, tab_options, cols_move) ONLY after as_gt(tbl).\n"
+        f"7. NEVER apply gt functions on tbl_summary objects.\n"
+        f"8. NEVER invent function names.\n"
+        f"9. Each function appears AT MOST once in the pipe — never repeat.\n"
+        f"10. Do NOT touch any modify_footnote() calls — preserve them exactly.\n\n"
+        f"Return ONLY complete R code. No explanations, no markdown fences."
     )
 
+
 def call_llm(prompt, groq_client, gemini_client):
-    """Try Groq first, fall back to Gemini."""
     try:
         res = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -351,88 +275,53 @@ def call_llm(prompt, groq_client, gemini_client):
 
 
 def clean_llm_output(raw):
-    """Strip markdown fences and dangerous lines from LLM output."""
     raw = re.sub(r'```[rR]?\n?', '', raw)
     raw = re.sub(r'```', '', raw)
     raw = re.sub(r'read\.csv\s*\(.*?\)', '', raw)
     raw = re.sub(r'read\.xlsx\s*\(.*?\)', '', raw)
 
-    # Remove gt functions incorrectly applied before as_gt() conversion
-    # These must only be applied on gt objects, not tbl_summary objects
-    invalid_fns_on_tbl = [
-        r'\s*%>%\s*tab_style\s*\([^)]*\)',
-        r'\s*%>%\s*tab_options\s*\([^)]*\)',
-        r'\s*%>%\s*cols_move\s*\([^)]*\)',
-        r'\s*%>%\s*cols_align\s*\([^)]*\)',
-    ]
-    # Only remove these if they appear before as_gt()
     as_gt_pos = raw.find('as_gt(')
     if as_gt_pos > 0:
-        before_as_gt = raw[:as_gt_pos]
-        after_as_gt  = raw[as_gt_pos:]
-        for fn in invalid_fns_on_tbl:
-            before_as_gt = re.sub(fn, '', before_as_gt)
-        raw = before_as_gt + after_as_gt
+        before = raw[:as_gt_pos]
+        after  = raw[as_gt_pos:]
+        for fn in [r'\s*%>%\s*tab_style\s*\([^)]*\)',
+                   r'\s*%>%\s*tab_options\s*\([^)]*\)',
+                   r'\s*%>%\s*cols_move\s*\([^)]*\)',
+                   r'\s*%>%\s*cols_align\s*\([^)]*\)']:
+            before = re.sub(fn, '', before)
+        raw = before + after
 
-    # Remove hallucinated gtsummary functions that don't exist
-    invalid_fns = [
-        r'modify_title\s*\([^)]*\)\s*%>%?',
-        r'modify_title\s*\([^)]*\)',
-        r'add_significance\s*\([^)]*\)\s*%>%?',
-        r'bold_p\s*\([^)]*\)\s*%>%?',
-        r'italicize_levels\s*\([^)]*\)\s*%>%?',
-    ]
-    for fn in invalid_fns:
+    for fn in [r'modify_title\s*\([^)]*\)\s*%>%?',
+               r'modify_title\s*\([^)]*\)',
+               r'add_significance\s*\([^)]*\)\s*%>%?',
+               r'bold_p\s*\([^)]*\)\s*%>%?']:
         raw = re.sub(fn, '', raw)
 
-# Remove repeated modify_header blocks — keep only the first occurrence
-    # Strategy: find all modify_header calls and keep only the last one
-    # (last is most likely the intended one from the new request)
-    modify_header_pattern = re.compile(
-        r'%>%\s*modify_header\s*\([^)]*\)',
-        re.DOTALL
-    )
-    matches = list(modify_header_pattern.finditer(raw))
-    if len(matches) > 1:
-        # Keep only the last modify_header, remove all previous ones
-        for match in matches[:-1]:
-            raw = raw.replace(match.group(0), '', 1)
-
-    # Also deduplicate any other repeated pipe steps line by line
     lines = raw.splitlines()
-    deduped = []
-    prev_stripped = None
+    deduped, prev = [], None
     for line in lines:
-        stripped = line.strip()
-        if stripped and stripped == prev_stripped:
+        s = line.strip()
+        if s and s == prev:
             continue
         deduped.append(line)
-        if stripped:
-            prev_stripped = stripped
+        if s:
+            prev = s
     raw = '\n'.join(deduped)
-    return raw
+
+    if 'TABLE_DONE' not in raw:
+        raw = raw.rstrip() + '\ncat("TABLE_DONE")\n'
+
+    return raw.strip()
+
 
 # ─────────────────────────────────────────────
 # R EXECUTOR
 # ─────────────────────────────────────────────
-def extract_existing_footnotes(code):
-    """Extract existing footnote text from R code."""
-    # Match any modify_footnote call with any selector
-    match = re.search(
-        r"modify_footnote\s*\([^~]+~\s*['\"]([^'\"]+)['\"]",
-        code,
-        re.DOTALL
-    )
-    return match.group(1) if match else None
-    
-def execute_table(r_code, df, output_format):
-    """Run R code, return (html_str, output_bytes, extension, stderr)."""
-    ext = ".html"
-
+def execute_table(r_code, df):
     with tempfile.TemporaryDirectory() as d:
         inp_path    = os.path.join(d, "input.csv")
-        out_path    = os.path.join(d, f"output_table{ext}")
-        html_path   = os.path.join(d, "output_table.html")
+        out_path    = os.path.join(d, "output_table.html")
+        html_path   = os.path.join(d, "output_display.html")
         script_path = os.path.join(d, "script.R")
 
         df.to_csv(inp_path, index=False)
@@ -441,8 +330,7 @@ def execute_table(r_code, df, output_format):
             "user_lib <- path.expand('~/R/library')",
             "if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))",
             "suppressPackageStartupMessages({",
-            "  library(dplyr); library(gtsummary); library(flextable)",
-            "  library(officer); library(gt); library(tidyr)",
+            "  library(dplyr); library(gtsummary); library(gt); library(tidyr)",
             "})",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
             f'output_path <- "{out_path}"',
@@ -461,25 +349,29 @@ def execute_table(r_code, df, output_format):
         if res.returncode != 0:
             raise RuntimeError(f"R Error:\n{res.stderr}")
 
-        if not os.path.exists(out_path):
+        html_str = ""
+        for path in [html_path, out_path]:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    html_str = f.read()
+                break
+
+        if not html_str:
             raise RuntimeError("Output file was not created.\n" + res.stderr)
 
-        # Read HTML for screen display
-        html_str = ""
-        if os.path.exists(html_path):
-            with open(html_path, "r") as f:
-                html_str = f.read()
-
-        with open(out_path, "rb") as f:
-            return html_str, f.read(), ext, res.stderr
+        return html_str, res.stderr
 
 
 # ─────────────────────────────────────────────
-# CODE DIFF DISPLAY  — reused from graph_builder
+# CODE DIFF DISPLAY
 # ─────────────────────────────────────────────
 def show_code_diff(old_code, new_code):
     import difflib
-    diff = difflib.unified_diff(old_code.splitlines(), new_code.splitlines(), lineterm='')
+    diff = difflib.unified_diff(
+        (old_code or "").splitlines(),
+        (new_code or "").splitlines(),
+        lineterm=''
+    )
     html = ["<pre style='font-family:monospace; font-size:13px; line-height:1.5;'>"]
     for line in diff:
         if line.startswith('+++') or line.startswith('---') or line.startswith('@@'):
@@ -502,40 +394,30 @@ def render_table_builder_tab():
     st.caption("Upload data → configure table → get R code + downloadable table")
     st.divider()
 
-    # ── Session state init ──────────────────────────────────────────────
-    # Sentinel prevents stale pending state on fresh load
+    # ── Session state init ───────────────────────────────────────────────
     if "tbl_initialized" not in st.session_state:
         st.session_state["tbl_r_code_pending"]  = None
         st.session_state["tbl_r_code_original"] = None
-        st.session_state["tbl_preview_bytes"]   = None
+        st.session_state["tbl_preview_html"]    = None
         st.session_state["_tbl_run_now"]        = False
         st.session_state["tbl_initialized"]     = True
-
-    if st.session_state.get("_debug_accepted"):
-        st.sidebar.markdown("**Last Accepted Code:**")
-        st.sidebar.code(st.session_state["_debug_accepted"], language="r")
 
     for key, default in {
         "tbl_df":              None,
         "tbl_r_code":          "",
-        "tbl_output_bytes":    None,
         "tbl_html":            None,
-        "tbl_output_ext":      ".docx",
         "tbl_log":             "",
         "tbl_error":           None,
         "tbl_r_code_pending":  None,
         "tbl_r_code_original": None,
-        "tbl_preview_bytes":   None,
         "tbl_preview_html":    None,
         "_tbl_run_now":        False,
         "tbl_custom_text":     "",
-        "tbl_output_format":   "Word (.docx)",
     }.items():
         if key not in st.session_state:
             st.session_state[key] = default
 
-    # ── R package check ─────────────────────────────────────────────────
-    # ── R package check (runs once per session only) ─────────────────────
+    # ── R package check (once per session) ──────────────────────────────
     if "tbl_pkgs_checked" not in st.session_state:
         st.info("🔧 Installing R packages on first run — this takes 2-5 minutes...")
         ok, err = ensure_r_packages()
@@ -548,7 +430,7 @@ def render_table_builder_tab():
 
     gemini_client, groq_client = _make_clients()
 
-    # ── Data upload ─────────────────────────────────────────────────────
+    # ── Data upload ──────────────────────────────────────────────────────
     st.subheader("📁 Upload Data")
     uploaded = st.file_uploader(
         "Upload CSV or Excel",
@@ -576,32 +458,27 @@ def render_table_builder_tab():
 
     st.divider()
 
-    # ── Configure table ─────────────────────────────────────────────────
+    # ── Configure table ──────────────────────────────────────────────────
     st.subheader("⚙️ Configure Table")
-    cols = df.columns.tolist()
+    cols          = df.columns.tolist()
     numeric_cols  = df.select_dtypes(include="number").columns.tolist()
     all_with_none = ["None"] + cols
 
-    # Row 1: table type, group col, subject col, output format
-    r1a, r1b, r1c, r1d = st.columns(4)
+    r1a, r1b, r1c = st.columns(3)
     with r1a:
         table_type = st.selectbox("📋 Table Type", TABLE_TYPES)
     with r1b:
         group_col = st.selectbox("👥 Group / Treatment Col", all_with_none, index=0)
     with r1c:
         subj_col = st.selectbox("🔑 Subject ID Col", all_with_none, index=0)
-    with r1d:
-        output_format = st.selectbox("📄 Output Format", OUTPUT_FORMATS)
-        st.session_state["tbl_output_format"] = output_format
 
-    # Row 2 — Table 1 specific
     if "Table 1" in table_type:
         r2a, r2b, r2c = st.columns([2, 1, 1])
         with r2a:
+            exclude = {group_col if group_col != "None" else "", subj_col if subj_col != "None" else ""}
             variables = st.multiselect(
-                "📊 Variables to Summarise",
-                cols,
-                default=numeric_cols[:5] if len(numeric_cols) >= 5 else numeric_cols
+                "📊 Variables to Summarise", cols,
+                default=[c for c in cols if c not in exclude]
             )
         with r2b:
             stat_option = st.selectbox("📐 Continuous Stats", STAT_OPTIONS)
@@ -609,108 +486,89 @@ def render_table_builder_tab():
             title = st.text_input("📝 Table Title", value="Table 1 — Baseline Characteristics")
 
         selections = {
-            "table_type":    table_type,
-            "variables":     variables,
-            "group_col":     group_col if group_col != "None" else None,
-            "subj_col":      subj_col  if subj_col  != "None" else None,
-            "stat_option":   stat_option,
-            "title":         title,
-            "output_format": output_format,
+            "table_type":  table_type,
+            "variables":   variables,
+            "group_col":   group_col if group_col != "None" else None,
+            "subj_col":    subj_col  if subj_col  != "None" else None,
+            "stat_option": stat_option,
+            "title":       title,
         }
 
-    # Row 2 — AE table specific
     elif "Adverse Events" in table_type:
-        r2a, r2b, r2c, r2d = st.columns(4)
+        r2a, r2b, r2c = st.columns(3)
         with r2a:
             soc_col = st.selectbox("🏷️ SOC Column", cols)
         with r2b:
             pt_col  = st.selectbox("💊 PT Column", cols)
         with r2c:
             title   = st.text_input("📝 Table Title", value="Adverse Events Summary")
-        with r2d:
-            st.write("")  # spacer
 
         selections = {
-            "table_type":    table_type,
-            "soc_col":       soc_col,
-            "pt_col":        pt_col,
-            "group_col":     group_col if group_col != "None" else None,
-            "subj_col":      subj_col  if subj_col  != "None" else "USUBJID",
-            "title":         title,
-            "output_format": output_format,
+            "table_type": table_type,
+            "soc_col":    soc_col,
+            "pt_col":     pt_col,
+            "group_col":  group_col if group_col != "None" else None,
+            "subj_col":   subj_col  if subj_col  != "None" else "USUBJID",
+            "title":      title,
         }
 
     st.divider()
 
-    # ── Output (above custom box, same as graph_builder) ────────────────
-    # TEMP DEBUG
-    st.sidebar.markdown("**DEBUG tbl_r_code:**")
-    st.sidebar.code(st.session_state.get("tbl_r_code", "no code yet")[:500], language="r")
+    # ── Output (shown above custom box) ─────────────────────────────────
     if st.session_state.get("tbl_r_code"):
         st.subheader("📤 Output")
         out1, out2 = st.tabs(["📊 Table", "💻 R Code"])
 
         with out1:
             if st.session_state.get("tbl_html"):
-                import streamlit.components.v1 as components
-                components.html(st.session_state["tbl_html"], height=600, scrolling=True)
+                st.components.v1.html(
+                    f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
+                    height=600, scrolling=True
+                )
                 st.download_button(
                     "⬇️ Download HTML",
-                    data=st.session_state["tbl_output_bytes"],
+                    data=st.session_state["tbl_html"],
                     file_name="clinical_table.html",
                     mime="text/html",
-                    width="stretch"
                 )
             elif st.session_state.get("tbl_error"):
                 st.error(st.session_state["tbl_error"])
-            else:
-                st.info("Click 'Generate Table' to produce output.")
 
         with out2:
             edited_code = st.text_area(
                 "Edit R Code",
                 value=st.session_state.get("tbl_r_code", ""),
                 height=300,
-                # key tied to code content so it refreshes when code changes
-                key=f"tbl_edited_code_{hash(st.session_state.get('tbl_r_code', ''))}"
+                key=f"tbl_edited_{hash(st.session_state.get('tbl_r_code', ''))}"
             )
-            btn1, btn2 = st.columns(2)
-            with btn1:
+            b1, b2 = st.columns(2)
+            with b1:
                 run_edited = st.button("▶️ Run Edited Code", type="primary", use_container_width=True)
-            with btn2:
+            with b2:
                 st.download_button(
-                    "⬇️ Download R Code",
-                    data=edited_code,
-                    file_name="clinical_table.R",
-                    mime="text/plain",
+                    "⬇️ Download R Code", data=edited_code,
+                    file_name="clinical_table.R", mime="text/plain",
                     use_container_width=True
                 )
             if run_edited:
                 with st.spinner("Running updated code..."):
                     try:
-                        html_str, out_bytes, ext, r_log = execute_table(
-                            st.session_state["tbl_r_code"],
-                            st.session_state["tbl_df"],
-                            st.session_state["tbl_output_format"]
-                        )
-                        st.session_state["tbl_output_bytes"] = out_bytes
-                        st.session_state["tbl_output_ext"]   = ext
-                        st.session_state["tbl_html"]         = html_str
-                        st.session_state["tbl_log"]          = r_log
-                        st.session_state["tbl_error"]        = None
+                        html_str, r_log = execute_table(edited_code, st.session_state["tbl_df"])
+                        st.session_state["tbl_html"]   = html_str
+                        st.session_state["tbl_log"]    = r_log
+                        st.session_state["tbl_r_code"] = edited_code
+                        st.session_state["tbl_error"]  = None
                         st.rerun()
                     except RuntimeError as e:
                         st.error(str(e))
 
-            log = st.session_state.get("tbl_log", "")
-            if log:
+            if st.session_state.get("tbl_log"):
                 with st.expander("📋 R Log"):
-                    st.code(log, language="bash")
+                    st.code(st.session_state["tbl_log"], language="bash")
 
     st.divider()
 
     # ── Custom enhancement box ───────────────────────────────────────────
-    # key bound to session_state so text survives reruns
     custom_request = st.text_area(
         "✨ Custom Enhancement (optional)",
         placeholder="e.g. Add footnote 'Source: Clinical Study Report' | bold p-values | change font size",
@@ -720,14 +578,21 @@ def render_table_builder_tab():
 
     # ── Generate button ──────────────────────────────────────────────────
     if st.button("🏥 Generate Table", type="primary", use_container_width=True):
+
         if "Table 1" in table_type and not selections.get("variables"):
             st.error("⚠️ Please select at least one variable to summarise.")
             st.stop()
 
-    with st.spinner("🤖 Generating R code..."):
+        with st.spinner("🤖 Generating R code..."):
             try:
-                r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
+                r_code = (
+                    generate_table1_code(selections)
+                    if "Table 1" in table_type
+                    else generate_ae_code(selections)
+                )
 
+                # Enhancement always builds on previously accepted code
+                # tbl_r_code is ONLY set by: fresh generate OR Apply Changes
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
                 if custom_request.strip():
@@ -735,45 +600,34 @@ def render_table_builder_tab():
                     is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
 
                     if is_footnote_request:
-                        quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
-                        if quoted:
-                            footnote_text = quoted.group(1).strip()
-                        else:
-                            footnote_text = custom_request
-                            for prefix in [
-                                "please add footnote", "add a footnote saying",
-                                "add footnote saying", "add footnote:",
-                                "add a footnote", "add footnote",
-                                "add note", "add annotation"
-                            ]:
-                                footnote_text = re.sub(prefix, "", footnote_text, flags=re.IGNORECASE).strip()
-                            footnote_text = footnote_text.strip('"\'').strip()
-                        footnote_text = footnote_text.replace("'", "").replace('"', '').strip()
+                        footnote_text = extract_footnote_text_from_request(custom_request)
                         enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
                         st.session_state["tbl_r_code_original"] = r_code_for_enhancement
                         st.session_state["tbl_df"]              = df
-                        st.session_state["tbl_preview_bytes"]   = None
+                        st.session_state["tbl_preview_html"]    = None
                         st.rerun()
 
                     else:
                         prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
                         raw    = call_llm(prompt, groq_client, gemini_client)
+
                         if raw:
                             enhanced_code = clean_llm_output(raw)
                             st.session_state["tbl_r_code_pending"]  = enhanced_code
                             st.session_state["tbl_r_code_original"] = r_code_for_enhancement
                             st.session_state["tbl_df"]              = df
-                            st.session_state["tbl_preview_bytes"]   = None
+                            st.session_state["tbl_preview_html"]    = None
                             st.rerun()
                         else:
-                            st.warning("⚠️ Enhancement failed, using base code.")
+                            st.warning("⚠️ Enhancement failed, running base code instead.")
                             st.session_state["tbl_r_code_pending"] = None
                             st.session_state["tbl_r_code"]         = r_code
                             st.session_state["tbl_df"]             = df
                             st.session_state["_tbl_run_now"]       = True
 
                 else:
+                    # Fresh generate — reset and run base code
                     st.session_state["tbl_r_code_pending"] = None
                     st.session_state["tbl_r_code"]         = r_code
                     st.session_state["tbl_df"]             = df
@@ -784,27 +638,27 @@ def render_table_builder_tab():
                 st.error(f"Code generation error: {e}")
                 st.code(traceback.format_exc())
                 st.stop()
-    # ── R execution block ─────────────────────────────────────────────────
+
+    # ── R execution block ────────────────────────────────────────────────
+    # Outside Generate button block — fires on every rerun when flagged
     if st.session_state.get("_tbl_run_now") and not st.session_state.get("tbl_r_code_pending"):
         st.session_state["_tbl_run_now"] = False
         with st.spinner("⚙️ Running R..."):
             try:
-                html_str, out_bytes, ext, r_log = execute_table(
+                html_str, r_log = execute_table(
                     st.session_state["tbl_r_code"],
-                    st.session_state["tbl_df"],
-                    st.session_state["tbl_output_format"]
+                    st.session_state["tbl_df"]
                 )
-                st.session_state["tbl_output_bytes"] = out_bytes
-                st.session_state["tbl_output_ext"]   = ext
-                st.session_state["tbl_html"]         = html_str
-                st.session_state["tbl_log"]          = r_log
-                st.session_state["tbl_error"]        = None
+                st.session_state["tbl_html"]  = html_str
+                st.session_state["tbl_log"]   = r_log
+                st.session_state["tbl_error"] = None
             except RuntimeError as e:
-                st.session_state["tbl_error"]        = str(e)
-                st.session_state["tbl_output_bytes"] = None
+                st.session_state["tbl_error"] = str(e)
+                st.session_state["tbl_html"]  = None
         st.rerun()
 
-    # ── Review block ──────────────────────────────────────────────────────
+    # ── Review block ─────────────────────────────────────────────────────
+    # Outside Generate button block — persists across reruns
     if st.session_state.get("tbl_r_code_pending"):
         st.warning("⚠️ AI wants to modify your code. Review and confirm:")
         st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
@@ -817,12 +671,11 @@ def render_table_builder_tab():
 
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True, key="tbl_apply"):
-                accepted = st.session_state.get("tbl_r_code_pending", "")
-                st.session_state["tbl_r_code"]          = accepted
-                st.session_state["_debug_accepted"]     = accepted[:300]
+                # ONLY place that updates tbl_r_code for enhancements
+                st.session_state["tbl_r_code"]          = st.session_state["tbl_r_code_pending"]
                 st.session_state["tbl_r_code_original"] = None
                 st.session_state["tbl_r_code_pending"]  = None
-                st.session_state["tbl_preview_bytes"]   = None
+                st.session_state["tbl_preview_html"]    = None
                 st.session_state["_tbl_run_now"]        = True
                 st.rerun()
 
@@ -830,13 +683,11 @@ def render_table_builder_tab():
             if st.button("👁️ Preview", use_container_width=True, key="tbl_preview"):
                 with st.spinner("Generating preview..."):
                     try:
-                        prev_html, prev_bytes, _, _ = execute_table(
+                        prev_html, _ = execute_table(
                             st.session_state["tbl_r_code_pending"],
-                            st.session_state["tbl_df"],
-                            st.session_state["tbl_output_format"]
+                            st.session_state["tbl_df"]
                         )
-                        st.session_state["tbl_preview_bytes"] = prev_bytes
-                        st.session_state["tbl_preview_html"]  = prev_html
+                        st.session_state["tbl_preview_html"] = prev_html
                         st.rerun()
                     except RuntimeError as e:
                         st.error(f"Preview failed: {e}")
@@ -844,10 +695,10 @@ def render_table_builder_tab():
         with c3:
             if st.button("❌ Reject Changes", use_container_width=True, key="tbl_reject"):
                 st.session_state["tbl_r_code_pending"] = None
-                st.session_state["tbl_preview_bytes"]  = None
+                st.session_state["tbl_preview_html"]   = None
                 st.rerun()
 
-        # Side-by-side preview (current vs pending)
+        # Side-by-side preview
         if st.session_state.get("tbl_preview_html"):
             st.markdown("**👁️ Preview (not applied yet):**")
             col1, col2 = st.columns(2)
@@ -855,14 +706,12 @@ def render_table_builder_tab():
                 st.markdown("**Current (accepted):**")
                 if st.session_state.get("tbl_html"):
                     st.components.v1.html(
-                    f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
-                    height=400,
-                    scrolling=True
-                 )
+                        f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
+                        height=400, scrolling=True
+                    )
             with col2:
                 st.markdown("**Preview (pending):**")
                 st.components.v1.html(
                     f"<div style='background:white; padding:10px;'>{st.session_state['tbl_preview_html']}</div>",
-                    height=400,
-                    scrolling=True
+                    height=400, scrolling=True
                 )
