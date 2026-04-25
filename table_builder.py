@@ -707,8 +707,8 @@ def render_table_builder_tab():
 
         with c2:
             if st.button("👁️ Preview", use_container_width=True, key="tbl_preview"):
-            st.write("DEBUG: preview clicked")
-            with st.spinner("Generating preview..."):
+                st.write("DEBUG: preview clicked")
+                with st.spinner("Generating preview..."):
                 try:
                     st.write("DEBUG: inside preview try")
                         prev_html, prev_bytes, _, _ = execute_table(
