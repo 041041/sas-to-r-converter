@@ -720,28 +720,21 @@ def render_table_builder_tab():
                 st.rerun()
 
         # Side-by-side preview (current vs pending)
-        if st.session_state.get("tbl_preview_bytes"):
-            st.markdown("**👁️ Preview ready — download to compare:**")
-            ext  = st.session_state.get("tbl_output_ext", ".docx")
-            mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document" \
-                   if ext == ".docx" else "application/pdf"
+        if st.session_state.get("tbl_preview_html"):
+            st.markdown("**👁️ Preview (not applied yet):**")
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Current (accepted):**")
-                if st.session_state.get("tbl_output_bytes"):
-                    st.download_button(
-                        "⬇️ Download Current",
-                        data=st.session_state["tbl_output_bytes"],
-                        file_name=f"current_table{ext}",
-                        mime=mime,
-                        key="dl_current"
+                if st.session_state.get("tbl_html"):
+                    st.components.v1.html(
+                        st.session_state["tbl_html"],
+                        height=400,
+                        scrolling=True
                     )
             with col2:
                 st.markdown("**Preview (pending):**")
-                st.download_button(
-                    "⬇️ Download Preview",
-                    data=st.session_state["tbl_preview_bytes"],
-                    file_name=f"preview_table{ext}",
-                    mime=mime,
-                    key="dl_preview"
+                st.components.v1.html(
+                    st.session_state["tbl_preview_html"],
+                    height=400,
+                    scrolling=True
                 )
