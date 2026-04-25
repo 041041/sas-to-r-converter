@@ -133,7 +133,7 @@ writeLines(html_content, html_path)
 writeLines(html_content, output_path)
 """
 
-        code = f"""library(dplyr)
+    code = f"""library(dplyr)
 library(gtsummary)
 library(flextable)
 library(officer)
