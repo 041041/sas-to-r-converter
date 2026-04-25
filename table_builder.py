@@ -706,7 +706,6 @@ def render_table_builder_tab():
                         st.session_state["tbl_df"]             = df
                         st.session_state["_tbl_run_now"]       = True
                 else:
-                    else:
                     # No custom request — run immediately
                     st.session_state["tbl_r_code_pending"] = None
                     st.session_state["tbl_r_code"]         = r_code
