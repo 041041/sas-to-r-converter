@@ -707,22 +707,22 @@ def render_table_builder_tab():
 
         with c2:
             if st.button("👁️ Preview", use_container_width=True, key="tbl_preview"):
-                st.write("DEBUG: preview clicked")
-                with st.spinner("Generating preview..."):
-                  try:
+            st.write("DEBUG: preview clicked")
+            with st.spinner("Generating preview..."):
+                try:
                     st.write("DEBUG: inside preview try")
-                        prev_html, prev_bytes, _, _ = execute_table(
-                            st.session_state["tbl_r_code_pending"],
-                            st.session_state["tbl_df"],
-                            st.session_state["tbl_output_format"]
-                        )
-                        st.session_state["tbl_preview_bytes"] = prev_bytes
-                        st.session_state["tbl_preview_html"]  = prev_html
-                        st.write("DEBUG pending code:", st.session_state.get("tbl_r_code_pending")[:100])
-                        st.write("DEBUG prev_html length:", len(prev_html) if prev_html else 0)
-                        st.rerun()
-                    except RuntimeError as e:
-                        st.error(f"Preview failed: {e}")
+                    prev_html, prev_bytes, _, _ = execute_table(
+                        st.session_state["tbl_r_code_pending"],
+                        st.session_state["tbl_df"],
+                        st.session_state["tbl_output_format"]
+                    )
+                    st.session_state["tbl_preview_bytes"] = prev_bytes
+                    st.session_state["tbl_preview_html"]  = prev_html
+                    st.write("DEBUG pending code:", st.session_state.get("tbl_r_code_pending")[:100])
+                    st.write("DEBUG prev_html length:", len(prev_html) if prev_html else 0)
+                    st.rerun()
+                except RuntimeError as e:
+                    st.error(f"Preview failed: {e}")
 
         with c3:
             if st.button("❌ Reject Changes", use_container_width=True, key="tbl_reject"):
