@@ -671,7 +671,6 @@ def render_table_builder_tab():
                 r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
 
                 # For enhancement, ALWAYS use previously accepted code if it exists
-                # so cumulative changes (footnotes etc) are preserved
                 r_code_for_enhancement = st.session_state["tbl_r_code"] if st.session_state.get("tbl_r_code") else r_code
 
                 # Sync session state tbl_r_code to accepted code immediately
@@ -703,6 +702,8 @@ def render_table_builder_tab():
                         st.session_state["tbl_df"]             = df
                         st.session_state["_tbl_run_now"]       = True
                 else:
+                    else:
+                    # No custom request — run immediately
                     st.session_state["tbl_r_code_pending"] = None
                     st.session_state["tbl_r_code"]         = r_code
                     st.session_state["tbl_df"]             = df
