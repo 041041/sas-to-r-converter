@@ -196,6 +196,13 @@ cat("TABLE_DONE")
 # LLM ENHANCEMENT  — same pattern as graph_builder
 # ─────────────────────────────────────────────
 def build_enhance_prompt(current_code, custom_request):
+    existing_footnote = extract_existing_footnotes(current_code)
+    footnote_instruction = (
+        f"8. Code already has this footnote: '{existing_footnote}'. "
+        f"You MUST preserve it and append new footnote text separated by '; '.\n"
+        if existing_footnote else
+        f"8. No existing footnote — add new one if requested.\n"
+    )
     return (
         f"You are a clinical R table code editor.\n\n"
         f"EXISTING CODE:\n```r\n{current_code}\n```\n\n"
@@ -208,15 +215,14 @@ def build_enhance_prompt(current_code, custom_request):
         f"GTSUMMARY RULES:\n"
         f"5. Only use REAL functions: modify_caption, modify_header, modify_footnote, add_overall, add_p, bold_labels, bold_levels, italicize_labels.\n"
         f"6. modify_footnote syntax: modify_footnote(everything() ~ 'text') — NEVER plain string.\n"
-        f"7. For multiple footnotes: if code already has modify_footnote(everything() ~ 'note1'), and request adds 'note2', output must be modify_footnote(everything() ~ 'note1; note2'). PRESERVE existing footnote text and APPEND new text.\n"
-        f"8. Each function appears AT MOST once — if already exists, REPLACE it not add another.\n\n"
+        f"7. Each function appears AT MOST once — if already exists, REPLACE it not add another.\n"
+        f"{footnote_instruction}"
         f"GT RULES:\n"
         f"9. gt functions (tab_style, tab_options, cols_move) ONLY after as_gt(tbl).\n"
         f"10. NEVER apply gt functions on tbl_summary objects.\n"
         f"11. NEVER invent function names.\n\n"
         f"Return ONLY the complete modified R code. No explanations."
     )
-
 
 def call_llm(prompt, groq_client, gemini_client):
     """Try Groq first, fall back to Gemini."""
@@ -302,6 +308,10 @@ def clean_llm_output(raw):
 # ─────────────────────────────────────────────
 # R EXECUTOR
 # ─────────────────────────────────────────────
+def extract_existing_footnotes(code):
+    """Extract existing footnote text from R code."""
+    match = re.search(r"modify_footnote\s*\(\s*everything\(\)\s*~\s*['\"]([^'\"]+)['\"]", code)
+    return match.group(1) if match else None
 def execute_table(r_code, df, output_format):
     """Run R code, return (html_str, output_bytes, extension, stderr)."""
     ext = ".html"
