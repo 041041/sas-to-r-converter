@@ -747,8 +747,8 @@ def render_table_builder_tab():
 
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True, key="tbl_apply"):
-                accepted = st.session_state["tbl_r_code_pending"]
-                st.session_state["tbl_r_code"]          = accepted
+                st.sidebar.write("DEBUG: Apply clicked, saving:", st.session_state.get("tbl_r_code_pending", "")[:100])
+                st.session_state["tbl_r_code"]          = st.session_state["tbl_r_code_pending"]
                 st.session_state["tbl_r_code_original"] = None
                 st.session_state["tbl_r_code_pending"]  = None
                 st.session_state["tbl_preview_bytes"]   = None
