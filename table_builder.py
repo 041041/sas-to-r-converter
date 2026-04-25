@@ -112,7 +112,7 @@ tbl <- df %>%
   bold_labels() %>%
   modify_caption("**{title}**")
 """
-else:
+    else:
         tbl_code = f"""
 {factor_hint}
 tbl <- df %>%
@@ -126,7 +126,7 @@ tbl <- df %>%
   modify_caption("**{title}**")
 """
 
-        export_code = f"""
+    export_code = f"""
 gt_tbl <- as_gt(tbl)
 html_content <- as_raw_html(gt_tbl)
 writeLines(html_content, html_path)
@@ -145,7 +145,7 @@ library(gt)
 cat("TABLE_DONE")
 """
     return code
-
+    
 def merge_footnotes(old_code, new_code):
     """Always preserve all footnotes from old code in new code."""
     old_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', old_code)
