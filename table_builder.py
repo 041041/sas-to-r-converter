@@ -640,6 +640,7 @@ def render_table_builder_tab():
 
                 # Use accepted code as base to preserve previous changes
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
+                st.write("HAS FN:", "modify_footnote" in (st.session_state.get("tbl_r_code") or ""))
 
                 if custom_request.strip():
                     prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
