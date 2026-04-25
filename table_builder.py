@@ -112,7 +112,7 @@ tbl <- df %>%
   bold_labels() %>%
   modify_caption("**{title}**")
 """
-    else:
+else:
         tbl_code = f"""
 {factor_hint}
 tbl <- df %>%
