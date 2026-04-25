@@ -297,7 +297,7 @@ def clean_llm_output(raw):
         if stripped:
             prev_stripped = stripped
     raw = '\n'.join(deduped)
-
+    return raw
 
 # ─────────────────────────────────────────────
 # R EXECUTOR
