@@ -725,7 +725,7 @@ def render_table_builder_tab():
             st.stop()
 
     with st.spinner("🤖 Generating R code..."):
-    try:
+        try:
         r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
 
         # ALWAYS build on previously accepted code for enhancements
