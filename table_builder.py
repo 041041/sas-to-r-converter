@@ -600,10 +600,6 @@ def render_table_builder_tab():
     )
 
     # ── Generate button ──────────────────────────────────────────────────
-    st.write("DEBUG: button clicked")
-    st.write("DEBUG: passed validation")
-    st.write("DEBUG: inside try")
-    st.write(f"DEBUG: r_code generated, custom='{custom_request.strip()}'")
     if st.button("🏥 Generate Table", type="primary", use_container_width=True):
         st.write("DEBUG: button clicked")
 
@@ -748,7 +744,7 @@ def render_table_builder_tab():
             with col2:
                 st.markdown("**Preview (pending):**")
                 st.components.v1.html(
-                    f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
+                    f"<div style='background:white; padding:10px;'>{st.session_state['tbl_preview_html']}</div>",
                     height=400,
                     scrolling=True
                 )
