@@ -242,16 +242,18 @@ def extract_existing_footnotes(code):
 
 def apply_footnote_in_python(current_code, new_footnote_text):
     """Add or append footnote directly in Python without LLM."""
+    # Clean new footnote text — remove any quotes to avoid R syntax issues
+    new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
+    
     existing = extract_existing_footnotes(current_code)
 
     if existing:
         # Append to existing footnote
         combined = f"{existing}; {new_footnote_text}"
-        updated = re.sub(
-            r"modify_footnote\s*\([^)]+\)",
-            f"modify_footnote(everything() ~ '{combined}')",
-            current_code
-        )
+        # Use string replace instead of re.sub to avoid special char issues
+        old_fn = re.search(r"modify_footnote\s*\([^)]+\)", current_code).group(0)
+        new_fn = f"modify_footnote(everything() ~ '{combined}')"
+        updated = current_code.replace(old_fn, new_fn, 1)
     else:
         # Insert after bold_labels()
         if "bold_labels()" in current_code:
@@ -733,12 +735,16 @@ def render_table_builder_tab():
                     is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
 
                     if is_footnote_request:
-                        # Extract just the footnote text from the request
+                        # Extract just the footnote text — take content after colon or quotes
                         footnote_text = custom_request
+                        # Remove common prefixes
                         for prefix in ["add footnote", "add a footnote", "add note",
-                                       "add annotation", "footnote:", "footnote"]:
+                                       "add annotation", "footnote:"]:
                             footnote_text = re.sub(prefix, "", footnote_text, flags=re.IGNORECASE).strip()
+                        # Remove surrounding quotes
                         footnote_text = footnote_text.strip('"\'').strip()
+                        # Final cleanup — remove any remaining quotes
+                        footnote_text = footnote_text.replace("'", "").replace('"', '').strip()
 
                         enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
