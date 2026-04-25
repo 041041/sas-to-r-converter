@@ -607,7 +607,8 @@ def render_table_builder_tab():
 
                 # Enhancement always builds on previously accepted code
                 # tbl_r_code is ONLY set by: fresh generate OR Apply Changes
-                r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
+                existing = st.session_state.get("tbl_r_code", "")
+                r_code_for_enhancement = existing if existing.strip() else r_code
 
                 if custom_request.strip():
                     footnote_keywords = ["footnote", "foot note", "note", "annotation"]
