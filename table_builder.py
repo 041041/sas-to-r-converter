@@ -208,6 +208,8 @@ def build_enhance_prompt(current_code, custom_request):
         f"- Keep the writeLines and cat('TABLE_DONE') lines at the end.\n"
         f"- Only use REAL gtsummary functions on tbl_summary objects: modify_caption, modify_header, "
         f"modify_footnote, add_overall, add_p, bold_labels, bold_levels, italicize_labels.\n"
+        f"- modify_footnote MUST use formula syntax: modify_footnote(everything() ~ 'your footnote text')\n"
+        f"- NEVER use modify_footnote('plain string') — always use formula with ~\n"
         f"- Only use gt functions (tab_style, tab_options, cols_move, cols_align) AFTER as_gt(tbl) conversion.\n"
         f"- To move the Overall column, use: tbl <- tbl %>% modify_header(all_stat_cols() ~ '**{{level}}**') "
         f"and reorder with gtsummary's own column tools, NOT gt cols_move before as_gt().\n"
