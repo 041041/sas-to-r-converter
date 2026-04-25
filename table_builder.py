@@ -286,15 +286,6 @@ def clean_llm_output(raw):
         # Keep only the last modify_header, remove all previous ones
         for match in matches[:-1]:
             raw = raw.replace(match.group(0), '', 1)
-    # Deduplicate modify_footnote — keep only last
-    footnote_pattern = re.compile(
-        r'%>%\s*modify_footnote\s*\([^)]*\)',
-        re.DOTALL
-    )
-    matches = list(footnote_pattern.finditer(raw))
-    if len(matches) > 1:
-        for match in matches[:-1]:
-            raw = raw.replace(match.group(0), '', 1)
 
     # Also deduplicate any other repeated pipe steps line by line
     lines = raw.splitlines()
