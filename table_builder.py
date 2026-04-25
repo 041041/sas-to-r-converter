@@ -586,8 +586,8 @@ def render_table_builder_tab():
 
     # ── Output (above custom box, same as graph_builder) ────────────────
     # TEMP DEBUG
-    st.session_state["_debug_code"] = st.session_state.get("tbl_r_code", "")[:300]
-    st.code(st.session_state.get("_debug_code", "no code yet"), language="r")
+    st.sidebar.markdown("**DEBUG tbl_r_code:**")
+    st.sidebar.code(st.session_state.get("tbl_r_code", "no code yet")[:500], language="r")
     if st.session_state.get("tbl_r_code"):
         st.subheader("📤 Output")
         out1, out2 = st.tabs(["📊 Table", "💻 R Code"])
