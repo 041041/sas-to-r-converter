@@ -443,9 +443,6 @@ def render_table_builder_tab():
     # ── R package check ─────────────────────────────────────────────────
     # ── R package check (runs once per session only) ─────────────────────
     if "tbl_pkgs_checked" not in st.session_state:
-        st.session_state["tbl_pkgs_checked"] = False
-    
-    if not st.session_state["tbl_pkgs_checked"]:
         st.info("🔧 Installing R packages on first run — this takes 2-5 minutes...")
         ok, err = ensure_r_packages()
         st.session_state["tbl_pkgs_checked"] = True
@@ -630,7 +627,7 @@ def render_table_builder_tab():
         if "Table 1" in table_type and not selections.get("variables"):
             st.error("⚠️ Please select at least one variable to summarise.")
             st.stop()
-        st.write("HAS FN:", "modify_footnote" in (st.session_state.get("tbl_r_code") or ""))
+
         with st.spinner("🤖 Generating R code..."):
             try:
                 if "Table 1" in table_type:
@@ -640,7 +637,6 @@ def render_table_builder_tab():
 
                 # Use accepted code as base to preserve previous changes
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
-                st.write("HAS FN:", "modify_footnote" in (st.session_state.get("tbl_r_code") or ""))
 
                 if custom_request.strip():
                     prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
@@ -652,8 +648,8 @@ def render_table_builder_tab():
                         enhanced_code = merge_footnotes(r_code_for_enhancement, enhanced_code)
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
                         st.session_state["tbl_r_code_original"] = r_code_for_enhancement
-                        # KEY FIX: save r_code_for_enhancement so next enhancement builds on it
-                        st.session_state["tbl_r_code"]          = r_code_for_enhancement
+                        # Don't overwrite tbl_r_code — keep accepted version intact
+                        # so next enhancement still builds on accepted code
                         st.session_state["tbl_df"]              = df
                         st.session_state["tbl_preview_bytes"]   = None
                         st.rerun()
@@ -709,8 +705,10 @@ def render_table_builder_tab():
 
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True, key="tbl_apply"):
-                st.session_state["tbl_r_code"]          = st.session_state["tbl_r_code_pending"]
-                st.session_state["tbl_r_code_original"] = None   # reset diff baseline
+                # Save the full accepted code — this is what next enhancement will build on
+                accepted = st.session_state["tbl_r_code_pending"]
+                st.session_state["tbl_r_code"]          = accepted
+                st.session_state["tbl_r_code_original"] = None
                 st.session_state["tbl_r_code_pending"]  = None
                 st.session_state["tbl_preview_bytes"]   = None
                 st.session_state["_tbl_run_now"]        = True
@@ -718,17 +716,13 @@ def render_table_builder_tab():
 
         with c2:
             if st.button("👁️ Preview", use_container_width=True, key="tbl_preview"):
-                st.write("DEBUG: preview clicked")
                 with st.spinner("Generating preview..."):
                     try:
-                        st.write("DEBUG: inside preview try")
                         prev_html, prev_bytes, _, _ = execute_table(
                             st.session_state["tbl_r_code_pending"],
                             st.session_state["tbl_df"],
                             st.session_state["tbl_output_format"]
                         )
-                        st.write("DEBUG pending code:", st.session_state.get("tbl_r_code_pending")[:200])
-                        st.write("DEBUG prev_html length:", len(prev_html) if prev_html else 0)
                         st.session_state["tbl_preview_bytes"] = prev_bytes
                         st.session_state["tbl_preview_html"]  = prev_html
                         st.rerun()
