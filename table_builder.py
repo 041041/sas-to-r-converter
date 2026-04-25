@@ -232,13 +232,30 @@ cat("TABLE_DONE")
 # ─────────────────────────────────────────────
 def build_enhance_prompt(current_code, custom_request):
     existing_footnote = extract_existing_footnotes(current_code)
-    st.write(f"DEBUG footnote extracted: '{existing_footnote}'")
-    footnote_instruction = (
-        f"8. Code already has this footnote: '{existing_footnote}'. "
-        f"You MUST preserve it and append new footnote text separated by '; '.\n"
-        if existing_footnote else
-        f"8. No existing footnote — add new one if requested.\n"
-    )
+    
+    # If request is about footnotes, handle it in Python directly
+    # instead of trusting LLM to preserve existing footnotes
+    footnote_keywords = ["footnote", "foot note", "note", "annotation"]
+    is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
+    
+    if is_footnote_request and existing_footnote:
+        footnote_instruction = (
+            f"8. FOOTNOTE CRITICAL: The existing footnote is exactly: '{existing_footnote}'. "
+            f"The new combined footnote MUST be: '{existing_footnote}; {custom_request}'. "
+            f"Replace the existing modify_footnote() call with: "
+            f"modify_footnote(everything() ~ '{existing_footnote}; ADD_NEW_TEXT_HERE'). "
+            f"Keep ALL other code exactly the same.\n"
+        )
+    elif is_footnote_request and not existing_footnote:
+        footnote_instruction = (
+            f"8. No existing footnote. Add: modify_footnote(everything() ~ 'NEW_TEXT') "
+            f"after bold_labels() in the tbl pipe chain.\n"
+        )
+    else:
+        footnote_instruction = (
+            f"8. This request is NOT about footnotes. "
+            f"Do NOT touch any existing modify_footnote() call — preserve it exactly.\n"
+        )
     return (
         f"You are a clinical R table code editor.\n\n"
         f"EXISTING CODE:\n```r\n{current_code}\n```\n\n"
