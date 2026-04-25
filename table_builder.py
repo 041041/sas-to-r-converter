@@ -585,6 +585,7 @@ def render_table_builder_tab():
     st.divider()
 
     # ── Output (above custom box, same as graph_builder) ────────────────
+    st.write("DEBUG tbl_r_code snippet:", st.session_state.get("tbl_r_code", "")[:300])
     if st.session_state.get("tbl_r_code"):
         st.subheader("📤 Output")
         out1, out2 = st.tabs(["📊 Table", "💻 R Code"])
