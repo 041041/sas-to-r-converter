@@ -443,6 +443,9 @@ def render_table_builder_tab():
     # ── R package check ─────────────────────────────────────────────────
     # ── R package check (runs once per session only) ─────────────────────
     if "tbl_pkgs_checked" not in st.session_state:
+        st.session_state["tbl_pkgs_checked"] = False
+    
+    if not st.session_state["tbl_pkgs_checked"]:
         st.info("🔧 Installing R packages on first run — this takes 2-5 minutes...")
         ok, err = ensure_r_packages()
         st.session_state["tbl_pkgs_checked"] = True
