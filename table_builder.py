@@ -673,6 +673,9 @@ def render_table_builder_tab():
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
                 if custom_request.strip():
+                    st.write("DEBUG tbl_r_code:", st.session_state.get("tbl_r_code", "")[:200])
+                    st.write("DEBUG r_code_for_enhancement:", r_code_for_enhancement[:200])
+                    # Handle footnote requests directly in Python — no LLM needed
                     prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
                     raw    = call_llm(prompt, groq_client, gemini_client)
 
