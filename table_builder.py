@@ -232,6 +232,7 @@ cat("TABLE_DONE")
 # ─────────────────────────────────────────────
 def build_enhance_prompt(current_code, custom_request):
     existing_footnote = extract_existing_footnotes(current_code)
+    st.write(f"DEBUG footnote extracted: '{existing_footnote}'")
     footnote_instruction = (
         f"8. Code already has this footnote: '{existing_footnote}'. "
         f"You MUST preserve it and append new footnote text separated by '; '.\n"
@@ -345,8 +346,14 @@ def clean_llm_output(raw):
 # ─────────────────────────────────────────────
 def extract_existing_footnotes(code):
     """Extract existing footnote text from R code."""
-    match = re.search(r"modify_footnote\s*\(\s*everything\(\)\s*~\s*['\"]([^'\"]+)['\"]", code)
+    # Match any modify_footnote call with any selector
+    match = re.search(
+        r"modify_footnote\s*\([^~]+~\s*['\"]([^'\"]+)['\"]",
+        code,
+        re.DOTALL
+    )
     return match.group(1) if match else None
+    
 def execute_table(r_code, df, output_format):
     """Run R code, return (html_str, output_bytes, extension, stderr)."""
     ext = ".html"
