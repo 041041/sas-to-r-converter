@@ -96,7 +96,7 @@ def generate_table1_code(selections):
 df <- df %>% mutate(across(where(is.character), as.factor))
 """
 
-    if group_col:
+if group_col:
         tbl_code = f"""
 {factor_hint}
 tbl <- df %>%
@@ -112,7 +112,7 @@ tbl <- df %>%
   bold_labels() %>%
   modify_caption("**{title}**")
 """
-else:
+    else:
         tbl_code = f"""
 {factor_hint}
 tbl <- df %>%
