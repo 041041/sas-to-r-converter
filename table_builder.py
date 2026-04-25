@@ -726,39 +726,39 @@ def render_table_builder_tab():
 
     with st.spinner("🤖 Generating R code..."):
         try:
-        r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
-
-        # ALWAYS build on previously accepted code for enhancements
-        # Never overwrite tbl_r_code here — only Apply Changes should do that
-        r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
-
-        if custom_request.strip():
-            footnote_keywords = ["footnote", "foot note", "note", "annotation"]
-            is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
-
-            if is_footnote_request:
-                quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
-                if quoted:
-                    footnote_text = quoted.group(1).strip()
-                else:
-                    footnote_text = custom_request
-                    for prefix in [
-                        "please add footnote", "add a footnote saying",
-                        "add footnote saying", "add footnote:",
-                        "add a footnote", "add footnote",
-                        "add note", "add annotation"
-                    ]:
-                        footnote_text = re.sub(prefix, "", footnote_text, flags=re.IGNORECASE).strip()
-                    footnote_text = footnote_text.strip('"\'').strip()
-                footnote_text = footnote_text.replace("'", "").replace('"', '').strip()
-
-                enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
-                st.session_state["tbl_r_code_pending"]  = enhanced_code
-                st.session_state["tbl_r_code_original"] = r_code_for_enhancement
-                # DO NOT update tbl_r_code here — only update after Apply
-                st.session_state["tbl_df"]              = df
-                st.session_state["tbl_preview_bytes"]   = None
-                st.rerun()
+            r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
+    
+            # ALWAYS build on previously accepted code for enhancements
+            # Never overwrite tbl_r_code here — only Apply Changes should do that
+            r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
+    
+            if custom_request.strip():
+                footnote_keywords = ["footnote", "foot note", "note", "annotation"]
+                is_footnote_request = any(k in custom_request.lower() for k in footnote_keywords)
+    
+                if is_footnote_request:
+                    quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
+                    if quoted:
+                        footnote_text = quoted.group(1).strip()
+                    else:
+                        footnote_text = custom_request
+                        for prefix in [
+                            "please add footnote", "add a footnote saying",
+                            "add footnote saying", "add footnote:",
+                            "add a footnote", "add footnote",
+                            "add note", "add annotation"
+                        ]:
+                            footnote_text = re.sub(prefix, "", footnote_text, flags=re.IGNORECASE).strip()
+                        footnote_text = footnote_text.strip('"\'').strip()
+                    footnote_text = footnote_text.replace("'", "").replace('"', '').strip()
+    
+                    enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
+                    st.session_state["tbl_r_code_pending"]  = enhanced_code
+                    st.session_state["tbl_r_code_original"] = r_code_for_enhancement
+                    # DO NOT update tbl_r_code here — only update after Apply
+                    st.session_state["tbl_df"]              = df
+                    st.session_state["tbl_preview_bytes"]   = None
+                    st.rerun()
 
             else:
                 prompt = build_enhance_prompt(r_code_for_enhancement, custom_request)
