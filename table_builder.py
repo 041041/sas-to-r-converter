@@ -133,6 +133,24 @@ cat("TABLE_DONE")
 """
     return code
 
+def merge_footnotes(old_code, new_code):
+    """Extract footnote from old code and merge into new code."""
+    # Extract old footnote
+    old_match = re.search(r"modify_footnote\s*\(\s*everything\(\)\s*~\s*['\"]([^'\"]+)['\"]", old_code)
+    new_match = re.search(r"modify_footnote\s*\(\s*everything\(\)\s*~\s*['\"]([^'\"]+)['\"]", new_code)
+    
+    if old_match and new_match:
+        old_text = old_match.group(1)
+        new_text = new_match.group(1)
+        if old_text not in new_text:
+            combined = f"{old_text}; {new_text}"
+            new_code = re.sub(
+                r"modify_footnote\s*\(\s*everything\(\)\s*~\s*['\"][^'\"]+['\"]\s*\)",
+                f'modify_footnote(everything() ~ "{combined}")',
+                new_code
+            )
+    return new_code
+    
 def generate_ae_code(selections):
     """Generate Adverse Events summary R code from selections."""
     soc_col     = selections.get("soc_col", "SOC")
@@ -630,6 +648,8 @@ def render_table_builder_tab():
 
                     if raw:
                         enhanced_code = clean_llm_output(raw)
+                        # Merge footnotes from original to preserve all
+                        enhanced_code = merge_footnotes(r_code_for_enhancement, enhanced_code)
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
                         st.session_state["tbl_r_code_original"] = r_code_for_enhancement
                         st.session_state["tbl_r_code"]          = r_code_for_enhancement
