@@ -96,46 +96,35 @@ def generate_table1_code(selections):
 df <- df %>% mutate(across(where(is.character), as.factor))
 """
 
-if group_col:
-        tbl_code = f"""
-{factor_hint}
-tbl <- df %>%
-  select(all_of(c({vars_r}, "{group_col}"))) %>%
-  tbl_summary(
-    by = {group_col},
-    statistic = list(all_continuous() ~ {stat_str},
-                     all_categorical() ~ "{{n}} ({{p}}%)"),
-    missing = "no"
-  ) %>%
-  add_overall(last = TRUE) %>%
-  add_p() %>%
-  bold_labels() %>%
-  modify_caption("**{title}**")
-"""  # noqa
+    if group_col:
+        tbl_code = (
+            f"\n{factor_hint}\n"
+            f"tbl <- df %>%\n"
+            f'  select(all_of(c({vars_r}, "{group_col}"))) %>%\n'
+            f"  tbl_summary(\n"
+            f"    by = {group_col},\n"
+            f"    statistic = list(all_continuous() ~ {stat_str},\n"
+            f'                     all_categorical() ~ "{{n}} ({{p}}%)"),\n'
+            f'    missing = "no"\n'
+            f"  ) %>%\n"
+            f"  add_overall(last = TRUE) %>%\n"
+            f"  add_p() %>%\n"
+            f"  bold_labels() %>%\n"
+            f'  modify_caption("**{title}**")\n'
+        )
     else:
-        tbl_code = f"""
-{factor_hint}
-tbl <- df %>%
-  select(all_of({vars_r})) %>%
-  tbl_summary(
-    statistic = list(all_continuous() ~ {stat_str},
-                     all_categorical() ~ "{{n}} ({{p}}%)"),
-    missing = "no"
-  ) %>%
-  bold_labels() %>%
-  modify_caption("**{title}**")
-"""  # noqa
-{factor_hint}
-tbl <- df %>%
-  select(all_of({vars_r})) %>%
-  tbl_summary(
-    statistic = list(all_continuous() ~ {stat_str},
-                     all_categorical() ~ "{{n}} ({{p}}%)"),
-    missing = "no"
-  ) %>%
-  bold_labels() %>%
-  modify_caption("**{title}**")
-"""
+        tbl_code = (
+            f"\n{factor_hint}\n"
+            f"tbl <- df %>%\n"
+            f"  select(all_of({vars_r})) %>%\n"
+            f"  tbl_summary(\n"
+            f"    statistic = list(all_continuous() ~ {stat_str},\n"
+            f'                     all_categorical() ~ "{{n}} ({{p}}%)"),\n'
+            f'    missing = "no"\n'
+            f"  ) %>%\n"
+            f"  bold_labels() %>%\n"
+            f'  modify_caption("**{title}**")\n'
+        )
 
     export_code = f"""
 gt_tbl <- as_gt(tbl)
@@ -156,12 +145,11 @@ library(gt)
 cat("TABLE_DONE")
 """
     return code
-    
+
 def merge_footnotes(old_code, new_code):
     """Always preserve all footnotes from old code in new code."""
     old_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', old_code)
     new_match = re.search(r'modify_footnote\s*\(\s*everything\(\)\s*~\s*[\'"]([^\'"]+)[\'"]', new_code)
-
     if old_match:
         old_text = old_match.group(1)
         if new_match:
@@ -647,7 +635,6 @@ def render_table_builder_tab():
 
     # ── Generate button ──────────────────────────────────────────────────
     if st.button("🏥 Generate Table", type="primary", use_container_width=True):
-        # Validation
         if "Table 1" in table_type and not selections.get("variables"):
             st.error("⚠️ Please select at least one variable to summarise.")
             st.stop()
@@ -659,7 +646,6 @@ def render_table_builder_tab():
                 else:
                     r_code = generate_ae_code(selections)
 
-                # Use accepted code as base to preserve previous changes
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
                 if custom_request.strip():
@@ -668,12 +654,9 @@ def render_table_builder_tab():
 
                     if raw:
                         enhanced_code = clean_llm_output(raw)
-                        # Merge footnotes from original to preserve all
                         enhanced_code = merge_footnotes(r_code_for_enhancement, enhanced_code)
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
                         st.session_state["tbl_r_code_original"] = r_code_for_enhancement
-                        # Don't overwrite tbl_r_code — keep accepted version intact
-                        # so next enhancement still builds on accepted code
                         st.session_state["tbl_df"]              = df
                         st.session_state["tbl_preview_bytes"]   = None
                         st.rerun()
@@ -683,7 +666,6 @@ def render_table_builder_tab():
                         st.session_state["tbl_r_code"]         = r_code
                         st.session_state["tbl_df"]             = df
                         st.session_state["_tbl_run_now"]       = True
-
                 else:
                     st.session_state["tbl_r_code_pending"] = None
                     st.session_state["tbl_r_code"]         = r_code
@@ -729,7 +711,6 @@ def render_table_builder_tab():
 
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True, key="tbl_apply"):
-                # Save the full accepted code — this is what next enhancement will build on
                 accepted = st.session_state["tbl_r_code_pending"]
                 st.session_state["tbl_r_code"]          = accepted
                 st.session_state["tbl_r_code_original"] = None
@@ -755,7 +736,6 @@ def render_table_builder_tab():
 
         with c3:
             if st.button("❌ Reject Changes", use_container_width=True, key="tbl_reject"):
-                # tbl_output_bytes already holds the last good table — nothing lost
                 st.session_state["tbl_r_code_pending"] = None
                 st.session_state["tbl_preview_bytes"]  = None
                 st.rerun()
