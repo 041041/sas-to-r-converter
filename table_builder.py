@@ -424,6 +424,7 @@ def render_table_builder_tab():
     for key, default in {
         "tbl_df":              None,
         "tbl_r_code":          "",
+        "tbl_accepted_code":   "",
         "tbl_html":            None,
         "tbl_log":             "",
         "tbl_error":           None,
@@ -610,7 +611,7 @@ def render_table_builder_tab():
                     else generate_ae_code(selections)
                 )
 
-                existing = st.session_state.get("tbl_r_code", "")
+                existing = st.session_state.get("tbl_accepted_code", "")
                 r_code_for_enhancement = existing if existing.strip() else r_code
 
                 # Store what we're using for enhancement so we can inspect it
@@ -648,9 +649,10 @@ def render_table_builder_tab():
                             st.session_state["_tbl_run_now"]       = True
 
                 else:
-                    # Fresh generate — reset and run base code
+                    # Fresh generate — reset accepted code and run base code
                     st.session_state["tbl_r_code_pending"] = None
                     st.session_state["tbl_r_code"]         = r_code
+                    st.session_state["tbl_accepted_code"]  = ""
                     st.session_state["tbl_df"]             = df
                     st.session_state["_tbl_run_now"]       = True
 
@@ -692,8 +694,11 @@ def render_table_builder_tab():
 
         with c1:
             if st.button("✅ Apply Changes", use_container_width=True, key="tbl_apply"):
-                # ONLY place that updates tbl_r_code for enhancements
-                st.session_state["tbl_r_code"]          = st.session_state["tbl_r_code_pending"]
+                # Save to both tbl_r_code AND tbl_accepted_code
+                # tbl_accepted_code is NEVER touched by Generate — only by Apply
+                accepted = st.session_state["tbl_r_code_pending"]
+                st.session_state["tbl_r_code"]          = accepted
+                st.session_state["tbl_accepted_code"]   = accepted
                 st.session_state["tbl_r_code_original"] = None
                 st.session_state["tbl_r_code_pending"]  = None
                 st.session_state["tbl_preview_html"]    = None
