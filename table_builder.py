@@ -182,25 +182,39 @@ def extract_existing_footnotes(code):
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
+    """Add a new footnote, always preserving all existing ones."""
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
     existing_list = extract_existing_footnotes(current_code)
 
     if existing_list:
-        all_matches = list(re.finditer(
-            r'modify_footnote\s*\(\s*\w+[^)]*\(\)[^)]*\)',
-            current_code
-        ))
-        if all_matches:
-            last_match = all_matches[-1]
-            insert_pos = last_match.end()
-            new_call = f" %>%\n  modify_footnote(all_stat_cols() ~ '{new_footnote_text}')"
-            updated = current_code[:insert_pos] + new_call + current_code[insert_pos:]
+        # Find the character position of the last modify_footnote call
+        # Use a broad pattern that matches any modify_footnote(...)
+        # by scanning for the closing ) after each modify_footnote
+        last_pos = -1
+        for m in re.finditer(r'modify_footnote\s*\(', current_code):
+            # Walk forward to find the matching closing paren
+            depth = 0
+            pos = m.start()
+            for i, ch in enumerate(current_code[m.start():]):
+                if ch == '(':
+                    depth += 1
+                elif ch == ')':
+                    depth -= 1
+                    if depth == 0:
+                        last_pos = m.start() + i + 1
+                        break
+
+        if last_pos > 0:
+            new_call = f" %>%\n  modify_footnote(everything() ~ '{new_footnote_text}')"
+            updated = current_code[:last_pos] + new_call + current_code[last_pos:]
         else:
+            # Fallback
             updated = current_code.replace(
                 'modify_caption(',
                 f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
             )
     else:
+        # No existing footnote — insert after bold_labels or before modify_caption
         if "bold_labels()" in current_code:
             updated = current_code.replace(
                 "bold_labels()",
@@ -525,10 +539,9 @@ def render_table_builder_tab():
                     f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
                     height=600, scrolling=True
                 )
-                html_bytes = st.session_state["tbl_html"].encode("utf-8")
                 st.download_button(
                     "⬇️ Download HTML",
-                    data=html_bytes,
+                    data=st.session_state["tbl_html"].encode("utf-8"),
                     file_name="clinical_table.html",
                     mime="text/html",
                 )
