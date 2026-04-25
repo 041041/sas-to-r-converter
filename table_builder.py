@@ -677,6 +677,7 @@ def render_table_builder_tab():
 
     # ── Review block ──────────────────────────────────────────────────────
     # Lives OUTSIDE generate button block — persists across reruns
+    st.write("DEBUG review check:", st.session_state.get("tbl_r_code_pending") is not None)
     if st.session_state.get("tbl_r_code_pending"):
         st.warning("⚠️ AI wants to modify your code. Review and confirm:")
         st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
