@@ -247,19 +247,29 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     
     existing = extract_existing_footnotes(current_code)
 
+    def apply_footnote_in_python(current_code, new_footnote_text):
+    """Add or append footnote directly in Python without LLM."""
+    new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
+
+    existing = extract_existing_footnotes(current_code)
+
     if existing:
-        combined = f"{existing}\n{new_footnote_text}"
-        # Find the full modify_footnote(...) call using a more precise pattern
-        # that handles nested parentheses like everything()
-        old_fn = re.search(
-            r"modify_footnote\s*\(everything\(\)\s*~\s*['\"][^'\"]*['\"]\)",
-            current_code
-        )
-        if old_fn:
-            new_fn = f"modify_footnote(everything() ~ '{combined}')"
-            updated = current_code.replace(old_fn.group(0), new_fn, 1)
-        else:
-            updated = current_code
+        # Count existing modify_footnote calls to target a different column each time
+        fn_count = len(re.findall(r"modify_footnote", current_code))
+        # Target different selectors so gtsummary creates separate footnote numbers
+        selectors = [
+            "all_continuous()",
+            "all_categorical()",
+            "starts_with('label')",
+            "everything()"
+        ]
+        selector = selectors[min(fn_count, len(selectors) - 1)]
+        new_fn_call = f"modify_footnote({selector} ~ '{new_footnote_text}')"
+
+        # Insert the new modify_footnote after the last existing one
+        last_fn = list(re.finditer(r"modify_footnote\s*\([^)]+\(\)[^)]*\)", current_code))[-1]
+        insert_pos = last_fn.end()
+        updated = current_code[:insert_pos] + f" %>%\n  {new_fn_call}" + current_code[insert_pos:]
     else:
         # Insert after bold_labels()
         if "bold_labels()" in current_code:
