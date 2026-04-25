@@ -731,6 +731,7 @@ def render_table_builder_tab():
                         st.write("DEBUG prev_html length:", len(prev_html) if prev_html else 0)
                         st.session_state["tbl_preview_bytes"] = prev_bytes
                         st.session_state["tbl_preview_html"]  = prev_html
+                        st.write("CURRENT CODE HAS FN:", "modify_footnote" in (st.session_state.get("tbl_r_code") or ""))
                         st.rerun()
                     except RuntimeError as e:
                         st.error(f"Preview failed: {e}")
