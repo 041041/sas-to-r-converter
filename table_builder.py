@@ -416,6 +416,11 @@ def render_table_builder_tab():
         st.session_state["_tbl_run_now"]        = False
         st.session_state["tbl_initialized"]     = True
 
+    # DEBUG — shows what code was used as base for last enhancement
+    if st.session_state.get("_debug_enhancement_base"):
+        st.sidebar.markdown("**Base used for enhancement:**")
+        st.sidebar.code(st.session_state["_debug_enhancement_base"], language="r")
+
     for key, default in {
         "tbl_df":              None,
         "tbl_r_code":          "",
@@ -605,10 +610,11 @@ def render_table_builder_tab():
                     else generate_ae_code(selections)
                 )
 
-                # Enhancement always builds on previously accepted code
-                # tbl_r_code is ONLY set by: fresh generate OR Apply Changes
                 existing = st.session_state.get("tbl_r_code", "")
                 r_code_for_enhancement = existing if existing.strip() else r_code
+
+                # Store what we're using for enhancement so we can inspect it
+                st.session_state["_debug_enhancement_base"] = r_code_for_enhancement[:500]
 
                 if custom_request.strip():
                     footnote_keywords = ["footnote", "foot note", "note", "annotation"]
