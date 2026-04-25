@@ -107,7 +107,7 @@ tbl <- df %>%
                      all_categorical() ~ "{{n}} ({{p}}%)"),
     missing = "no"
   ) %>%
-  add_overall(last = FALSE) %>%
+  add_overall(last = TRUE) %>%
   add_p() %>%
   bold_labels() %>%
   modify_caption("**{title}**")
