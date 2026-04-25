@@ -525,9 +525,10 @@ def render_table_builder_tab():
                     f"<div style='background:white; padding:10px;'>{st.session_state['tbl_html']}</div>",
                     height=600, scrolling=True
                 )
+                html_bytes = st.session_state["tbl_html"].encode("utf-8")
                 st.download_button(
                     "⬇️ Download HTML",
-                    data=st.session_state["tbl_html"],
+                    data=html_bytes,
                     file_name="clinical_table.html",
                     mime="text/html",
                 )
