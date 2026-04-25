@@ -668,10 +668,16 @@ def render_table_builder_tab():
 
         with st.spinner("🤖 Generating R code..."):
             try:
-                if "Table 1" in table_type:
-                    r_code = generate_table1_code(selections)
-                else:
-                    r_code = generate_ae_code(selections)
+                r_code = generate_table1_code(selections) if "Table 1" in table_type else generate_ae_code(selections)
+
+                # For enhancement, ALWAYS use previously accepted code if it exists
+                # so cumulative changes (footnotes etc) are preserved
+                r_code_for_enhancement = st.session_state["tbl_r_code"] if st.session_state.get("tbl_r_code") else r_code
+
+                # Sync session state tbl_r_code to accepted code immediately
+                # so debug and future enhancements always see the latest accepted version
+                if not custom_request.strip():
+                    st.session_state["tbl_r_code"] = r_code
 
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
