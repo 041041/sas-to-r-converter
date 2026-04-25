@@ -659,7 +659,7 @@ def render_table_builder_tab():
                     data=st.session_state["tbl_output_bytes"],
                     file_name="clinical_table.html",
                     mime="text/html",
-                    use_container_width=True
+                    width="stretch"
                 )
             elif st.session_state.get("tbl_error"):
                 st.error(st.session_state["tbl_error"])
