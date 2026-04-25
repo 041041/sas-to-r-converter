@@ -640,6 +640,9 @@ def render_table_builder_tab():
 
                 # Use accepted code as base to preserve previous changes
                 # but deduplicate in clean_llm_output
+                existing = st.session_state.get("tbl_r_code", "")
+                st.write("DEBUG tbl_r_code has footnote:", "modify_footnote" in existing)
+                st.write("DEBUG tbl_r_code snippet:", existing[existing.find("modify_footnote"):existing.find("modify_footnote")+100] if "modify_footnote" in existing else "NONE")
                 r_code_for_enhancement = st.session_state.get("tbl_r_code") or r_code
 
                 if custom_request.strip():
@@ -655,6 +658,8 @@ def render_table_builder_tab():
                         st.session_state["tbl_r_code"]          = r_code_for_enhancement
                         st.session_state["tbl_df"]              = df
                         st.session_state["tbl_preview_bytes"]   = None
+                        st.write("DEBUG original footnotes:", extract_existing_footnotes(r_code_for_enhancement))
+                        st.write("DEBUG enhanced footnotes:", extract_existing_footnotes(enhanced_code))
                         st.rerun()
                     else:
                         # LLM failed — fall back to base code and run immediately
