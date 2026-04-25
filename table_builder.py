@@ -242,13 +242,6 @@ def extract_existing_footnotes(code):
 
 def apply_footnote_in_python(current_code, new_footnote_text):
     """Add or append footnote directly in Python without LLM."""
-    # Clean new footnote text — remove any quotes to avoid R syntax issues
-    new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
-    
-    existing = extract_existing_footnotes(current_code)
-
-    def apply_footnote_in_python(current_code, new_footnote_text):
-    """Add or append footnote directly in Python without LLM."""
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
 
     existing = extract_existing_footnotes(current_code)
