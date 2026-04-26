@@ -774,6 +774,9 @@ def execute_clinical_graph(r_code, df):
         full_script = "\n".join([
             "user_lib <- path.expand('~/R/library')",
             "if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))",
+            # Prevent survminer from loading — it breaks with newer ggplot2
+            "if ('survminer' %in% loadedNamespaces()) unloadNamespace('survminer')",
+            "options(warn = -1)",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
             r_clean,
             f'suppressMessages(ggsave("{plot_path}", width=10, height=6, dpi=150))',
