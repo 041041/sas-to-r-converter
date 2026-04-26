@@ -61,7 +61,8 @@ def generate_table1_code(selections):
     title       = selections.get("title", "Table 1 — Baseline Characteristics")
     stat_option = selections.get("stat_option", "Mean (SD)")
     subj_col = selections.get("subj_col")
-    if subj_col:
+    # Only exclude subj_col if user did NOT explicitly add it to variables
+    if subj_col and subj_col not in vars_list:
         clean_vars = [v for v in vars_list if v != subj_col]
     else:
         clean_vars = vars_list
