@@ -649,6 +649,7 @@ def render_table_builder_tab():
 
         with st.spinner("🤖 Generating R code..."):
             try:
+                st.write("DEBUG vars:", selections.get("variables"))
                 r_code = (
                     generate_table1_code(selections)
                     if "Table 1" in table_type
