@@ -94,7 +94,7 @@ def generate_table1_code(selections):
             f"  ) %>%\n"
             f"  add_overall(last = TRUE) %>%\n"
             f"  add_p() %>%\n"
-            f"{'  add_n_header() %>%' + chr(10) if add_n_row else ''}"
+            f"{'  add_n() %>%' + chr(10) if add_n_row else ''}"
             f"  bold_labels() %>%\n"
             f'  modify_caption("**{title}**")'
         )
