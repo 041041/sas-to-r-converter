@@ -87,7 +87,7 @@ def generate_table1_code(selections):
     factor_line = "df <- df %>% mutate(across(where(is.character), as.factor))"
     show_missing = selections.get("show_missing", False)
     add_n_row    = selections.get("add_n_row", False)
-    # pct_only     = selections.get("pct_only", False)
+    pct_only     = selections.get("pct_only", False)
 
     missing_str = '"always"' if show_missing else '"no"'
     cat_stat    = '"{n}"' if pct_only else '"{n} ({p}%)"'
