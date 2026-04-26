@@ -517,12 +517,12 @@ CLINICAL_CHART_TYPES = [
     "Swimmer Plot (Patient Timeline)",
 ]
 
-CLINICAL_R_PACKAGES = ["survival", "survminer", "ggplot2", "dplyr", "tidyr", "scales"]
+CLINICAL_R_PACKAGES = ["survival", "ggplot2", "dplyr", "tidyr", "scales"]
 
 
 def ensure_clinical_packages():
     install_script = """
-pkgs <- c("survival", "survminer", "ggplot2", "dplyr", "tidyr", "scales")
+pkgs <- c("survival", "ggplot2", "dplyr", "tidyr", "scales")
 user_lib <- path.expand("~/R/library")
 if (!dir.exists(user_lib)) dir.create(user_lib, recursive=TRUE)
 .libPaths(c(user_lib, .libPaths()))
@@ -599,6 +599,26 @@ p <- ggplot(fit_df, aes(x = time, y = surv{color_aes})) +
        y = "Survival Probability",
        color = "{group_col if group_col else ''}",
        fill  = "{group_col if group_col else ''}") +
+  theme_{theme}() +
+  theme(plot.background  = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"))
+p
+"""
+
+    elif chart_type == "Forest Plot (Subgroup Analysis)":
+        ci_low  = low_col  if low_col  else f"({est_col} - 0.2)"
+        ci_high = high_col if high_col else f"({est_col} + 0.2)"
+        code = f"""
+{base_libs}
+
+df${est_col}  <- as.numeric(df${est_col})
+df${label_col} <- factor(df${label_col}, levels = rev(unique(df${label_col})))
+
+p <- ggplot(df, aes(x = {est_col}, y = {label_col})) +
+  geom_point(size = 3, color = "steelblue") +
+  geom_errorbarh(aes(xmin = {ci_low}, xmax = {ci_high}), height = 0.2, color = "steelblue") +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "red", size = 0.8) +
+  labs(title = "{title}", x = "Hazard Ratio (95% CI)", y = "") +
   theme_{theme}() +
   theme(plot.background  = element_rect(fill = "white"),
         panel.background = element_rect(fill = "white"))
