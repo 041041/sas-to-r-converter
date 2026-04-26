@@ -188,11 +188,9 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     if new_footnote_text in current_code:
         return current_code
 
-    if "footnote_counter" not in st.session_state:
-        st.session_state["footnote_counter"] = 2
-
-    st.session_state["footnote_counter"] += 1
-    next_num = st.session_state["footnote_counter"]
+    # Count only custom footnotes already added
+    existing_custom = len(re.findall(r'tab_source_note', current_code))
+    next_num = 2 + existing_custom + 1
 
     pattern = r'(gt_tbl\s*<-\s*as_gt\(tbl\))'
 
