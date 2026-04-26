@@ -182,7 +182,7 @@ def extract_existing_footnotes(code):
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
-    """Add footnote by merging all into single modify_footnote (no overwrite)."""
+    """Merge all footnotes into single call and fix pipe issues."""
 
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
     existing_list = extract_existing_footnotes(current_code)
@@ -191,28 +191,30 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     if new_footnote_text in existing_list:
         return current_code
 
-    # Combine all footnotes
+    # Combine all
     all_footnotes = existing_list + [new_footnote_text]
     combined_text = "; ".join(all_footnotes)
 
-    # Remove ALL existing modify_footnote calls
+    # Remove existing footnotes
     cleaned_code = re.sub(r'\s*%>%\s*modify_footnote\s*\([^)]*\)', '', current_code)
 
-    # Insert ONE final footnote
-    new_call = f" %>%\n  modify_footnote(everything() ~ '{combined_text}')"
+    # Build correct call (NO leading %>%)
+    new_call = f"modify_footnote(everything() ~ '{combined_text}')"
 
     if "modify_caption(" in cleaned_code:
         updated = cleaned_code.replace(
             "modify_caption(",
             f"{new_call} %>%\n  modify_caption("
         )
+
     elif "bold_labels()" in cleaned_code:
         updated = cleaned_code.replace(
             "bold_labels()",
-            f"bold_labels(){new_call}"
+            f"bold_labels() %>%\n  {new_call}"
         )
+
     else:
-        updated = cleaned_code + new_call
+        updated = cleaned_code.rstrip() + f" %>%\n  {new_call}"
 
     return updated
 
