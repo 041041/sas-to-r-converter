@@ -678,12 +678,8 @@ def render_table_builder_tab():
                                       and '.' not in c
                                       and len(c) < 30]
                             if invalid:
-                                st.warning(f"⚠️ AI used columns that don't exist: {invalid}. Request ignored.")
-                                st.session_state["tbl_r_code_pending"] = None
-                                st.session_state["tbl_r_code"]         = r_code
-                                st.session_state["tbl_df"]             = df
-                                st.session_state["_tbl_run_now"]       = True
-                                st.rerun()
+                                st.warning(f"⚠️ AI tried to use columns that don't exist in your data: {invalid}. This request cannot be applied.")
+                                st.stop()
                             st.session_state["tbl_r_code_pending"]  = enhanced_code
                             st.session_state["tbl_r_code_original"] = r_code_for_enhancement
                             st.session_state["tbl_df"]              = df
