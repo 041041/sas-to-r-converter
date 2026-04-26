@@ -13,7 +13,7 @@ STAT_OPTIONS = ["Mean (SD)", "Median (IQR)", "Mean (SD) + Median (IQR)"]
 # ─────────────────────────────────────────────
 # API CLIENTS
 # ─────────────────────────────────────────────
-def _get_secret(key):
+def _get_secret(key):F
     try:
         return st.secrets[key]
     except Exception:
@@ -182,7 +182,9 @@ def extract_existing_footnotes(code):
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
-    """Add numbered footnote correctly based on rendered table."""
+    """Add numbered footnote correctly using HTML (gt-safe)."""
+
+    import re
 
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
 
@@ -190,26 +192,16 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     if new_footnote_text in current_code:
         return current_code
 
-    # Count from rendered HTML
+    # Count existing superscripts from HTML
     html = st.session_state.get("tbl_html", "")
-    existing_count = len(re.findall(r'[¹²³⁴⁵⁶⁷⁸⁹]', html))
+    existing_count = len(re.findall(r'<sup>\d+</sup>', html)) or len(re.findall(r'[¹²³⁴⁵⁶⁷⁸⁹]', html))
     next_num = existing_count + 1
-
-    def to_superscript(n):
-        sup_map = {
-            "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
-            "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"
-        }
-        return "".join(sup_map[d] for d in str(n))
-
-    sup = to_superscript(next_num)
-    final_text = f"{sup} {new_footnote_text}"
 
     pattern = r'(gt_tbl\s*<-\s*as_gt\(tbl\))'
 
     replacement = (
         r"\1 %>%\n"
-        f"  gt::tab_source_note(gt::md('{final_text}'))"
+        f"  gt::tab_source_note(gt::html('<sup>{next_num}</sup> {new_footnote_text}'))"
     )
 
     if re.search(pattern, current_code):
@@ -218,6 +210,7 @@ def apply_footnote_in_python(current_code, new_footnote_text):
         updated = current_code
 
     return updated
+    
 def extract_footnote_text_from_request(custom_request):
     quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
     if quoted:
