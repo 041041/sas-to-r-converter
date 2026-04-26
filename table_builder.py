@@ -182,25 +182,31 @@ def extract_existing_footnotes(code):
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
-    """Add a new footnote, always preserving all existing ones."""
+    """Add a new footnote by appending to existing text to prevent replacement."""
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
     
-    # 1. Check if there is ALREADY a modify_footnote call in the code
-    if "modify_footnote" in current_code:
-        # If one exists, we insert the new one BEFORE the old one
-        # This forces gtsummary to treat them as separate entries in the footnote list
-        pattern = r'(\s*modify_footnote\s*\()'
-        replacement = rf"\1everything() ~ '{new_footnote_text}') %>%\n\1"
-        updated = re.sub(pattern, replacement, current_code, count=1)
+    # 1. Search for an existing modify_footnote call with everything()
+    existing_fn_pattern = r"modify_footnote\s*\(\s*everything\s*\(\s*\)\s*~\s*['\"]([^'\"]+)['\"]\s*\)"
+    match = re.search(existing_fn_pattern, current_code)
     
-    # 2. If no footnote exists yet, insert it before the caption as usual
+    if match:
+        # Get the old text and append the new text with an R newline
+        old_text = match.group(1)
+        combined_text = f"{old_text}<br>{new_footnote_text}" # Using <br> for HTML/gt output
+        
+        # Replace the old call with the combined version
+        updated = re.sub(
+            existing_fn_pattern, 
+            f"modify_footnote(everything() ~ '{combined_text}')", 
+            current_code
+        )
+    # 2. If no footnote exists, insert it before modify_caption
     elif "modify_caption(" in current_code:
         updated = current_code.replace(
             "modify_caption(",
             f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
         )
-    
-    # 3. Fallback to bold_labels
+    # 3. Fallback
     elif "bold_labels()" in current_code:
         updated = current_code.replace(
             "bold_labels()",
