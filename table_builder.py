@@ -94,7 +94,7 @@ def generate_table1_code(selections):
         tbl_code = (
             f"{factor_line}\n\n"
             f"tbl <- df %>%\n"
-            f'  f'  select(all_of(c({", ".join(f"{chr(34)}{v}{chr(34)}" for v in select_vars)}, "{group_col}"))) %>%\n'
+            f'  select(all_of(c({", ".join(f"{chr(34)}{v}{chr(34)}" for v in select_vars)}, "{group_col}"))) %>%\n'
             f"  tbl_summary(\n"
             f"    by = {group_col},\n"
             f"    statistic = list(all_continuous() ~ {stat_str},\n"
