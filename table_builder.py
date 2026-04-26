@@ -182,8 +182,6 @@ def extract_existing_footnotes(code):
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
-    """Add numbered footnote correctly using HTML (gt-safe)."""
-
     import re
 
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
@@ -192,9 +190,9 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     if new_footnote_text in current_code:
         return current_code
 
-    # Count existing superscripts from HTML
+    # Count existing numbering from rendered HTML
     html = st.session_state.get("tbl_html", "")
-    existing_count = len(re.findall(r'<sup>\d+</sup>', html)) or len(re.findall(r'[¹²³⁴⁵⁶⁷⁸⁹]', html))
+    existing_count = len(re.findall(r'<sup>\d+</sup>', html))
     next_num = existing_count + 1
 
     pattern = r'(gt_tbl\s*<-\s*as_gt\(tbl\))'
