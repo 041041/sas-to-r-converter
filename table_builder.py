@@ -608,7 +608,7 @@ def render_table_builder_tab():
     # ── Custom enhancement box ───────────────────────────────────────────
     custom_request = st.text_area(
         "✨ Custom Enhancement (optional)",
-        placeholder="e.g. Add footnote 'Source: Clinical Study Report' | bold p-values | change font size",
+        placeholder="e.g. Add footnote 'Values are mean (SD)', bold p-values < 0.05, add spanning header, italicize labels...\n⚠️ Note: Cannot add new columns or ID variables (e.g. USUBJID)",
         height=80,
         key="tbl_custom_text",
     )
