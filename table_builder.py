@@ -641,6 +641,20 @@ def render_table_builder_tab():
                     if is_footnote_request:
                         footnote_text = extract_footnote_text_from_request(custom_request)
                         enhanced_code = apply_footnote_in_python(r_code_for_enhancement, footnote_text)
+                        # Validate columns in enhanced code
+                        if available_cols := df.columns.tolist():
+                            import re
+                            select_match = re.search(r'select\(all_of\(c\(([^)]+)\)', enhanced_code)
+                            if select_match:
+                                used_cols = re.findall(r'"([^"]+)"', select_match.group(1))
+                                invalid = [c for c in used_cols if c not in available_cols]
+                                if invalid:
+                                    st.warning(f"⚠️ AI tried to use columns that don't exist: {invalid}. Using base code instead.")
+                                    st.session_state["tbl_r_code_pending"] = None
+                                    st.session_state["tbl_r_code"]         = r_code
+                                    st.session_state["tbl_df"]             = df
+                                    st.session_state["_tbl_run_now"]       = True
+                                    st.rerun()
                         st.session_state["tbl_r_code_pending"]  = enhanced_code
                         st.session_state["tbl_r_code_original"] = r_code_for_enhancement
                         st.session_state["tbl_df"]              = df
