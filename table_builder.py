@@ -72,7 +72,6 @@ def generate_table1_code(selections):
         select_vars = [v for v in clean_vars if v != group_col]
     else:
         select_vars = clean_vars
-    st.write("DEBUG select_vars:", select_vars)
     vars_r = "c(" + ", ".join(f'"{v}"' for v in select_vars) + ")"
 
     if stat_option == "Mean (SD)":
@@ -451,11 +450,6 @@ def render_table_builder_tab():
         st.session_state["_tbl_run_now"]        = False
         st.session_state["tbl_initialized"]     = True
 
-    # DEBUG — shows what code was used as base for last enhancement
-    if st.session_state.get("_debug_enhancement_base"):
-        st.sidebar.markdown("**Base used for enhancement:**")
-        st.sidebar.code(st.session_state["_debug_enhancement_base"], language="r")
-
     for key, default in {
         "tbl_df":              None,
         "tbl_r_code":          "",
@@ -650,7 +644,6 @@ def render_table_builder_tab():
 
         with st.spinner("🤖 Generating R code..."):
             try:
-                st.write("DEBUG vars:", selections.get("variables"))
                 r_code = (
                     generate_table1_code(selections)
                     if "Table 1" in table_type
@@ -659,9 +652,6 @@ def render_table_builder_tab():
 
                 existing = st.session_state.get("tbl_accepted_code", "")
                 r_code_for_enhancement = existing if existing.strip() else r_code
-
-                # Store what we're using for enhancement so we can inspect it
-                st.session_state["_debug_enhancement_base"] = r_code_for_enhancement[:500]
 
                 if custom_request.strip():
                     footnote_keywords = ["footnote", "foot note", "note", "annotation"]
