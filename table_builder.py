@@ -188,10 +188,12 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     if new_footnote_text in current_code:
         return current_code
 
-    # Count existing numbering from rendered HTML
-    html = st.session_state.get("tbl_html", "")
-    existing_count = len(re.findall(r'<sup>\d+</sup>', html))
-    next_num = existing_count + 1
+    # Initialize counter
+    if "footnote_counter" not in st.session_state:
+        st.session_state["footnote_counter"] = 2  # base table already has 2
+
+    st.session_state["footnote_counter"] += 1
+    next_num = st.session_state["footnote_counter"]
 
     pattern = r'(gt_tbl\s*<-\s*as_gt\(tbl\))'
 
@@ -206,7 +208,6 @@ def apply_footnote_in_python(current_code, new_footnote_text):
         updated = current_code
 
     return updated
-
     
 def extract_footnote_text_from_request(custom_request):
     quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
