@@ -807,7 +807,6 @@ def render_clinical_graphs_tab():
     st.subheader("🏥 Clinical Graphs")
     st.caption("Upload data → select clinical chart type → generate R code + graph")
     st.divider()
-    st.session_state.pop("cg_pkgs_checked", None)  # remove after packages settle
     # ── Session state — all keys prefixed cg_ to avoid any collision ────
     if "cg_initialized" not in st.session_state:
         st.session_state["cg_r_code_pending"]  = None
@@ -838,10 +837,7 @@ def render_clinical_graphs_tab():
         st.info("🔧 Installing clinical R packages — this takes 2-5 minutes on first run...")
         ok, err = ensure_clinical_packages()
         st.session_state["cg_pkgs_checked"] = True
-        if ok:
-            st.success("✅ Clinical R packages ready!")
-            st.rerun()
-        else:
+        if not ok:
             st.warning(f"Some packages may be missing:\n{err}")
 
     # ── Data upload ──────────────────────────────────────────────────────
