@@ -542,7 +542,7 @@ def render_table_builder_tab():
             add_n_row = st.checkbox("🔢 Add N Row at Top", value=False)
         with r3c:
             pct_only  = selections.get("pct_only", False)
-            cat_stat  = '"{n}"' if pct_only else '"{n} ({p}%)"'
+
             
         selections = {
             "table_type":  table_type,
