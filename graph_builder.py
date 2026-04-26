@@ -602,10 +602,7 @@ p <- ggplot(fit_df, aes(x = time, y = surv{color_aes})) +
   theme_{theme}() +
   theme(plot.background  = element_rect(fill = "white"),
         panel.background = element_rect(fill = "white"))
-p
-"""
-
-    elif chart_type == "Forest Plot (Subgroup Analysis)":
+elif chart_type == "Forest Plot (Subgroup Analysis)":
         ci_low  = low_col  if low_col  else f"({est_col} - 0.2)"
         ci_high = high_col if high_col else f"({est_col} + 0.2)"
         code = f"""
