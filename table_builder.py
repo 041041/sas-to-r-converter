@@ -188,9 +188,8 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     if new_footnote_text in current_code:
         return current_code
 
-    # Initialize counter
     if "footnote_counter" not in st.session_state:
-        st.session_state["footnote_counter"] = 2  # base table already has 2
+        st.session_state["footnote_counter"] = 2
 
     st.session_state["footnote_counter"] += 1
     next_num = st.session_state["footnote_counter"]
@@ -199,7 +198,9 @@ def apply_footnote_in_python(current_code, new_footnote_text):
 
     replacement = (
         r"\1 %>%\n"
-        f"  gt::tab_source_note(gt::html('<sup>{next_num}</sup> {new_footnote_text}'))"
+        f"  gt::tab_source_note(gt::html("
+        f"'<span style=\"font-size:10px; vertical-align:super;\">{next_num}</span> {new_footnote_text}'"
+        f"))"
     )
 
     if re.search(pattern, current_code):
