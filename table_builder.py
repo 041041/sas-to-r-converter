@@ -259,7 +259,8 @@ def extract_footnote_text_from_request(custom_request):
 def build_enhance_prompt(current_code, custom_request):
     return (
         f"You are a clinical R table code editor. Apply ONLY the requested change.\n\n"
-        f"EXISTING CODE:\n```r\n{current_code}\n```\n\n"
+        f"EXISTING CODE:\n```r\n{current_code}\n```\n"
+        f"{col_info}"
         f"REQUEST: {custom_request}\n\n"
         f"RULES:\n"
         f"1. Touch ONLY what the request asks. Preserve everything else exactly.\n"
