@@ -541,6 +541,7 @@ def render_table_builder_tab():
         with r3b:
             add_n_row = st.checkbox("🔢 Add N Row at Top", value=False)
         with r3c:
+            st.write("DEBUG pct_only:", pct_only, "cat_stat:", cat_stat)
             pct_only = st.checkbox("% Only (no counts)", value=False)
             
         selections = {
