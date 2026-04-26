@@ -182,57 +182,37 @@ def extract_existing_footnotes(code):
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
-    """Add a new footnote, always preserving all existing ones."""
-    
+    """Add footnote by merging all into single modify_footnote (no overwrite)."""
+
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
     existing_list = extract_existing_footnotes(current_code)
 
-    # Avoid duplicate footnote
+    # Avoid duplicate
     if new_footnote_text in existing_list:
         return current_code
 
-    def build_new_call(text):
-        return f" %>%\n  modify_footnote(everything() ~ '{text}', replace = FALSE)"
+    # Combine all footnotes
+    all_footnotes = existing_list + [new_footnote_text]
+    combined_text = "; ".join(all_footnotes)
 
-    if existing_list:
-        # Find last modify_footnote position
-        last_pos = -1
+    # Remove ALL existing modify_footnote calls
+    cleaned_code = re.sub(r'\s*%>%\s*modify_footnote\s*\([^)]*\)', '', current_code)
 
-        for m in re.finditer(r'modify_footnote\s*\(', current_code):
-            depth = 0
-            for i, ch in enumerate(current_code[m.start():]):
-                if ch == '(':
-                    depth += 1
-                elif ch == ')':
-                    depth -= 1
-                    if depth == 0:
-                        last_pos = m.start() + i + 1
-                        break
+    # Insert ONE final footnote
+    new_call = f" %>%\n  modify_footnote(everything() ~ '{combined_text}')"
 
-        if last_pos > 0:
-            new_call = build_new_call(new_footnote_text)
-            updated = current_code[:last_pos] + new_call + current_code[last_pos:]
-        else:
-            # fallback
-            updated = current_code.replace(
-                'modify_caption(',
-                f"modify_footnote(everything() ~ '{new_footnote_text}', replace = FALSE) %>%\n  modify_caption("
-            )
-
+    if "modify_caption(" in cleaned_code:
+        updated = cleaned_code.replace(
+            "modify_caption(",
+            f"{new_call} %>%\n  modify_caption("
+        )
+    elif "bold_labels()" in cleaned_code:
+        updated = cleaned_code.replace(
+            "bold_labels()",
+            f"bold_labels(){new_call}"
+        )
     else:
-        # No existing footnote
-        if "bold_labels()" in current_code:
-            updated = current_code.replace(
-                "bold_labels()",
-                f"bold_labels() %>%\n  modify_footnote(everything() ~ '{new_footnote_text}', replace = FALSE)"
-            )
-        elif "modify_caption(" in current_code:
-            updated = current_code.replace(
-                "modify_caption(",
-                f"modify_footnote(everything() ~ '{new_footnote_text}', replace = FALSE) %>%\n  modify_caption("
-            )
-        else:
-            updated = current_code
+        updated = cleaned_code + new_call
 
     return updated
 
