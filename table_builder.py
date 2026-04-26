@@ -184,52 +184,29 @@ def extract_existing_footnotes(code):
 def apply_footnote_in_python(current_code, new_footnote_text):
     """Add a new footnote, always preserving all existing ones."""
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
-    existing_list = extract_existing_footnotes(current_code)
+    
+    # Define the new footnote line
+    new_call = f"  modify_footnote(everything() ~ '{new_footnote_text}') %>%\n"
 
-    if existing_list:
-        # Find the character position of the last modify_footnote call
-        # Use a broad pattern that matches any modify_footnote(...)
-        # by scanning for the closing ) after each modify_footnote
-        last_pos = -1
-        for m in re.finditer(r'modify_footnote\s*\(', current_code):
-            # Walk forward to find the matching closing paren
-            depth = 0
-            pos = m.start()
-            for i, ch in enumerate(current_code[m.start():]):
-                if ch == '(':
-                    depth += 1
-                elif ch == ')':
-                    depth -= 1
-                    if depth == 0:
-                        last_pos = m.start() + i + 1
-                        break
-
-        if last_pos > 0:
-            new_call = f" %>%\n  modify_footnote(everything() ~ '{new_footnote_text}')"
-            updated = current_code[:last_pos] + new_call + current_code[last_pos:]
-        else:
-            # Fallback
-            updated = current_code.replace(
-                'modify_caption(',
-                f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
-            )
+    # The most reliable place to insert without overwriting existing footnotes
+    # is right before the final modify_caption call in the gtsummary chain.
+    if "modify_caption(" in current_code:
+        updated = current_code.replace(
+            "modify_caption(",
+            f"{new_call}  modify_caption("
+        )
     else:
-        # No existing footnote — insert after bold_labels or before modify_caption
+        # Fallback if modify_caption isn't found, append to the end of the block
+        # but before the as_gt() conversion
         if "bold_labels()" in current_code:
             updated = current_code.replace(
                 "bold_labels()",
-                f"bold_labels() %>%\n  modify_footnote(everything() ~ '{new_footnote_text}')"
-            )
-        elif "modify_caption(" in current_code:
-            updated = current_code.replace(
-                "modify_caption(",
-                f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
+                f"bold_labels() %>%\n{new_call.strip().replace(' %> %', '')}"
             )
         else:
             updated = current_code
 
     return updated
-
 
 def extract_footnote_text_from_request(custom_request):
     quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
