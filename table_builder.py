@@ -182,42 +182,29 @@ def extract_existing_footnotes(code):
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
-    """Merge all footnotes into single call and fix pipe issues."""
+    """Add footnote without replacing existing gtsummary footnotes."""
 
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
-    existing_list = extract_existing_footnotes(current_code)
 
     # Avoid duplicate
-    if new_footnote_text in existing_list:
+    if new_footnote_text in current_code:
         return current_code
 
-    # Combine all
-    all_footnotes = existing_list + [new_footnote_text]
-    combined_text = "; ".join(all_footnotes)
+    # Inject into gt layer instead of gtsummary
+    pattern = r'(gt_tbl\s*<-\s*as_gt\(tbl\))'
 
-    # Remove existing footnotes
-    cleaned_code = re.sub(r'\s*%>%\s*modify_footnote\s*\([^)]*\)', '', current_code)
+    replacement = (
+        r"\1 %>%\n"
+        f"  gt::tab_source_note(gt::md('{new_footnote_text}'))"
+    )
 
-    # Build correct call (NO leading %>%)
-    new_call = f"modify_footnote(everything() ~ '{combined_text}')"
-
-    if "modify_caption(" in cleaned_code:
-        updated = cleaned_code.replace(
-            "modify_caption(",
-            f"{new_call} %>%\n  modify_caption("
-        )
-
-    elif "bold_labels()" in cleaned_code:
-        updated = cleaned_code.replace(
-            "bold_labels()",
-            f"bold_labels() %>%\n  {new_call}"
-        )
-
+    if re.search(pattern, current_code):
+        updated = re.sub(pattern, replacement, current_code)
     else:
-        updated = cleaned_code.rstrip() + f" %>%\n  {new_call}"
+        # fallback: append safely
+        updated = current_code + f"\n# Added footnote\n"
 
     return updated
-
 
 def extract_footnote_text_from_request(custom_request):
     quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
