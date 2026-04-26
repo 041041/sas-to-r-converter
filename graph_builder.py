@@ -3,6 +3,7 @@ import pandas as pd
 import streamlit as st
 from groq import Groq
 from google import genai
+from graph_builder import render_graph_builder_tab, render_clinical_graphs_tab
 
 def clear_graph():
     for key in ["graph_df", "graph_r_code", "graph_png", "graph_png_accepted",
