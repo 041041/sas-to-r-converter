@@ -575,33 +575,41 @@ suppressPackageStartupMessages({
 """
 
     if chart_type == "Kaplan-Meier Survival Curve":
-        group_aes = f"group = {group_col}, color = {group_col}" if group_col else ""
-        by_arg    = f'"{group_col}"' if group_col else "NULL"
+        group_formula = group_col if group_col else "1"
+        color_aes     = ", color = strata" if group_col else ""
+        fill_aes      = ", fill = strata" if group_col else ""
         code = f"""
 {base_libs}
 suppressPackageStartupMessages(library(survival))
-suppressPackageStartupMessages(library(survminer))
 
 df${event_col} <- as.numeric(df${event_col})
 df${time_col}  <- as.numeric(df${time_col})
 
-fit <- survfit(Surv({time_col}, {event_col}) ~ {group_col if group_col else "1"}, data = df)
+fit <- survfit(Surv({time_col}, {event_col}) ~ {group_formula}, data = df)
 
-p <- ggsurvplot(
-  fit, data = df,
-  risk.table = TRUE,
-  pval = {str(bool(group_col)).upper()},
-  conf.int = TRUE,
-  palette = "jco",
-  legend.title = "{group_col if group_col else ''}",
-  title = "{title}",
-  xlab = "Time",
-  ylab = "Survival Probability",
-  ggtheme = theme_{theme}()
+fit_df <- data.frame(
+  time   = fit$time,
+  surv   = fit$surv,
+  upper  = fit$upper,
+  lower  = fit$lower,
+  strata = rep(names(fit$strata), fit$strata)
 )
+
+p <- ggplot(fit_df, aes(x = time, y = surv{color_aes})) +
+  geom_step(size = 1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper{fill_aes}),
+              alpha = 0.15, linetype = 0) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  labs(title = "{title}",
+       x = "Time",
+       y = "Survival Probability",
+       color = "{group_col if group_col else ''}",
+       fill  = "{group_col if group_col else ''}") +
+  theme_{theme}() +
+  theme(plot.background  = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"))
 p
 """
-
     elif chart_type == "Forest Plot (Subgroup Analysis)":
         ci_low  = low_col  if low_col  else f"({est_col} - 0.2)"
         ci_high = high_col if high_col else f"({est_col} + 0.2)"
