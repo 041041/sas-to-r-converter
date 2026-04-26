@@ -669,6 +669,21 @@ def render_table_builder_tab():
 
                         if raw:
                             enhanced_code = clean_llm_output(raw)
+                            # Validate columns
+                            available_cols = df.columns.tolist()
+                            all_quoted = re.findall(r'"([^"]+)"', enhanced_code)
+                            invalid = [c for c in all_quoted
+                                      if c not in available_cols
+                                      and '/' not in c
+                                      and '.' not in c
+                                      and len(c) < 30]
+                            if invalid:
+                                st.warning(f"⚠️ AI used columns that don't exist: {invalid}. Request ignored.")
+                                st.session_state["tbl_r_code_pending"] = None
+                                st.session_state["tbl_r_code"]         = r_code
+                                st.session_state["tbl_df"]             = df
+                                st.session_state["_tbl_run_now"]       = True
+                                st.rerun()
                             st.session_state["tbl_r_code_pending"]  = enhanced_code
                             st.session_state["tbl_r_code_original"] = r_code_for_enhancement
                             st.session_state["tbl_df"]              = df
