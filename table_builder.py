@@ -197,14 +197,14 @@ def apply_footnote_in_python(current_code, new_footnote_text):
         # Replace the old call with the combined version
         updated = re.sub(
             existing_fn_pattern, 
-            f"modify_footnote(everything() ~ '{combined_text}')", 
+            f"modify_footnote(update = everything() ~ '{combined_text}')", 
             current_code
         )
     # 2. If no footnote exists, insert it before modify_caption
     elif "modify_caption(" in current_code:
         updated = current_code.replace(
             "modify_caption(",
-            f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
+            f"modify_footnote(update = everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
         )
     # 3. Fallback
     elif "bold_labels()" in current_code:
