@@ -181,7 +181,7 @@ def extract_existing_footnotes(code):
     return matches
 
 
-def apply_footnote_in_python(current_code, new_footnote_text):
+ def apply_footnote_in_python(current_code, new_footnote_text):
     import re
 
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
