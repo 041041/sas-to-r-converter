@@ -74,6 +74,7 @@ def generate_table1_code(selections):
     #     select_vars = clean_vars
     # vars_r = "c(" + ", ".join(f'"{v}"' for v in select_vars) + ")"
     select_vars = clean_vars
+    vars_r = "c(" + ", ".join(f'"{v}"' for v in select_vars) + ")"
 
 
     if stat_option == "Mean (SD)":
