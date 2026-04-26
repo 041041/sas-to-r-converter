@@ -61,12 +61,18 @@ def generate_table1_code(selections):
     title       = selections.get("title", "Table 1 — Baseline Characteristics")
     stat_option = selections.get("stat_option", "Mean (SD)")
     subj_col = selections.get("subj_col")
-    # Only exclude if subj_col is actually set (not None)
     if subj_col:
         clean_vars = [v for v in vars_list if v != subj_col]
     else:
         clean_vars = vars_list
-    vars_r = "c(" + ", ".join(f'"{v}"' for v in clean_vars) + ")"
+    
+    # Remove group_col from vars to avoid duplication in select
+    if group_col and group_col in clean_vars:
+        select_vars = [v for v in clean_vars if v != group_col]
+    else:
+        select_vars = clean_vars
+    
+    vars_r = "c(" + ", ".join(f'"{v}"' for v in select_vars) + ")"
 
     if stat_option == "Mean (SD)":
         stat_str = '"{mean} ({sd})"'
