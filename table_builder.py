@@ -13,7 +13,7 @@ STAT_OPTIONS = ["Mean (SD)", "Median (IQR)", "Mean (SD) + Median (IQR)"]
 # ─────────────────────────────────────────────
 # API CLIENTS
 # ─────────────────────────────────────────────
-def _get_secret(key):F
+def _get_secret(key):
     try:
         return st.secrets[key]
     except Exception:
@@ -179,7 +179,33 @@ def extract_existing_footnotes(code):
         code, re.DOTALL
     )
     return matches
+def apply_footnote_in_python(current_code, new_footnote_text):
+    import re
 
+    new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
+
+    # Avoid duplicate
+    if new_footnote_text in current_code:
+        return current_code
+
+    # Count existing numbering from rendered HTML
+    html = st.session_state.get("tbl_html", "")
+    existing_count = len(re.findall(r'<sup>\d+</sup>', html))
+    next_num = existing_count + 1
+
+    pattern = r'(gt_tbl\s*<-\s*as_gt\(tbl\))'
+
+    replacement = (
+        r"\1 %>%\n"
+        f"  gt::tab_source_note(gt::html('<sup>{next_num}</sup> {new_footnote_text}'))"
+    )
+
+    if re.search(pattern, current_code):
+        updated = re.sub(pattern, replacement, current_code)
+    else:
+        updated = current_code
+
+    return updated
 
     
 def extract_footnote_text_from_request(custom_request):
