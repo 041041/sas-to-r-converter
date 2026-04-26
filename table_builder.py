@@ -182,7 +182,7 @@ def extract_existing_footnotes(code):
 
 
 def apply_footnote_in_python(current_code, new_footnote_text):
-    """Add footnote without replacing existing gtsummary footnotes."""
+    """Add numbered footnote correctly based on rendered table."""
 
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
 
@@ -190,22 +190,34 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     if new_footnote_text in current_code:
         return current_code
 
-    # Inject into gt layer instead of gtsummary
+    # Count from rendered HTML
+    html = st.session_state.get("tbl_html", "")
+    existing_count = len(re.findall(r'[¹²³⁴⁵⁶⁷⁸⁹]', html))
+    next_num = existing_count + 1
+
+    def to_superscript(n):
+        sup_map = {
+            "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+            "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"
+        }
+        return "".join(sup_map[d] for d in str(n))
+
+    sup = to_superscript(next_num)
+    final_text = f"{sup} {new_footnote_text}"
+
     pattern = r'(gt_tbl\s*<-\s*as_gt\(tbl\))'
 
     replacement = (
         r"\1 %>%\n"
-        f"  gt::tab_source_note(gt::md('{new_footnote_text}'))"
+        f"  gt::tab_source_note(gt::md('{final_text}'))"
     )
 
     if re.search(pattern, current_code):
         updated = re.sub(pattern, replacement, current_code)
     else:
-        # fallback: append safely
-        updated = current_code + f"\n# Added footnote\n"
+        updated = current_code
 
     return updated
-
 def extract_footnote_text_from_request(custom_request):
     quoted = re.search(r'["\']([^"\']+)["\']', custom_request)
     if quoted:
