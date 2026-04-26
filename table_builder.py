@@ -256,7 +256,15 @@ def extract_footnote_text_from_request(custom_request):
 # ─────────────────────────────────────────────
 # LLM ENHANCEMENT
 # ─────────────────────────────────────────────
-def build_enhance_prompt(current_code, custom_request):
+def build_enhance_prompt(current_code, custom_request, available_cols=None):
+    existing_footnote = extract_existing_footnotes(current_code)
+    col_info = f"\nAVAILABLE COLUMNS IN DATA: {', '.join(available_cols)}\n" if available_cols else ""
+    footnote_instruction = (
+        f"8. Code already has this footnote: '{existing_footnote}'. "
+        f"You MUST preserve it and append new footnote text separated by '; '.\n"
+        if existing_footnote else
+        f"8. No existing footnote — add new one if requested.\n"
+    )
     return (
         f"You are a clinical R table code editor. Apply ONLY the requested change.\n\n"
         f"EXISTING CODE:\n```r\n{current_code}\n```\n"
@@ -267,13 +275,14 @@ def build_enhance_prompt(current_code, custom_request):
         f"2. Never add data loading code (read.csv, read.xlsx, hardcoded data).\n"
         f"3. Never remove output_path, html_path, writeLines, or cat('TABLE_DONE').\n"
         f"4. Keep all existing library() calls.\n"
-        f"5. Only use REAL gtsummary functions: modify_caption, modify_header, modify_footnote, "
+        f"5. Only use columns from AVAILABLE COLUMNS IN DATA — never invent column names.\n"
+        f"6. Only use REAL gtsummary functions: modify_caption, modify_header, modify_footnote, "
         f"add_overall, add_p, bold_labels, bold_levels, italicize_labels.\n"
-        f"6. gt functions (tab_style, tab_options, cols_move) ONLY after as_gt(tbl).\n"
-        f"7. NEVER apply gt functions on tbl_summary objects.\n"
-        f"8. NEVER invent function names.\n"
-        f"9. Each function appears AT MOST once in the pipe — never repeat.\n"
-        f"10. Do NOT touch any modify_footnote() calls — preserve them exactly.\n\n"
+        f"7. gt functions (tab_style, tab_options, cols_move) ONLY after as_gt(tbl).\n"
+        f"8. NEVER apply gt functions on tbl_summary objects.\n"
+        f"9. NEVER invent function names.\n"
+        f"10. Each function appears AT MOST once in the pipe — never repeat.\n"
+        f"{footnote_instruction}"
         f"Return ONLY complete R code. No explanations, no markdown fences."
     )
 
