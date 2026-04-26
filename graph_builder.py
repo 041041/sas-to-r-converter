@@ -570,31 +570,38 @@ suppressPackageStartupMessages({
 })
 """
 
-    if chart_type == "Kaplan-Meier Survival Curve":
-        group_aes = f"group = {group_col}, color = {group_col}" if group_col else ""
-        by_arg    = f'"{group_col}"' if group_col else "NULL"
+if chart_type == "Kaplan-Meier Survival Curve":
+        group_formula = group_col if group_col else "1"
+        color_aes     = f", color = strata" if group_col else ""
         code = f"""
 {base_libs}
 suppressPackageStartupMessages(library(survival))
-suppressPackageStartupMessages(library(survminer))
 
 df${event_col} <- as.numeric(df${event_col})
 df${time_col}  <- as.numeric(df${time_col})
 
-fit <- survfit(Surv({time_col}, {event_col}) ~ {group_col if group_col else "1"}, data = df)
-
-p <- ggsurvplot(
-  fit, data = df,
-  risk.table = TRUE,
-  pval = {str(bool(group_col)).upper()},
-  conf.int = TRUE,
-  palette = "jco",
-  legend.title = "{group_col if group_col else ''}",
-  title = "{title}",
-  xlab = "Time",
-  ylab = "Survival Probability",
-  ggtheme = theme_{theme}()
+fit     <- survfit(Surv({time_col}, {event_col}) ~ {group_formula}, data = df)
+fit_df  <- data.frame(
+  time   = fit$time,
+  surv   = fit$surv,
+  upper  = fit$upper,
+  lower  = fit$lower,
+  strata = rep(names(fit$strata), fit$strata)
 )
+
+p <- ggplot(fit_df, aes(x = time, y = surv{color_aes})) +
+  geom_step(size = 1) +
+  geom_ribbon(aes(ymin = lower, ymax = upper{(", fill = strata") if group_col else ""}),
+              alpha = 0.15, linetype = 0) +
+  scale_y_continuous(limits = c(0, 1), labels = scales::percent) +
+  labs(title = "{title}",
+       x = "Time",
+       y = "Survival Probability",
+       color = "{group_col if group_col else ''}",
+       fill  = "{group_col if group_col else ''}") +
+  theme_{theme}() +
+  theme(plot.background  = element_rect(fill = "white"),
+        panel.background = element_rect(fill = "white"))
 p
 """
 
