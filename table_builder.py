@@ -67,12 +67,14 @@ def generate_table1_code(selections):
     else:
         clean_vars = vars_list
     
-    # Remove group_col from vars to avoid duplication in select
-    if group_col and group_col in clean_vars:
-        select_vars = [v for v in clean_vars if v != group_col]
-    else:
-        select_vars = clean_vars
-    vars_r = "c(" + ", ".join(f'"{v}"' for v in select_vars) + ")"
+    # # Remove group_col from vars to avoid duplication in select
+    # if group_col and group_col in clean_vars:
+    #     select_vars = [v for v in clean_vars if v != group_col]
+    # else:
+    #     select_vars = clean_vars
+    # vars_r = "c(" + ", ".join(f'"{v}"' for v in select_vars) + ")"
+    select_vars = clean_vars
+
 
     if stat_option == "Mean (SD)":
         stat_str = '"{mean} ({sd})"'
