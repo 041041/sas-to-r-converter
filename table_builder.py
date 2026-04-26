@@ -85,7 +85,7 @@ def generate_table1_code(selections):
             f'                     all_categorical() ~ "{{n}} ({{p}}%)"),\n'
             f'    missing = "no"\n'
             f"  ) %>%\n"
-            f"  add_overall(last = FALSE) %>%\n"
+            f"  add_overall(last = TRUE) %>%\n"
             f"  add_p() %>%\n"
             f"  bold_labels() %>%\n"
             f'  modify_caption("**{title}**")'
