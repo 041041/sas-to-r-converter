@@ -71,8 +71,15 @@ def generate_table1_code(selections):
         stat_str = '"{median} ({p25}, {p75})"'
     else:
         stat_str = '"{mean} ({sd}); {median} ({p25}, {p75})"'
+    
 
     factor_line = "df <- df %>% mutate(across(where(is.character), as.factor))"
+    show_missing = selections.get("show_missing", False)
+    add_n_row    = selections.get("add_n_row", False)
+    pct_only     = selections.get("pct_only", False)
+
+    missing_str = '"always"' if show_missing else '"no"'
+    cat_stat    = '"{n}"' if pct_only else '"{n} ({p}%)"'
 
     if group_col:
         tbl_code = (
@@ -82,11 +89,12 @@ def generate_table1_code(selections):
             f"  tbl_summary(\n"
             f"    by = {group_col},\n"
             f"    statistic = list(all_continuous() ~ {stat_str},\n"
-            f'                     all_categorical() ~ "{{n}} ({{p}}%)"),\n'
-            f'    missing = "no"\n'
+            f'                     all_categorical() ~ {cat_stat}),\n'
+            f'    missing = {missing_str}\n'
             f"  ) %>%\n"
             f"  add_overall(last = TRUE) %>%\n"
             f"  add_p() %>%\n"
+            f"{'  add_n_header() %>%' + chr(10) if add_n_row else ''}"
             f"  bold_labels() %>%\n"
             f'  modify_caption("**{title}**")'
         )
@@ -97,8 +105,8 @@ def generate_table1_code(selections):
             f"  select(all_of({vars_r})) %>%\n"
             f"  tbl_summary(\n"
             f"    statistic = list(all_continuous() ~ {stat_str},\n"
-            f'                     all_categorical() ~ "{{n}} ({{p}}%)"),\n'
-            f'    missing = "no"\n'
+            f'                     all_categorical() ~ {cat_stat}),\n'
+            f'    missing = {missing_str}\n'
             f"  ) %>%\n"
             f"  bold_labels() %>%\n"
             f'  modify_caption("**{title}**")'
@@ -521,7 +529,14 @@ def render_table_builder_tab():
             stat_option = st.selectbox("📐 Continuous Stats", STAT_OPTIONS)
         with r2c:
             title = st.text_input("📝 Table Title", value="Table 1 — Baseline Characteristics")
-
+        r3a, r3b, r3c = st.columns(3)
+        with r3a:
+            show_missing = st.checkbox("📊 Show Missing Count", value=False)
+        with r3b:
+            add_n_row = st.checkbox("🔢 Add N Row at Top", value=False)
+        with r3c:
+            pct_only = st.checkbox("% Only (no counts)", value=False)
+            
         selections = {
             "table_type":  table_type,
             "variables":   variables,
@@ -529,6 +544,9 @@ def render_table_builder_tab():
             "subj_col":    subj_col  if subj_col  != "None" else None,
             "stat_option": stat_option,
             "title":       title,
+            "show_missing":  show_missing,
+            "add_n_row":     add_n_row,
+            "pct_only":      pct_only,
         }
 
     elif "Adverse Events" in table_type:
