@@ -587,12 +587,13 @@ df${time_col}  <- as.numeric(df${time_col})
 
 fit <- survfit(Surv({time_col}, {event_col}) ~ {group_formula}, data = df)
 
-fit_df <- data.frame(
-  time   = fit$time,
-  surv   = fit$surv,
-  upper  = fit$upper,
-  lower  = fit$lower,
-  strata = rep(names(fit$strata), fit$strata)
+fit_sum <- summary(fit)
+fit_df  <- data.frame(
+  time   = fit_sum$time,
+  surv   = fit_sum$surv,
+  upper  = fit_sum$upper,
+  lower  = fit_sum$lower,
+  strata = if (!is.null(fit_sum$strata)) as.character(fit_sum$strata) else "Overall"
 )
 
 p <- ggplot(fit_df, aes(x = time, y = surv{color_aes})) +
