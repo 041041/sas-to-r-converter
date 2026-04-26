@@ -543,7 +543,6 @@ def render_table_builder_tab():
         with r3c:
             pct_only  = selections.get("pct_only", False)
             cat_stat  = '"{n}"' if pct_only else '"{n} ({p}%)"'
-            st.write("DEBUG pct_only:", pct_only, "cat_stat:", cat_stat)
             
         selections = {
             "table_type":  table_type,
