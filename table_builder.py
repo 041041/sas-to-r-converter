@@ -679,8 +679,10 @@ def render_table_builder_tab():
                                       and len(c) < 30]
                             if invalid:
                                 # Only flag short uppercase/mixed strings that look like column names
+                                KNOWN_NON_COLS = {'TABLE_DONE', 'TRUE', 'FALSE', 'NULL', 'NA', 'Inf'}
                                 real_invalid = [c for c in invalid 
-                                               if c.isupper() or (c[0].isupper() and ' ' not in c and '{' not in c)]
+                                               if c not in KNOWN_NON_COLS
+                                               and (c.isupper() or (c[0].isupper() and ' ' not in c and '{' not in c))]
                                 if real_invalid:
                                     st.warning(f"⚠️ AI tried to use columns that don't exist: {real_invalid}. Request ignored.")
                                     st.stop()
