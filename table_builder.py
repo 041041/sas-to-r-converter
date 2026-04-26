@@ -182,29 +182,59 @@ def extract_existing_footnotes(code):
 def apply_footnote_in_python(current_code, new_footnote_text):
     import re
 
+    # Clean input
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
 
     # Avoid duplicate
     if new_footnote_text in current_code:
         return current_code
 
-    # Count only custom footnotes already added
-    existing_custom = len(re.findall(r'tab_source_note', current_code))
-    next_num = 2 + existing_custom + 1
+    # Count existing custom footnotes (tab_source_note only)
+    existing_custom = len(re.findall(r'tab_source_note\s*\(', current_code))
+    next_num = 2 + existing_custom + 1  # 2 base gtsummary footnotes
 
-    pattern = r'(gt_tbl\s*<-\s*as_gt\(tbl\))'
-
-    replacement = (
-        r"\1 %>%\n"
-        f"  gt::tab_source_note(gt::html("
+    # Build new footnote (styled like gtsummary)
+    new_call = (
+        f" %>%\n  gt::tab_source_note(gt::html("
         f"'<span style=\"font-size:10px; vertical-align:super;\">{next_num}</span> {new_footnote_text}'"
         f"))"
     )
 
-    if re.search(pattern, current_code):
-        updated = re.sub(pattern, replacement, current_code)
+    # 🔥 STEP 1: If already has tab_source_note → append AFTER last one
+    matches = list(re.finditer(r'tab_source_note\s*\(', current_code))
+
+    if matches:
+        last = matches[-1]
+
+        # Find closing parenthesis of last tab_source_note
+        depth = 0
+        start = last.start()
+        insert_pos = None
+
+        for i, ch in enumerate(current_code[start:]):
+            if ch == '(':
+                depth += 1
+            elif ch == ')':
+                depth -= 1
+                if depth == 0:
+                    insert_pos = start + i + 1
+                    break
+
+        if insert_pos:
+            updated = current_code[:insert_pos] + new_call + current_code[insert_pos:]
+        else:
+            updated = current_code
+
     else:
-        updated = current_code
+        # 🔥 STEP 2: First footnote → insert after as_gt(tbl)
+        updated = re.sub(
+            r'(gt_tbl\s*<-\s*as_gt\(tbl\))',
+            r"\1" + new_call,
+            current_code
+        )
+
+    # 🔥 STEP 3: Clean double pipes if any
+    updated = re.sub(r'%>%\s*%>%', '%>%', updated)
 
     return updated
     
