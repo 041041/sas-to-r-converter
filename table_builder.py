@@ -185,32 +185,29 @@ def apply_footnote_in_python(current_code, new_footnote_text):
     """Add a new footnote, always preserving all existing ones."""
     new_footnote_text = new_footnote_text.replace("'", "").replace('"', '').strip()
     
-    # We use a unique marker for the new footnote to prevent R from 
-    # thinking it's a duplicate of an existing internal footnote.
-    # We also use a more aggressive regex to find the end of the tbl_summary chain.
+    # 1. Check if there is ALREADY a modify_footnote call in the code
+    if "modify_footnote" in current_code:
+        # If one exists, we insert the new one BEFORE the old one
+        # This forces gtsummary to treat them as separate entries in the footnote list
+        pattern = r'(\s*modify_footnote\s*\()'
+        replacement = rf"\1everything() ~ '{new_footnote_text}') %>%\n\1"
+        updated = re.sub(pattern, replacement, current_code, count=1)
     
-    # This pattern finds the pipe right before modify_caption
-    pattern = r'(%>%\s*)\n?\s*modify_caption\('
+    # 2. If no footnote exists yet, insert it before the caption as usual
+    elif "modify_caption(" in current_code:
+        updated = current_code.replace(
+            "modify_caption(",
+            f"modify_footnote(everything() ~ '{new_footnote_text}') %>%\n  modify_caption("
+        )
     
-    if re.search(pattern, current_code):
-        # We append the new footnote and keep the original pipe to chain into the caption
-        # Adding a newline and proper indentation helps R distinguish the calls
-        replacement = rf" %>%\n  modify_footnote(everything() ~ '{new_footnote_text}') \1modify_caption("
-        updated = re.sub(pattern, replacement, current_code)
+    # 3. Fallback to bold_labels
+    elif "bold_labels()" in current_code:
+        updated = current_code.replace(
+            "bold_labels()",
+            f"bold_labels() %>%\n  modify_footnote(everything() ~ '{new_footnote_text}')"
+        )
     else:
-        # Fallback: Find the last function call before the 'as_gt' or 'gt_tbl' conversion
-        # This regex looks for the last pipe in the 'tbl' assignment block
-        tbl_end_pattern = r'(tbl <- .*?)(?=\n\n|gt_tbl <-|as_gt\(tbl\))'
-        
-        if re.search(tbl_end_pattern, current_code, re.DOTALL):
-            updated = re.sub(
-                tbl_end_pattern, 
-                rf"\1 %>% \n  modify_footnote(everything() ~ '{new_footnote_text}')", 
-                current_code, 
-                flags=re.DOTALL
-            )
-        else:
-            updated = current_code
+        updated = current_code
 
     return updated
     
