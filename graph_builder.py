@@ -856,9 +856,7 @@ def render_clinical_graphs_tab():
         type=["csv", "xlsx", "xls"],
         key="cg_upload"
     )
-
     df = st.session_state.get("cg_df")
-
     if uploaded:
         try:
             ext = os.path.splitext(uploaded.name)[1].lower()
@@ -871,8 +869,20 @@ def render_clinical_graphs_tab():
             st.error(f"Failed to load file: {e}")
             return
 
+    with st.expander("📋 Or paste CSV text manually"):
+        manual_csv = st.text_area("Paste CSV here", height=100, key="cg_manual_csv")
+        if manual_csv:
+            try:
+                import io
+                df = pd.read_csv(io.StringIO(manual_csv))
+                st.session_state["cg_df"] = df
+                st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
+                st.dataframe(df.head(5), use_container_width=True)
+            except Exception as e:
+                st.error(f"Parse error: {e}")
+
     if df is None:
-        st.info("👆 Upload a CSV or Excel file to get started.")
+        st.info("👆 Upload a CSV or Excel file or paste CSV text to get started.")
         return
 
     st.divider()
@@ -1026,7 +1036,20 @@ def render_clinical_graphs_tab():
     )
 
     # ── Generate button ──────────────────────────────────────────────────
-    if st.button("🏥 Generate Clinical Graph", type="primary", use_container_width=True):
+    def clear_clinical_graph():
+        for key in ["cg_df", "cg_r_code", "cg_png", "cg_png_accepted",
+                    "cg_log", "cg_error", "cg_preview_png",
+                    "cg_r_code_pending", "cg_r_code_original"]:
+            st.session_state[key] = None
+        st.session_state["cg_r_code"] = ""
+
+    btn1, btn2 = st.columns([4, 1])
+    with btn1:
+        generate_cg = st.button("🏥 Generate Clinical Graph", type="primary", use_container_width=True)
+    with btn2:
+        st.button("🗑️ Clear", on_click=clear_clinical_graph, use_container_width=True, key="cg_clear")
+
+    if generate_cg:
         with st.spinner("🤖 Generating R code..."):
             try:
                 r_code = generate_clinical_code(chart_type, selections)
