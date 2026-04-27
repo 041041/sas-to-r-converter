@@ -881,18 +881,6 @@ def render_clinical_graphs_tab():
             st.error(f"Failed to load file: {e}")
             return
 
-    with st.expander("📋 Or paste CSV text manually"):
-        manual_csv = st.text_area("Paste CSV here", height=100, key="cg_manual_csv")
-        if manual_csv:
-            try:
-                import io
-                df = pd.read_csv(io.StringIO(manual_csv))
-                st.session_state["cg_df"] = df
-                st.success(f"✅ Loaded — {df.shape[0]} rows × {df.shape[1]} cols")
-                st.dataframe(df.head(5), use_container_width=True)
-            except Exception as e:
-                st.error(f"Parse error: {e}")
-
     if df is None:
         st.info("👆 Upload a CSV or Excel file or paste CSV text to get started.")
         return
