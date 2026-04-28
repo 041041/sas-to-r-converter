@@ -136,7 +136,7 @@ def execute_graph(r_code, df):
             "if ('survminer' %in% loadedNamespaces()) unloadNamespace('survminer')",
             "options(warn = -1)",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
-            r_clean,
+            r_code_clean,
             f'suppressMessages(ggsave("{plot_path}", width=10, height=6, dpi=150))',
         ])
         with open(script_path, "w") as f:
@@ -779,9 +779,9 @@ def execute_clinical_graph(r_code, df):
         df.to_csv(inp_path, index=False)
 
         # Strip any trailing + or ggsave
-        r_clean = r_code.strip()
-        while r_clean.endswith('+'):
-            r_clean = r_clean[:-1].rstrip()
+        r_code_clean = r_code.strip()
+        while r_code_clean.endswith('+'):
+            r_code_clean = r_code_clean[:-1].rstrip()
 
         full_script = "\n".join([
             "user_lib <- path.expand('~/R/library')",
@@ -790,7 +790,7 @@ def execute_clinical_graph(r_code, df):
             "if ('survminer' %in% loadedNamespaces()) unloadNamespace('survminer')",
             "options(warn = -1)",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
-            r_clean,
+            r_code_clean,
             f'suppressMessages(ggsave("{plot_path}", width=10, height=6, dpi=150))',
         ])
 
