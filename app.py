@@ -603,51 +603,51 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
 with st.sidebar:
     import streamlit as st
 
-st.markdown("**🗂️ Navigation**")
-st.markdown("---")
-
-if "selected_tool" not in st.session_state:
-    st.session_state.selected_tool = "🔄 SAS Converter"
-
-# Main tools
-top_tools = ["🔄 SAS Converter", "📊 Graph Builder"]
-
-top_selection = st.radio(
-    "main",
-    top_tools,
-    index=top_tools.index(st.session_state.selected_tool) if st.session_state.selected_tool in top_tools else None,
-    label_visibility="collapsed"
-)
-
-st.divider()
-
-# Clinical group — label replaces repeating "Clinical" in each item
-st.markdown("<small style='color:gray'>📋 Clinical</small>", unsafe_allow_html=True)
-
-bottom_tools_display = ["🏥 Tables", "📋 Listings", "📈 Graphs"]
-bottom_tools_actual  = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs"]
-
-bottom_selection_display = st.radio(
-    "clinical",
-    bottom_tools_display,
-    index=bottom_tools_display.index(
-        bottom_tools_actual.index(st.session_state.selected_tool) 
-        if st.session_state.selected_tool in bottom_tools_actual else None
-    ) if st.session_state.selected_tool in bottom_tools_actual else None,
-    label_visibility="collapsed"
-)
-
-# Sync selection
-if top_selection and top_selection != st.session_state.selected_tool:
-    st.session_state.selected_tool = top_selection
-    st.rerun()
-elif bottom_selection_display:
-    actual = bottom_tools_actual[bottom_tools_display.index(bottom_selection_display)]
-    if actual != st.session_state.selected_tool:
-        st.session_state.selected_tool = actual
+    st.markdown("**🗂️ Navigation**")
+    st.markdown("---")
+    
+    if "selected_tool" not in st.session_state:
+        st.session_state.selected_tool = "🔄 SAS Converter"
+    
+    # Main tools
+    top_tools = ["🔄 SAS Converter", "📊 Graph Builder"]
+    
+    top_selection = st.radio(
+        "main",
+        top_tools,
+        index=top_tools.index(st.session_state.selected_tool) if st.session_state.selected_tool in top_tools else None,
+        label_visibility="collapsed"
+    )
+    
+    st.divider()
+    
+    # Clinical group — label replaces repeating "Clinical" in each item
+    st.markdown("<small style='color:gray'>📋 Clinical</small>", unsafe_allow_html=True)
+    
+    bottom_tools_display = ["🏥 Tables", "📋 Listings", "📈 Graphs"]
+    bottom_tools_actual  = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs"]
+    
+    bottom_selection_display = st.radio(
+        "clinical",
+        bottom_tools_display,
+        index=bottom_tools_display.index(
+            bottom_tools_actual.index(st.session_state.selected_tool) 
+            if st.session_state.selected_tool in bottom_tools_actual else None
+        ) if st.session_state.selected_tool in bottom_tools_actual else None,
+        label_visibility="collapsed"
+    )
+    
+    # Sync selection
+    if top_selection and top_selection != st.session_state.selected_tool:
+        st.session_state.selected_tool = top_selection
         st.rerun()
-
-page = st.session_state.selected_tool
+    elif bottom_selection_display:
+        actual = bottom_tools_actual[bottom_tools_display.index(bottom_selection_display)]
+        if actual != st.session_state.selected_tool:
+            st.session_state.selected_tool = actual
+            st.rerun()
+    
+    page = st.session_state.selected_tool
 st.divider()
     
     if page == "🔄 SAS Converter":
