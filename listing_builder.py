@@ -142,7 +142,7 @@ ft <- border_inner_h(ft, part = "body")
 {footnote_code}
 
 # ── Export ──
-ft_html <- flextable::as_html(ft)
+ft_html <- flextable::html_flextable(ft)
 {export_code}
 cat("LISTING_DONE")
 """
