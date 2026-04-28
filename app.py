@@ -648,7 +648,7 @@ with st.sidebar:
             st.rerun()
     
     page = st.session_state.selected_tool
-st.divider()
+    st.divider()
     
     if page == "🔄 SAS Converter":
         st.header("⚙️ Settings")
