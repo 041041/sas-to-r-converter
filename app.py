@@ -622,7 +622,7 @@ with st.sidebar:
     st.divider()
     
     # Clinical group — label replaces repeating "Clinical" in each item
-    st.markdown("<small style='color:gray'>📋 Clinical</small>", unsafe_allow_html=True)
+    st.markdown("**📋 Clinical**")
     
     bottom_tools_display = ["🏥 Tables", "📋 Listings", "📈 Graphs"]
     bottom_tools_actual  = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs"]
