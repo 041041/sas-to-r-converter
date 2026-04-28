@@ -397,8 +397,8 @@ def render_listing_builder_tab():
         return
 
     selections = {
-        "columns":        selected_cols,
-        "sort_cols":      sort_cols,
+        "columns":        [c.strip() for c in selected_cols],
+        "sort_cols":      [c.strip() for c in sort_cols],
         "group_col":      group_col if group_col != "None" else None,
         "flag_col":       flag_col if flag_col != "None" else None,
         "filter_col":     filter_col if filter_col != "None" else None,
