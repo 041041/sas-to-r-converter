@@ -33,7 +33,7 @@ FLAG_COLORS = {
 # ─────────────────────────────────────────────
 def generate_listing_code(selections):
     """Generate R code for clinical listing using flextable."""
-
+    cols = [c.strip() for c in selections["columns"]]
     cols          = selections["columns"]
     sort_cols     = selections.get("sort_cols", [])
     group_col     = selections.get("group_col")
@@ -50,7 +50,8 @@ def generate_listing_code(selections):
 
     # Sort
     if sort_cols:
-        sort_r = "c(" + ", ".join(f'"{c}"' for c in sort_cols) + ")"
+        sort_cols_clean = [c.strip() for c in sort_cols]
+        sort_r = "c(" + ", ".join(f'"{c}"' for c in sort_cols_clean) + ")"
         sort_code = f"df <- df %>% arrange(across(all_of({sort_r})))"
     else:
         sort_code = ""
@@ -168,6 +169,7 @@ suppressPackageStartupMessages(library(officer))
 html_path   <- "{html_path}"
 output_path <- "{out_path}"
 df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)
+names(df) <- trimws(names(df))
 
 {r_code}
 """
