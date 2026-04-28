@@ -627,7 +627,7 @@ with st.sidebar:
     bottom_tools_display = ["🏥 Tables", "📋 Listings", "📈 Graphs"]
     bottom_tools_actual  = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs"]
     
-        if st.session_state.selected_tool in bottom_tools_actual:
+    if st.session_state.selected_tool in bottom_tools_actual:
         bottom_idx = bottom_tools_actual.index(st.session_state.selected_tool)
     else:
         bottom_idx = None
