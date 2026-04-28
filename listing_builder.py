@@ -168,7 +168,7 @@ suppressPackageStartupMessages(library(officer))
 
 html_path   <- "{html_path}"
 output_path <- "{out_path}"
-df <- read.csv("{inp_path}", stringsAsFactors=FALSE, check.names=FALSE)
+df <- read.csv("{inp_path}", stringsAsFactors=FALSE)
 names(df) <- trimws(names(df))
 
 {r_code}
