@@ -159,6 +159,7 @@ def execute_listing(r_code, df, output_format):
         out_path    = os.path.join(d, "listing.docx" if "Word" in output_format else "listing.html")
         script_path = os.path.join(d, "script.R")
 
+        df.columns = df.columns.str.strip()
         df.to_csv(inp_path, index=False)
 
         full_script = f"""
