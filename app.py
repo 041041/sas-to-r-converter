@@ -602,14 +602,44 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     
 with st.sidebar:
     st.markdown("### 🗂️ Navigation")
-    # page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder", "🏥 Clinical Tables","📈 Clinical Graphs", "📋 Clinical Listings"])
+    
+    import streamlit as st
+    
     st.markdown("**🔧 Tools**")
-    page = st.radio("", 
-        ["🔄 SAS Converter", "📊 Graph Builder",
-         "─────────────",
-         "🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs"],
+    
+    # Top group
+    top_tools = ["🔄 SAS Converter", "📊 Graph Builder"]
+    bottom_tools = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs"]
+    
+    # Use session state to track selection across both groups
+    if "selected_tool" not in st.session_state:
+        st.session_state.selected_tool = top_tools[0]
+    
+    top_selection = st.radio(
+        "top_tools",
+        top_tools,
+        index=top_tools.index(st.session_state.selected_tool) if st.session_state.selected_tool in top_tools else None,
         label_visibility="collapsed"
     )
+    
+    st.divider()
+    
+    bottom_selection = st.radio(
+        "bottom_tools",
+        bottom_tools,
+        index=bottom_tools.index(st.session_state.selected_tool) if st.session_state.selected_tool in bottom_tools else None,
+        label_visibility="collapsed"
+    )
+    
+    # Update session state — whichever group was last touched wins
+    if top_selection and top_selection != st.session_state.selected_tool:
+        st.session_state.selected_tool = top_selection
+        st.rerun()
+    elif bottom_selection and bottom_selection != st.session_state.selected_tool:
+        st.session_state.selected_tool = bottom_selection
+        st.rerun()
+    
+    page = st.session_state.selected_tool
     st.divider()
     
     if page == "🔄 SAS Converter":
