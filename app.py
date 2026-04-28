@@ -602,7 +602,14 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     
 with st.sidebar:
     st.markdown("### 🗂️ Navigation")
-    page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder", "🏥 Clinical Tables","📈 Clinical Graphs", "📋 Clinical Listings"])
+    # page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder", "🏥 Clinical Tables","📈 Clinical Graphs", "📋 Clinical Listings"])
+    st.markdown("**🔧 Tools**")
+    page = st.radio("", 
+        ["🔄 SAS Converter", "📊 Graph Builder",
+         "─────────────",
+         "🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs"],
+        label_visibility="collapsed"
+    )
     st.divider()
     
     if page == "🔄 SAS Converter":
