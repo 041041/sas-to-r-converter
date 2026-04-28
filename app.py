@@ -5,6 +5,7 @@ from google import genai
 from groq import Groq
 from graph_builder import render_graph_builder_tab, render_clinical_graphs_tab
 from table_builder import render_table_builder_tab
+from listing_builder import render_listing_builder_tab
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
@@ -601,7 +602,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
     
 with st.sidebar:
     st.markdown("### 🗂️ Navigation")
-    page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder", "🏥 Clinical Tables","📈 Clinical Graphs"])
+    page = st.sidebar.radio("🗂️ Navigation", ["🔄 SAS Converter", "📊 Graph Builder", "🏥 Clinical Tables","📈 Clinical Graphs", "📋 Clinical Listings"])
     st.divider()
     
     if page == "🔄 SAS Converter":
@@ -1113,3 +1114,6 @@ if page == "🏥 Clinical Tables":
 
 if page == "📈 Clinical Graphs":
     render_clinical_graphs_tab()
+
+if page == "📋 Clinical Listings":
+    render_listing_builder_tab()
