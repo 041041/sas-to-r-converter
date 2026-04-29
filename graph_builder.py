@@ -186,14 +186,6 @@ def render_graph_builder_tab():
         if key not in st.session_state:
             st.session_state[key] = default
 
-    # --- DATA UPLOAD ---
-    st.subheader("📁 Upload Data")
-    uploaded = st.file_uploader(
-        "Upload CSV or Excel",
-        type=["csv", "xlsx", "xls"],
-        key="graph_upload"
-    )
-
     df = st.session_state.get("graph_df", None)
 
     if uploaded:
@@ -207,6 +199,13 @@ def render_graph_builder_tab():
         except Exception as e:
             st.error(f"Failed to load file: {e}")
             return
+        # --- DATA UPLOAD ---
+    st.subheader("📁 Upload Data")
+    uploaded = st.file_uploader(
+        "Upload CSV or Excel",
+        type=["csv", "xlsx", "xls"],
+        key="graph_upload"
+    )
 
     with st.expander("📋 Or paste CSV text manually"):
         manual_csv = st.text_area("Paste CSV here", height=100, key="graph_manual_csv")
