@@ -276,7 +276,7 @@ def clear_listing():
 # MAIN RENDERER
 # ─────────────────────────────────────────────
 def render_listing_builder_tab():
-    st.title("📋 Clinical Listings")
+    st.subheader("📋 Clinical Listings")
     st.caption("Upload data → configure listing → get formatted R code + downloadable listing")
     st.divider()
 
