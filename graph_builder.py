@@ -813,7 +813,7 @@ def execute_clinical_graph(r_code, df):
 
 
 def render_clinical_graphs_tab():
-    st.subheader("🏥 Clinical Graphs")
+    st.title("🏥 Clinical Graphs")
     st.caption("Upload data → select clinical chart type → generate R code + graph")
     st.divider()
     # ── Session state — all keys prefixed cg_ to avoid any collision ────
