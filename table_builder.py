@@ -441,7 +441,7 @@ def show_code_diff(old_code, new_code):
 # MAIN TAB RENDERER
 # ─────────────────────────────────────────────
 def render_table_builder_tab():
-    st.subheader("🏥 Clinical Table Builder")
+    st.subheader("🏥 Clinical Tables")
     st.caption("Upload data → configure table → get R code + downloadable table")
     st.divider()
 
