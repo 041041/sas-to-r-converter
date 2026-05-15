@@ -933,7 +933,7 @@ if page == "🔄 SAS Converter":
               st.code(full_script_text, language="r")
               st.download_button("⬇️ Download .R", data=full_script_text, file_name="converted.R", mime="text/plain", use_container_width=True)
   
-      else:
+  else:
           st.subheader("Conversion + Execution + Validation")
   
           # ── PROGRESS BAR + STATUS for pipeline mode ──
