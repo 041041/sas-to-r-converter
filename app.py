@@ -813,15 +813,16 @@ if page == "🔄 SAS Converter":
                       st.markdown(f"**{icon} {name}** ({df.shape[0]}r × {df.shape[1]}c)")
                       st.dataframe(df, use_container_width=True, height=140)
   
-              except Exception as e:
-                  st.error(f"Failed to load {name}: {str(e)}")
+            except Exception as e:
+                      st.error(f"Failed to load {name}: {str(e)}")
   
+    # This line must be aligned with the parent of the 'except' block above
     with st.expander("Or paste CSV text manually"):
-          manual_csv = st.text_area(
-              "Paste CSV here", height=100,
-              key=f"manual_csv_{st.session_state.get('upload_key', 0)}"
-          )
-          if manual_csv:
+        manual_csv = st.text_area(
+            "Paste CSV here", height=100,
+            key=f"manual_csv_{st.session_state.get('upload_key', 0)}"
+        )
+        if manual_csv:
               try:
                   df = pd.read_csv(io.StringIO(manual_csv))
                   uploaded_csvs["MANUAL_INPUT"] = df
