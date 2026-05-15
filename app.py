@@ -831,8 +831,7 @@ if page == "🔄 SAS Converter":
               except Exception as e:
                   st.error(f"Parse error: {e}")
   
-  # --- RUN / CLEAR BUTTONS ---
-  # --- RUN / CLEAR BUTTONS ---
+    # --- RUN / CLEAR BUTTONS ---
     # Show macro library uploader only if macros detected
     if has_macros(sas_script):
         st.info("🔧 Macros detected in your code!")
