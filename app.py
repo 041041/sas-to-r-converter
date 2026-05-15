@@ -852,16 +852,16 @@ if page == "🔄 SAS Converter":
   
   # --- MAIN LOGIC ---
   if run_btn:
-        st.session_state.pipeline_run = False
-        st.session_state.fix_results = {}
-        st.session_state.retry_counts = {}
+      st.session_state.pipeline_run = False  # force fresh run
+      st.session_state.fix_results = {}
+      st.session_state.retry_counts = {}
 
   if run_btn or st.session_state.get("pipeline_run"):
         if not sas_script.strip():
             st.warning("Paste some SAS code first."); st.stop()
-        st.divider()
+st.divider()
 
-        # --- MACRO EXPANSION ---
+   # --- MACRO EXPANSION ---
         extra = []
         if 'macro_files' in locals() and macro_files:
             for f in macro_files:
@@ -874,7 +874,7 @@ if page == "🔄 SAS Converter":
         for h in sql_hints:
             st.info(f"💡 {h}")
           
-      if mode == "Convert Only":
+        if mode == "Convert Only":
           st.subheader("Generated R Code")
           steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL | re.IGNORECASE)
           if not steps: st.error("No valid SAS steps found."); st.stop()
