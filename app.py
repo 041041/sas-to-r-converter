@@ -813,7 +813,7 @@ if page == "🔄 SAS Converter":
                       st.markdown(f"**{icon} {name}** ({df.shape[0]}r × {df.shape[1]}c)")
                       st.dataframe(df, use_container_width=True, height=140)
   
-            except Exception as e:
+             except Exception as e:
                       st.error(f"Failed to load {name}: {str(e)}")
   
     # This line must be aligned with the parent of the 'except' block above
