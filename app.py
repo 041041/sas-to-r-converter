@@ -859,7 +859,7 @@ if page == "🔄 SAS Converter":
   if run_btn or st.session_state.get("pipeline_run"):
         if not sas_script.strip():
             st.warning("Paste some SAS code first."); st.stop()
-st.divider()
+        st.divider()
 
    # --- MACRO EXPANSION ---
         extra = []
