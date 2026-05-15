@@ -831,61 +831,61 @@ if page == "🔄 SAS Converter":
               except Exception as e:
                   st.error(f"Parse error: {e}")
   
-        # --- RUN / CLEAR BUTTONS ---
-        # Show macro library uploader only if macros detected
-        if has_macros(sas_script):
-            st.info("🔧 Macros detected in your code!")
-            with st.expander("📁 Upload Macro Library Files (optional)"):
-                macro_files = st.file_uploader(
-                "Upload additional .sas macro files",
-                    type=["sas", "txt"],
-                    accept_multiple_files=True,
-                    key="macro_lib_files"
-                )
-        else:
-            macro_files = []
-    
-        st.divider()
-        col_run, col_clear = st.columns([5, 1])
-        with col_run:
-            run_btn = st.button("⚡ Run", type="primary", use_container_width=True)
-        with col_clear:
-            st.button("🗑️ Clear", on_click=clear_all, use_container_width=True)
-    
-        # --- MAIN LOGIC ---
-        if run_btn:
-            st.session_state.pipeline_run = False
-            st.session_state.fix_results = {}
-            st.session_state.retry_counts = {}
-    
-        if run_btn or st.session_state.get("pipeline_run"):
-            if not sas_script.strip():
-                st.warning("Paste some SAS code first."); st.stop()
-            st.divider()
-    
-            # --- MACRO EXPANSION ---
-            extra = []
-            if 'macro_files' in locals() and macro_files:
-                for f in macro_files:
-                    extra.append(f.read().decode("utf-8"))
-    
-            sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra)
-    
-            for w in mac_warnings:
-                st.warning(w)
-            for h in sql_hints:
-                st.info(f"💡 {h}")
-    
-            if mode == "Convert Only":
-            st.subheader("Generated R Code")
-            steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL | re.IGNORECASE)
-            if not steps: st.error("No valid SAS steps found."); st.stop()
+            # --- RUN / CLEAR BUTTONS ---
+            # Show macro library uploader only if macros detected
+            if has_macros(sas_script):
+                st.info("🔧 Macros detected in your code!")
+                with st.expander("📁 Upload Macro Library Files (optional)"):
+                    macro_files = st.file_uploader(
+                    "Upload additional .sas macro files",
+                        type=["sas", "txt"],
+                        accept_multiple_files=True,
+                        key="macro_lib_files"
+                    )
+            else:
+                macro_files = []
         
-            all_r = []
-            known_tables = []
-            total_steps = len(steps)
-  
-        # ── PROGRESS BAR for Convert Only ──
+            st.divider()
+            col_run, col_clear = st.columns([5, 1])
+            with col_run:
+                run_btn = st.button("⚡ Run", type="primary", use_container_width=True)
+            with col_clear:
+                st.button("🗑️ Clear", on_click=clear_all, use_container_width=True)
+        
+            # --- MAIN LOGIC ---
+            if run_btn:
+                st.session_state.pipeline_run = False
+                st.session_state.fix_results = {}
+                st.session_state.retry_counts = {}
+        
+            if run_btn or st.session_state.get("pipeline_run"):
+                if not sas_script.strip():
+                    st.warning("Paste some SAS code first."); st.stop()
+                st.divider()
+        
+                # --- MACRO EXPANSION ---
+                extra = []
+                if 'macro_files' in locals() and macro_files:
+                    for f in macro_files:
+                        extra.append(f.read().decode("utf-8"))
+        
+                sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra)
+        
+                for w in mac_warnings:
+                    st.warning(w)
+                for h in sql_hints:
+                    st.info(f"💡 {h}")
+        
+                if mode == "Convert Only":
+                st.subheader("Generated R Code")
+                steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL | re.IGNORECASE)
+                if not steps: st.error("No valid SAS steps found."); st.stop()
+            
+                all_r = []
+                known_tables = []
+                total_steps = len(steps)
+      
+            # ── PROGRESS BAR for Convert Only ──
           prog = st.progress(0, text=f"Starting conversion of {total_steps} step(s)...")
           status = st.empty()
           overall_start = time.time()
