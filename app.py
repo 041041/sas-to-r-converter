@@ -852,20 +852,27 @@ if page == "🔄 SAS Converter":
   
   # --- MAIN LOGIC ---
   if run_btn:
-      st.session_state.pipeline_run = False  # force fresh run
-      st.session_state.fix_results = {}
-      st.session_state.retry_counts = {}
-  
-  if run_btn or st.session_state.get("pipeline_run"):
-      if not sas_script.strip():
-          st.warning("Paste some SAS code first."); st.stop()
-      st.divider()
-      
-  # --- MACRO EXPANSION ---
-      original_sas = sas_script
-      sas_script = expand_macros(sas_script)
-      if sas_script != original_sas:
-          st.info("🔧 Macros detected and expanded before conversion.")
+        st.session_state.pipeline_run = False
+        st.session_state.fix_results = {}
+        st.session_state.retry_counts = {}
+
+    if run_btn or st.session_state.get("pipeline_run"):
+        if not sas_script.strip():
+            st.warning("Paste some SAS code first."); st.stop()
+        st.divider()
+
+        # --- MACRO EXPANSION ---
+        extra = []
+        if 'macro_files' in locals() and macro_files:
+            for f in macro_files:
+                extra.append(f.read().decode("utf-8"))
+
+        sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra)
+
+        for w in mac_warnings:
+            st.warning(w)
+        for h in sql_hints:
+            st.info(f"💡 {h}")
           
       if mode == "Convert Only":
           st.subheader("Generated R Code")
