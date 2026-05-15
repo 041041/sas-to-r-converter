@@ -816,7 +816,7 @@ if page == "🔄 SAS Converter":
               except Exception as e:
                   st.error(f"Failed to load {name}: {str(e)}")
   
-          with st.expander("Or paste CSV text manually"):
+    with st.expander("Or paste CSV text manually"):
           manual_csv = st.text_area(
               "Paste CSV here", height=100,
               key=f"manual_csv_{st.session_state.get('upload_key', 0)}"
