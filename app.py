@@ -833,7 +833,7 @@ if page == "🔄 SAS Converter":
   
   # --- RUN / CLEAR BUTTONS ---
   # Show macro library uploader only if macros detected
-    if has_macros(sas_script):
+  if has_macros(sas_script):
         st.info("🔧 Macros detected in your code!")
         with st.expander("📁 Upload Macro Library Files (optional)"):
             macro_files = st.file_uploader(
@@ -842,7 +842,7 @@ if page == "🔄 SAS Converter":
                 accept_multiple_files=True,
                 key="macro_lib_files"
             )
-    else:
+  else:
         macro_files = []
   st.divider()
   col_run, col_clear = st.columns([5, 1])
