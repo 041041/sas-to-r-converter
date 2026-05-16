@@ -695,6 +695,16 @@ class HybridMacroConverter:
                 params=macro.get("params", []),
                 body=macro.get("body", "")
             )
+            # Check if body contains macro calls before expansion
+            raw_body = macro.get("body", "")
+            macro_calls_in_body = re.findall(
+                r'%(\w+)\s*\(([^)]*)\)', raw_body, re.IGNORECASE
+            )
+            known_builtins = {'IF','THEN','DO','END','LET','PUT','MEND','MACRO'}
+            macro_calls_in_body = [
+                (n, a) for n, a in macro_calls_in_body 
+                if n.upper() not in known_builtins
+            ]
 
             # Check cache first
             cached = self.cache.get(ir, dialect)
@@ -706,6 +716,47 @@ class HybridMacroConverter:
 
             # Score complexity
             score, confidence, reasons = self.scorer.score(ir)
+
+            # Score complexity
+            score, confidence, reasons = self.scorer.score(ir)
+
+            # If body mainly contains macro calls → generate function calls directly
+            if macro_calls_in_body and len(ir.statements) <= 1:
+                r_lines = []
+                for call_name, call_args in macro_calls_in_body:
+                    r_args = []
+                    for arg in call_args.split(','):
+                        if '=' in arg:
+                            k, v = arg.split('=', 1)
+                            r_args.append(
+                                f"{k.strip().lstrip('&').lower()} = "
+                                f"{v.strip().lstrip('&').lower()}"
+                            )
+                    r_lines.append(f"  {call_name.lower()}({', '.join(r_args)})")
+                params_r = ", ".join(p.lower() for p in ir.params)
+                func_name = name.lower()
+                r_code = (
+                    f"# SAS macro %{name} converted to R function\n"
+                    f"{func_name} <- function({params_r}) {{\n"
+                    + "\n".join(r_lines) + "\n"
+                    f"}}\n"
+                    f"\n# Example call:\n"
+                    f"# {func_name}({', '.join(p.lower()+' = <value>' for p in ir.params)})\n"
+                )
+                method = "rule-based (macro calls)"
+                actual_conf = 0.90
+                self.stats["rule_based"] += 1
+                self.cache.put(ir, dialect, {"r_code": r_code, "warnings": []})
+                r_functions.append(
+                    f"# {'─'*60}\n"
+                    f"# Macro: %{name} | Method: {method} | Confidence: {actual_conf:.0%}\n"
+                    f"# {'─'*60}\n"
+                    + r_code
+                )
+                continue
+
+            # Choose converter
+            if confidence >= self.CONFIDENCE_THRESHOLD or self.llm is None:
 
             # Choose converter
             if confidence >= self.CONFIDENCE_THRESHOLD or self.llm is None:
