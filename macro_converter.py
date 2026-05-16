@@ -405,7 +405,7 @@ class RuleBasedConverter:
                 f"  arrange({', '.join(arrange_args)})",
             ]
         else:
-            order_args = [f'-{inp}${v}' if v in desc_vars else f'{inp}${v}' for v in by_vars]
+            order_args = [f'-{inp}[["{v}"]]' if v in desc_vars else f'{inp}[["{v}"]]' for v in by_vars]
             lines = [
                 f"{out} <- {inp}[order({', '.join(order_args)}), ]",
             ]
@@ -448,7 +448,7 @@ class RuleBasedConverter:
                 for s in stats:
                     agg_name = f"agg_{s}_{v}"
                     if grp_vars:
-                        formula = f"{v} ~ {' + '.join(grp_vars)}"
+                        formula = f"ds[['{v}']] ~ " + " + ".join(f"ds[['{g}']]" for g in grp_vars)
                         fun_map = {'mean': 'mean', 'std': 'sd', 'min': 'min',
                                    'max': 'max', 'median': 'median', 'n': 'length', 'sum': 'sum'}
                         fun = fun_map.get(s, 'mean')
@@ -583,9 +583,9 @@ class LLMConverter:
             f"PARAMETERS: {', '.join(ir.params)}\n"
             f"BODY:\n{ir.body_raw}\n\n"
             f"RULES:\n"
-            f"1. Create ONE R function named exactly '{ir.name}'\n"
-            f"2. Function parameters match macro parameters exactly\n"
-            f"3. &param references → function arguments\n"
+            f"1. Create ONE R function named exactly '{ir.name.lower()}'\n"
+            f"2. ALL parameter names must be lowercase\n"
+            f"3. Use .data[[param]] for dynamic column references\n"
             f"4. Dataset name parameters → dataframe arguments\n"
             f"5. PROC steps → equivalent R/dplyr code inside function\n"
             f"6. %if/%then → if/else in R\n"
