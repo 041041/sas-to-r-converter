@@ -7,6 +7,8 @@ from graph_builder import render_graph_builder_tab, render_clinical_graphs_tab
 from table_builder import render_table_builder_tab
 from listing_builder import render_listing_builder_tab
 from macro_processor import expand_sas_macros, has_macros
+from macro_converter import convert_macros_to_r
+
 
 # --- CONFIGURATION ---
 st.set_page_config(page_title="Smart SAS to R Converter", page_icon="🚀", layout="wide")
@@ -861,19 +863,54 @@ if page == "🔄 SAS Converter":
             st.warning("Paste some SAS code first."); st.stop()
         st.divider()
 
-   # --- MACRO EXPANSION ---
+# --- MACRO EXPANSION ---
         extra = []
         if 'macro_files' in locals() and macro_files:
             for f in macro_files:
                 extra.append(f.read().decode("utf-8"))
 
+        # Get macro definitions BEFORE expansion for R function conversion
+        from macro_processor import SASMacroProcessor
+        _pre_processor = SASMacroProcessor()
+        _pre_processor.process(sas_script, extra_files=extra if extra else None)
+        _macro_defs = _pre_processor.macro_library
+
+        # Expand macros in SAS code
         sas_script, mac_warnings, sql_hints = expand_sas_macros(sas_script, extra)
 
         for w in mac_warnings:
             st.warning(w)
         for h in sql_hints:
             st.info(f"💡 {h}")
-          
+
+        # Convert macros to reusable R functions
+        if _macro_defs:
+            macro_result = convert_macros_to_r(
+                macro_definitions=_macro_defs,
+                macro_calls=[],
+                dialect=r_dialect,
+                groq_client=groq_client,
+                gemini_client=gemini_client
+            )
+            if macro_result["r_functions"]:
+                with st.expander("🔧 Generated R Functions from Macros", expanded=True):
+                    st.code(macro_result["r_functions"], language="r")
+                    st.download_button(
+                        "⬇️ Download R Functions",
+                        data=macro_result["r_functions"],
+                        file_name="macro_functions.R",
+                        mime="text/plain",
+                        key="dl_macro_funcs"
+                    )
+            for w in macro_result["warnings"]:
+                st.warning(w)
+            stats = macro_result["stats"]
+            st.caption(
+                f"📊 Macro conversion: {stats['rule_based']} rule-based (FREE) | "
+                f"{stats['llm']} LLM | "
+                f"{stats['cached']} cached"
+            )
+
         if mode == "Convert Only":
           st.subheader("Generated R Code")
           steps = re.findall(r"((?:data|proc)\s+.*?;.*?(?:run|quit);)", sas_script, re.DOTALL | re.IGNORECASE)
