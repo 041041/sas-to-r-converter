@@ -370,6 +370,21 @@ class RuleBasedConverter:
             return self._if_else(stmt, params, dialect)
         elif stmt.kind == 'do_loop':
             return self._do_loop(stmt, params, dialect)
+        elif stmt.kind == 'unknown':
+            # Check if body contains macro calls → convert to R function calls
+            macro_calls = re.findall(r'%(\w+)\s*\(([^)]*)\)', stmt.raw, re.IGNORECASE)
+            if macro_calls:
+                lines = []
+                for call_name, call_args in macro_calls:
+                    if call_name.upper() in ['IF', 'THEN', 'DO', 'END', 'LET']:
+                        continue
+                    r_args = []
+                    for arg in call_args.split(','):
+                        if '=' in arg:
+                            k, v = arg.split('=', 1)
+                            r_args.append(f"{k.strip().lstrip('&').lower()} = {v.strip().lstrip('&').lower()}")
+                    lines.append(f"{call_name.lower()}({', '.join(r_args)})")
+                return lines, 0.80
         else:
             return [f"# TODO: Convert manually:\n  # {stmt.raw[:80]}"], 0.2
 
