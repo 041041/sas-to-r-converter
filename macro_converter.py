@@ -723,16 +723,32 @@ class HybridMacroConverter:
             # If body mainly contains macro calls → generate function calls directly
             if macro_calls_in_body and len(ir.statements) <= 1:
                 r_lines = []
-                for call_name, call_args in macro_calls_in_body:
+                prev_result = None
+                for i, (call_name, call_args) in enumerate(macro_calls_in_body):
                     r_args = []
                     for arg in call_args.split(','):
                         if '=' in arg:
                             k, v = arg.split('=', 1)
-                            r_args.append(
-                                f"{k.strip().lstrip('&').lower()} = "
-                                f"{v.strip().lstrip('&').lower()}"
-                            )
-                    r_lines.append(f"  {call_name.lower()}({', '.join(r_args)})")
+                            k_clean = k.strip().lstrip('&').lower()
+                            v_clean = v.strip().lstrip('&').lower()
+                            # Chain: if previous result exists and this arg
+                            # matches ds/data param — use previous result
+                            if prev_result and k_clean in ('ds', 'data', 'df') :
+                                r_args.append(f"{k_clean} = {prev_result}")
+                            else:
+                                r_args.append(f"{k_clean} = {v_clean}")
+                    
+                    is_last = (i == len(macro_calls_in_body) - 1)
+                    result_var = "result" if is_last else f"step{i+1}_result"
+                    prev_result = result_var
+                    
+                    r_lines.append(
+                        f"  {result_var} <- {call_name.lower()}("
+                        + ", ".join(r_args)
+                        + ")"
+                    )
+
+                r_lines.append(f"  return(result)")
                 params_r = ", ".join(p.lower() for p in ir.params)
                 func_name = name.lower()
                 r_code = (
