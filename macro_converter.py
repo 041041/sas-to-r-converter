@@ -193,21 +193,28 @@ class MacroParser:
     def _parse_statements(self, body: str) -> list[MacroStatement]:
         stmts = []
 
+        def clean(v):
+            """Strip & prefix and lowercase."""
+            if isinstance(v, str):
+                return v.lstrip('&').lower()
+            if isinstance(v, list):
+                return [i.lstrip('&').lower() for i in v]
+            return v
+
         # PROC SORT
         for m in re.finditer(
             r'proc\s+sort\s+data\s*=\s*&?(\w+)\s*(?:out\s*=\s*&?(\w+))?\s*;'
             r'(.*?)run\s*;',
             body, re.IGNORECASE | re.DOTALL
         ):
-            by_vars_raw = re.findall(r'\bby\s+(.*?);', m.group(3), re.IGNORECASE)
-            by_vars = [v.lstrip('&') for v in (by_vars_raw[0].split() if by_vars_raw else [])]
+            by_vars = re.findall(r'\bby\s+(.*?);', m.group(3), re.IGNORECASE)
             stmts.append(MacroStatement(
                 kind='proc_sort',
                 raw=m.group(0),
                 attrs={
-                    'input':   m.group(1),
-                    'output':  m.group(2) or m.group(1),
-                    'by_vars': by_vars[0].split() if by_vars else [],
+                    'input':   clean(m.group(1)),
+                    'output':  clean(m.group(2) or m.group(1)),
+                    'by_vars': clean(by_vars[0].split()) if by_vars else [],
                 }
             ))
 
@@ -225,10 +232,10 @@ class MacroParser:
                 kind='proc_means',
                 raw=m.group(0),
                 attrs={
-                    'input':     m.group(1),
-                    'class_var': class_m.group(1).split() if class_m else [],
-                    'var':       var_m.group(1).split() if var_m else [],
-                    'output':    out_m.group(1) if out_m else None,
+                    'input':     clean(m.group(1)),
+                    'class_var': clean(class_m.group(1).split()) if class_m else [],
+                    'var':       clean(var_m.group(1).split()) if var_m else [],
+                    'output':    clean(out_m.group(1)) if out_m else None,
                     'stats':     self._parse_means_stats(opts),
                 }
             ))
@@ -243,8 +250,8 @@ class MacroParser:
                 kind='proc_freq',
                 raw=m.group(0),
                 attrs={
-                    'input':  m.group(1),
-                    'tables': tables_m.group(1).strip() if tables_m else '',
+                    'input':  clean(m.group(1)),
+                    'tables': clean(tables_m.group(1).strip()) if tables_m else '',
                 }
             ))
 
@@ -257,8 +264,8 @@ class MacroParser:
                 kind='data_step',
                 raw=m.group(0),
                 attrs={
-                    'output': m.group(1),
-                    'input':  m.group(2),
+                    'output': clean(m.group(1)),
+                    'input':  clean(m.group(2)),
                     'body':   m.group(3).strip(),
                 }
             ))
@@ -288,7 +295,7 @@ class MacroParser:
                 kind='do_loop',
                 raw=m.group(0),
                 attrs={
-                    'var':   m.group(1),
+                    'var':   m.group(1).lower(),
                     'start': int(m.group(2)),
                     'end':   int(m.group(3)),
                     'step':  int(m.group(4) or 1),
@@ -297,13 +304,6 @@ class MacroParser:
             ))
 
         # If nothing parsed → unknown
-        # Clean & prefix from all attr values
-        for stmt in stmts:
-            for k, v in stmt.attrs.items():
-                if isinstance(v, str):
-                    stmt.attrs[k] = v.lstrip('&')
-                elif isinstance(v, list):
-                    stmt.attrs[k] = [i.lstrip('&') for i in v]
         if not stmts:
             stmts.append(MacroStatement(kind='unknown', raw=body))
 
@@ -329,28 +329,27 @@ class RuleBasedConverter:
     """
 
     def convert(self, ir: MacroIR, dialect: str = "Modern R (dplyr)") -> tuple[str, float]:
-        params_r = ", ".join(ir.params) if ir.params else ""
-        body_lines = []
-        total_conf = 1.0
+        func_name    = ir.name.lower()
+        params_lower = [p.lower() for p in ir.params]
+        params_r     = ", ".join(params_lower)
+        body_lines   = []
+        total_conf   = 1.0
 
         for stmt in ir.statements:
-            r_lines, conf = self._convert_statement(stmt, ir.params, dialect)
+            r_lines, conf = self._convert_statement(stmt, params_lower, dialect)
             body_lines.extend(r_lines)
             total_conf = min(total_conf, conf)
 
         body = "\n".join(f"  {ln}" for ln in body_lines if ln.strip())
 
-        func_name = ir.name.lower()
-        params_r_lower = ", ".join(p.lower() for p in ir.params)
         r_func = (
             f"# SAS macro %{ir.name} converted to R function\n"
-            f"{func_name} <- function({params_r_lower}) {{\n"
+            f"{func_name} <- function({params_r}) {{\n"
             f"{body}\n"
             f"}}\n"
         )
 
-        # Generate example call
-        call_args = ", ".join(f'{p.lower()} = <value>' for p in ir.params)
+        call_args = ", ".join(f'{p} = <value>' for p in params_lower)
         r_func += f"\n# Example call:\n# {func_name}({call_args})\n"
 
         return r_func, total_conf
@@ -381,9 +380,9 @@ class RuleBasedConverter:
         return f'df${name}'
 
     def _proc_sort(self, stmt: MacroStatement, dialect: str) -> tuple[list[str], float]:
-        inp     = stmt.attrs['input'].lower()
-        out     = stmt.attrs['output'].lower()
-        by_vars = [v.lower() for v in stmt.attrs['by_vars']]
+        inp    = stmt.attrs['input']
+        out    = stmt.attrs['output']
+        by_vars = stmt.attrs['by_vars']
 
         # Detect descending
         desc_vars = []
