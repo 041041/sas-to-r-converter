@@ -755,8 +755,8 @@ class HybridMacroConverter:
                 )
                 continue
 
-            # Choose converter
-            if confidence >= self.CONFIDENCE_THRESHOLD or self.llm is None:
+           # Choose converter
+           if confidence >= self.CONFIDENCE_THRESHOLD or self.llm is None:
                 r_code, actual_conf = self.rules.convert(ir, dialect)
                 method = "rule-based"
                 self.stats["rule_based"] += 1
@@ -767,7 +767,7 @@ class HybridMacroConverter:
                     method = "LLM (rule fallback)"
                     self.stats["llm"] += 1
                     self.stats["rule_based"] -= 1
-             else:
+            else:
                 if self.llm:
                     r_code, actual_conf = self.llm.convert(ir, dialect)
                     method = "LLM"
