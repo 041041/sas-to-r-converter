@@ -405,7 +405,7 @@ class RuleBasedConverter:
                 f"  arrange({', '.join(arrange_args)})",
             ]
         else:
-            order_args = [f'-{inp}[["{v}"]]' if v in desc_vars else f'{inp}[["{v}"]]' for v in by_vars]
+            order_args = [f'-{inp}[[{v}]]' if v in desc_vars else f'{inp}[[{v}]]' for v in by_vars]
             lines = [
                 f"{out} <- {inp}[order({', '.join(order_args)}), ]",
             ]
@@ -448,7 +448,7 @@ class RuleBasedConverter:
                 for s in stats:
                     agg_name = f"agg_{s}_{v}"
                     if grp_vars:
-                        formula = f"ds[['{v}']] ~ " + " + ".join(f"ds[['{g}']]" for g in grp_vars)
+                        formula = f"ds[[{v}]] ~ " + " + ".join(f"ds[[{g}]]" for g in grp_vars)
                         fun_map = {'mean': 'mean', 'std': 'sd', 'min': 'min',
                                    'max': 'max', 'median': 'median', 'n': 'length', 'sum': 'sum'}
                         fun = fun_map.get(s, 'mean')
