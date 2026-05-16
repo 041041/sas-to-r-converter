@@ -731,23 +731,17 @@ class HybridMacroConverter:
                             k, v = arg.split('=', 1)
                             k_clean = k.strip().lstrip('&').lower()
                             v_clean = v.strip().lstrip('&').lower()
-                            # Chain: if previous result exists and this arg
-                            # matches ds/data param — use previous result
-                            if prev_result and k_clean in ('ds', 'data', 'df') :
+                            if prev_result and k_clean in ('ds', 'data', 'df'):
                                 r_args.append(f"{k_clean} = {prev_result}")
                             else:
                                 r_args.append(f"{k_clean} = {v_clean}")
-                    
                     is_last = (i == len(macro_calls_in_body) - 1)
                     result_var = "result" if is_last else f"step{i+1}_result"
                     prev_result = result_var
-                    
                     r_lines.append(
                         f"  {result_var} <- {call_name.lower()}("
-                        + ", ".join(r_args)
-                        + ")"
+                        + ", ".join(r_args) + ")"
                     )
-
                 r_lines.append(f"  return(result)")
                 params_r = ", ".join(p.lower() for p in ir.params)
                 func_name = name.lower()
