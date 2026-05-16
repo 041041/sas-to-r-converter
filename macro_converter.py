@@ -199,7 +199,8 @@ class MacroParser:
             r'(.*?)run\s*;',
             body, re.IGNORECASE | re.DOTALL
         ):
-            by_vars = re.findall(r'\bby\s+(.*?);', m.group(3), re.IGNORECASE)
+            by_vars_raw = re.findall(r'\bby\s+(.*?);', m.group(3), re.IGNORECASE)
+            by_vars = [v.lstrip('&') for v in (by_vars_raw[0].split() if by_vars_raw else [])]
             stmts.append(MacroStatement(
                 kind='proc_sort',
                 raw=m.group(0),
@@ -296,6 +297,13 @@ class MacroParser:
             ))
 
         # If nothing parsed → unknown
+        # Clean & prefix from all attr values
+        for stmt in stmts:
+            for k, v in stmt.attrs.items():
+                if isinstance(v, str):
+                    stmt.attrs[k] = v.lstrip('&')
+                elif isinstance(v, list):
+                    stmt.attrs[k] = [i.lstrip('&') for i in v]
         if not stmts:
             stmts.append(MacroStatement(kind='unknown', raw=body))
 
@@ -332,16 +340,18 @@ class RuleBasedConverter:
 
         body = "\n".join(f"  {ln}" for ln in body_lines if ln.strip())
 
+        func_name = ir.name.lower()
+        params_r_lower = ", ".join(p.lower() for p in ir.params)
         r_func = (
             f"# SAS macro %{ir.name} converted to R function\n"
-            f"{ir.name} <- function({params_r}) {{\n"
+            f"{func_name} <- function({params_r_lower}) {{\n"
             f"{body}\n"
             f"}}\n"
         )
 
         # Generate example call
-        call_args = ", ".join(f'{p} = <value>' for p in ir.params)
-        r_func += f"\n# Example call:\n# {ir.name}({call_args})\n"
+        call_args = ", ".join(f'{p.lower()} = <value>' for p in ir.params)
+        r_func += f"\n# Example call:\n# {func_name}({call_args})\n"
 
         return r_func, total_conf
 
@@ -371,9 +381,9 @@ class RuleBasedConverter:
         return f'df${name}'
 
     def _proc_sort(self, stmt: MacroStatement, dialect: str) -> tuple[list[str], float]:
-        inp    = stmt.attrs['input']
-        out    = stmt.attrs['output']
-        by_vars = stmt.attrs['by_vars']
+        inp     = stmt.attrs['input'].lower()
+        out     = stmt.attrs['output'].lower()
+        by_vars = [v.lower() for v in stmt.attrs['by_vars']]
 
         # Detect descending
         desc_vars = []
