@@ -124,8 +124,7 @@ class ComplexityScorer:
         (r'%sysfunc\s*\(',          7,  "SYSFUNC — system function call"),
         (r'%scan\s*\(',             5,  "SCAN — string parsing"),
         (r'%substr\s*\(',           4,  "SUBSTR — substring"),
-        (r'proc\s+sql',             6,  "PROC SQL — complex query"),
-        (r'proc\s+transpose',       5,  "PROC TRANSPOSE"),
+        (r'proc\s+sql',             3,  "PROC SQL — handled but complex"),
         (r'proc\s+report',          7,  "PROC REPORT"),
         (r'proc\s+tabulate',        7,  "PROC TABULATE"),
         (r'%do\s+%while',           6,  "%DO %WHILE loop"),
@@ -143,6 +142,7 @@ class ComplexityScorer:
         (r'proc\s+sort',            -3, "PROC SORT — simple"),
         (r'proc\s+means',           -2, "PROC MEANS — simple"),
         (r'proc\s+freq',            -2, "PROC FREQ — simple"),
+        (r'proc\s+transpose',       -1, "PROC TRANSPOSE — handled"),
         (r'data\s+\w+;\s*set\s+',   -2, "DATA step SET — simple"),
         (r'%if\s+.*?%then',         +3, "%IF/%THEN — conditional"),
         (r'%do\s+\w+\s*=\s*\d+',   +3, "%DO numeric loop"),
@@ -303,6 +303,52 @@ class MacroParser:
                 }
             ))
 
+        # PROC SQL (simple SELECT)
+        for m in re.finditer(
+            r'proc\s+sql\s*;(.*?)quit\s*;',
+            body, re.IGNORECASE | re.DOTALL
+        ):
+            sql_body = m.group(1)
+            create_m = re.search(
+                r'create\s+table\s+&?(\w+)\s+as\s+select\s+(.*?)\s+from\s+&?(\w+)'
+                r'(?:\s+where\s+(.*?))?(?:\s+group\s+by\s+(.*?))?(?:\s+order\s+by\s+(.*?))?\s*;',
+                sql_body, re.IGNORECASE | re.DOTALL
+            )
+            if create_m:
+                stmts.append(MacroStatement(
+                    kind='proc_sql',
+                    raw=m.group(0),
+                    attrs={
+                        'output':   clean(create_m.group(1)),
+                        'select':   create_m.group(2).strip(),
+                        'input':    clean(create_m.group(3)),
+                        'where':    (create_m.group(4) or '').strip(),
+                        'group_by': (create_m.group(5) or '').strip(),
+                        'order_by': (create_m.group(6) or '').strip(),
+                    }
+                ))
+
+        # PROC TRANSPOSE
+        for m in re.finditer(
+            r'proc\s+transpose\s+data\s*=\s*&?(\w+)(?:\s+out\s*=\s*&?(\w+))?\s*;(.*?)run\s*;',
+            body, re.IGNORECASE | re.DOTALL
+        ):
+            inner = m.group(3)
+            var_m = re.search(r'\bvar\s+(.*?);', inner, re.IGNORECASE)
+            by_m  = re.search(r'\bby\s+(.*?);',  inner, re.IGNORECASE)
+            id_m  = re.search(r'\bid\s+(.*?);',   inner, re.IGNORECASE)
+            stmts.append(MacroStatement(
+                kind='proc_transpose',
+                raw=m.group(0),
+                attrs={
+                    'input':  clean(m.group(1)),
+                    'output': clean(m.group(2) or m.group(1) + '_t'),
+                    'var':    clean(var_m.group(1).split()) if var_m else [],
+                    'by':     clean(by_m.group(1).split()) if by_m else [],
+                    'id':     clean(id_m.group(1).strip()) if id_m else '',
+                }
+            ))
+
         # If nothing parsed → unknown
         if not stmts:
             stmts.append(MacroStatement(kind='unknown', raw=body))
@@ -340,6 +386,16 @@ class RuleBasedConverter:
             body_lines.extend(r_lines)
             total_conf = min(total_conf, conf)
 
+        # Add return statement for last result variable
+        last_result = None
+        for ln in reversed(body_lines):
+            m = re.match(r'\s*(\w+)\s*<-', ln)
+            if m:
+                last_result = m.group(1)
+                break
+        if last_result:
+            body_lines.append(f"return({last_result})")
+
         body = "\n".join(f"  {ln}" for ln in body_lines if ln.strip())
 
         r_func = (
@@ -366,6 +422,10 @@ class RuleBasedConverter:
             return self._proc_freq(stmt, dialect)
         elif stmt.kind == 'data_step':
             return self._data_step(stmt, dialect)
+        elif stmt.kind == 'proc_sql':
+            return self._proc_sql(stmt, dialect)
+        elif stmt.kind == 'proc_transpose':
+            return self._proc_transpose(stmt, dialect)
         elif stmt.kind == 'if_else':
             return self._if_else(stmt, params, dialect)
         elif stmt.kind == 'do_loop':
@@ -395,32 +455,37 @@ class RuleBasedConverter:
         return f'df${name}'
 
     def _proc_sort(self, stmt: MacroStatement, dialect: str) -> tuple[list[str], float]:
-        inp    = stmt.attrs['input']
-        out    = stmt.attrs['output']
+        inp     = stmt.attrs['input']
+        out     = stmt.attrs['output']
         by_vars = stmt.attrs['by_vars']
 
         # Detect descending
         desc_vars = []
-        asc_vars  = []
+        clean_by  = []
         i = 0
         while i < len(by_vars):
-            if by_vars[i].upper() == 'DESCENDING' and i + 1 < len(by_vars):
+            if by_vars[i].lower() == 'descending' and i + 1 < len(by_vars):
                 desc_vars.append(by_vars[i + 1])
+                clean_by.append(by_vars[i + 1])
                 i += 2
             else:
-                asc_vars.append(by_vars[i])
+                clean_by.append(by_vars[i])
                 i += 1
 
         if dialect == "Modern R (dplyr)":
-            arrange_args = (
-                [f'desc({v})' if v in desc_vars else v for v in by_vars]
-            )
+            arrange_args = [
+                f'desc(.data[[{v}]])' if v in desc_vars else f'.data[[{v}]]'
+                for v in clean_by
+            ]
             lines = [
                 f"{out} <- {inp} %>%",
                 f"  arrange({', '.join(arrange_args)})",
             ]
         else:
-            order_args = [f'-{inp}[[{v}]]' if v in desc_vars else f'{inp}[[{v}]]' for v in by_vars]
+            order_args = [
+                f'-{inp}[[{v}]]' if v in desc_vars else f'{inp}[[{v}]]'
+                for v in clean_by
+            ]
             lines = [
                 f"{out} <- {inp}[order({', '.join(order_args)}), ]",
             ]
@@ -434,27 +499,33 @@ class RuleBasedConverter:
         out       = stmt.attrs['output'] or f"{inp}_means"
         stats     = stmt.attrs['stats']
 
-        stat_map = {
-            'mean':   'mean({v}, na.rm=TRUE)',
-            'std':    'sd({v}, na.rm=TRUE)',
-            'min':    'min({v}, na.rm=TRUE)',
-            'max':    'max({v}, na.rm=TRUE)',
-            'median': 'median({v}, na.rm=TRUE)',
+        stat_map_dplyr = {
+            'mean':   'mean(!!sym({v}), na.rm=TRUE)',
+            'std':    'sd(!!sym({v}), na.rm=TRUE)',
+            'min':    'min(!!sym({v}), na.rm=TRUE)',
+            'max':    'max(!!sym({v}), na.rm=TRUE)',
+            'median': 'median(!!sym({v}), na.rm=TRUE)',
             'n':      'n()',
-            'sum':    'sum({v}, na.rm=TRUE)',
+            'sum':    'sum(!!sym({v}), na.rm=TRUE)',
+        }
+
+        fun_map_base = {
+            'mean': 'mean', 'std': 'sd', 'min': 'min',
+            'max': 'max', 'median': 'median', 'n': 'length', 'sum': 'sum'
         }
 
         if dialect == "Modern R (dplyr)":
             summarise_parts = []
             for v in num_vars:
                 for s in stats:
-                    if s in stat_map:
-                        expr = stat_map[s].replace('{v}', v)
+                    if s in stat_map_dplyr:
+                        expr = stat_map_dplyr[s].replace('{v}', v)
                         summarise_parts.append(f"{s}_{v} = {expr}")
 
             lines = [f"{out} <- {inp} %>%"]
             if grp_vars:
-                lines.append(f"  group_by({', '.join(grp_vars)}) %>%")
+                grp_sym = ', '.join(f'!!sym({g})' for g in grp_vars)
+                lines.append(f"  group_by({grp_sym}) %>%")
             lines.append(f"  summarise({', '.join(summarise_parts)}, .groups='drop')")
         else:
             lines = []
@@ -462,19 +533,16 @@ class RuleBasedConverter:
             for v in num_vars:
                 for s in stats:
                     agg_name = f"agg_{s}_{v}"
+                    fun = fun_map_base.get(s, 'mean')
                     if grp_vars:
-                        formula = f"ds[[{v}]] ~ " + " + ".join(f"ds[[{g}]]" for g in grp_vars)
-                        fun_map = {'mean': 'mean', 'std': 'sd', 'min': 'min',
-                                   'max': 'max', 'median': 'median', 'n': 'length', 'sum': 'sum'}
-                        fun = fun_map.get(s, 'mean')
+                        formula = f'{inp}[[{v}]] ~ ' + ' + '.join(f'{inp}[[{g}]]' for g in grp_vars)
                         lines.append(f"{agg_name} <- aggregate({formula}, data={inp}, FUN={fun})")
                         lines.append(f"names({agg_name})[ncol({agg_name})] <- '{s}_{v}'")
                     else:
-                        lines.append(f"{agg_name} <- data.frame({s}_{v} = {s}({inp}${v}, na.rm=TRUE))")
+                        lines.append(f"{agg_name} <- data.frame({s}_{v} = {fun}({inp}[[{v}]], na.rm=TRUE))")
                     agg_dfs.append(agg_name)
 
             if len(agg_dfs) > 1:
-                merge_by = grp_vars if grp_vars else 'NULL'
                 merge_cols = "c(" + ", ".join(g for g in grp_vars) + ")" if grp_vars else "NULL"
                 lines.append(f"{out} <- Reduce(function(a,b) merge(a,b,by={merge_cols}), list({', '.join(agg_dfs)}))")
             elif agg_dfs:
@@ -489,14 +557,15 @@ class RuleBasedConverter:
         out    = f"{inp}_freq"
 
         if dialect == "Modern R (dplyr)":
+            grp_args = ', '.join(f'!!sym({v})' for v in vars_)
             lines = [
                 f"{out} <- {inp} %>%",
-                f"  count({', '.join(vars_)}) %>%",
-                f"  rename(COUNT = n)",
+                f"  group_by({grp_args}) %>%",
+                f"  summarise(COUNT = n(), .groups='drop')",
             ]
         else:
             lines = [
-                f"{out} <- as.data.frame(table({', '.join(f'{inp}${v}' for v in vars_)}))",
+                f"{out} <- as.data.frame(table({', '.join(f'{inp}[[{v}]]' for v in vars_)}))",
                 f"names({out}) <- c({', '.join(repr(v) for v in vars_)}, 'COUNT')",
                 f"{out} <- {out}[{out}$COUNT > 0, ]",
             ]
@@ -510,10 +579,12 @@ class RuleBasedConverter:
 
         # Extract simple assignments: var = expression;
         assigns = re.findall(r'(\w+)\s*=\s*([^;]+);', body)
+        # Clean & from values
+        assigns = [(v.lstrip('&'), e.strip().replace('&', '')) for v, e in assigns]
 
         if dialect == "Modern R (dplyr)":
             if assigns:
-                mutate_parts = [f"{v} = {e.strip()}" for v, e in assigns]
+                mutate_parts = [f"{v} = {e}" for v, e in assigns]
                 lines = [
                     f"{out} <- {inp} %>%",
                     f"  mutate({', '.join(mutate_parts)})",
@@ -525,12 +596,90 @@ class RuleBasedConverter:
             if assigns:
                 lines = [f"{out} <- {inp}"]
                 for v, e in assigns:
-                    lines.append(f"{out}${v} <- {e.strip()}")
+                    lines.append(f"{out}[['{v}']] <- {e}")
             else:
                 lines = [f"{out} <- {inp}  # TODO: Review DATA step body"]
             conf = 0.80 if assigns else 0.40
 
         return lines, conf
+
+    def _proc_sql(self, stmt: MacroStatement, dialect: str) -> tuple[list[str], float]:
+        inp      = stmt.attrs['input']
+        out      = stmt.attrs['output']
+        select   = stmt.attrs['select']
+        where    = stmt.attrs['where']
+        group_by = stmt.attrs['group_by']
+        order_by = stmt.attrs['order_by']
+
+        # Parse select columns — detect aggregates
+        has_agg = bool(re.search(r'\b(count|sum|mean|avg|min|max)\s*\(', select, re.IGNORECASE))
+
+        if dialect == "Modern R (dplyr)":
+            lines = [f"{out} <- {inp} %>%"]
+            if where:
+                r_where = re.sub(r'=', '==', where)
+                r_where = re.sub(r'\bne\b', '!=', r_where, flags=re.IGNORECASE)
+                lines.append(f"  filter({r_where}) %>%")
+            if group_by:
+                grp_cols = [c.strip() for c in group_by.split(',')]
+                grp_sym = ', '.join(f'!!sym("{c}")' for c in grp_cols)
+                lines.append(f"  group_by({grp_sym}) %>%")
+            if has_agg:
+                # Build summarise from select
+                agg_parts = []
+                for expr in select.split(','):
+                    expr = expr.strip()
+                    alias_m = re.search(r'(\w+)\s+as\s+(\w+)', expr, re.IGNORECASE)
+                    if alias_m:
+                        agg_parts.append(f"{alias_m.group(2)} = {alias_m.group(1)}")
+                    else:
+                        agg_parts.append(expr)
+                lines.append(f"  summarise({', '.join(agg_parts)}, .groups='drop')")
+            else:
+                cols = [c.strip().split()[-1] for c in select.split(',')]
+                lines.append(f"  select({', '.join(cols)})")
+            if order_by:
+                ord_cols = [c.strip() for c in order_by.split(',')]
+                lines.append(f"  arrange({', '.join(ord_cols)})")
+        else:
+            lines = [f"# PROC SQL → base R"]
+            if where:
+                lines.append(f"{out} <- {inp}[{inp}${where.replace('=', '==')}, ]")
+            else:
+                lines.append(f"{out} <- {inp}")
+
+        return lines, 0.72
+
+    def _proc_transpose(self, stmt: MacroStatement, dialect: str) -> tuple[list[str], float]:
+        inp = stmt.attrs['input']
+        out = stmt.attrs['output']
+        var = stmt.attrs['var']
+        by  = stmt.attrs['by']
+        id_ = stmt.attrs['id']
+
+        if dialect == "Modern R (dplyr)":
+            if var:
+                cols_str = ', '.join(f'"{v}"' for v in var)
+                lines = [
+                    f"{out} <- {inp} %>%",
+                    f"  pivot_longer(cols = c({cols_str}),",
+                    f"               names_to = 'variable',",
+                    f"               values_to = 'value')",
+                ]
+            else:
+                lines = [f"{out} <- {inp} %>% pivot_longer(everything())"]
+        else:
+            if var:
+                cols_str = ', '.join(f'"{v}"' for v in var)
+                lines = [
+                    f"{out} <- reshape({inp}, varying = c({cols_str}),",
+                    f"                  v.names = 'value', timevar = 'variable',",
+                    f"                  direction = 'long')",
+                ]
+            else:
+                lines = [f"{out} <- reshape({inp}, direction='long')"]
+
+        return lines, 0.80
 
     def _if_else(self, stmt: MacroStatement, params: list[str], dialect: str) -> tuple[list[str], float]:
         cond  = stmt.attrs['condition']
@@ -717,9 +866,6 @@ class HybridMacroConverter:
             # Score complexity
             score, confidence, reasons = self.scorer.score(ir)
 
-            # Score complexity
-            score, confidence, reasons = self.scorer.score(ir)
-
             # If body mainly contains macro calls → generate function calls directly
             if macro_calls_in_body and len(ir.statements) <= 1:
                 r_lines = []
@@ -771,12 +917,12 @@ class HybridMacroConverter:
                 method = "rule-based"
                 self.stats["rule_based"] += 1
 
-            # If rule-based confidence too low and LLM available → fallback
-            if actual_conf < self.CONFIDENCE_THRESHOLD and self.llm is not None:
-                r_code, actual_conf = self.llm.convert(ir, dialect)
-                method = "LLM (rule fallback)"
-                self.stats["llm"] += 1
-                self.stats["rule_based"] -= 1
+                # If rule-based confidence too low and LLM available → fallback
+                if actual_conf < self.CONFIDENCE_THRESHOLD and self.llm is not None:
+                    r_code, actual_conf = self.llm.convert(ir, dialect)
+                    method = "LLM (rule fallback)"
+                    self.stats["llm"] += 1
+                    self.stats["rule_based"] -= 1
             else:
                 if self.llm:
                     r_code, actual_conf = self.llm.convert(ir, dialect)
