@@ -144,6 +144,7 @@ class ComplexityScorer:
         (r'proc\s+freq',            -2, "PROC FREQ — simple"),
         (r'proc\s+transpose',       -1, "PROC TRANSPOSE — handled"),
         (r'data\s+\w+;\s*set\s+',   -2, "DATA step SET — simple"),
+        (r'proc\s+transpose',       -1, "PROC TRANSPOSE — handled"),
         (r'%if\s+.*?%then',         +3, "%IF/%THEN — conditional"),
         (r'%do\s+\w+\s*=\s*\d+',   +3, "%DO numeric loop"),
     ]
