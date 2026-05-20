@@ -445,6 +445,7 @@ class RuleBasedConverter:
                             r_args.append(f"{k.strip().lstrip('&').lower()} = {v.strip().lstrip('&').lower()}")
                     lines.append(f"{call_name.lower()}({', '.join(r_args)})")
                 return lines, 0.80
+            return [f"# TODO: Convert manually:\n  # {stmt.raw[:80]}"], 0.2
         else:
             return [f"# TODO: Convert manually:\n  # {stmt.raw[:80]}"], 0.2
 
