@@ -142,7 +142,6 @@ class ComplexityScorer:
         (r'proc\s+sort',            -3, "PROC SORT — simple"),
         (r'proc\s+means',           -2, "PROC MEANS — simple"),
         (r'proc\s+freq',            -2, "PROC FREQ — simple"),
-        (r'proc\s+transpose',       -1, "PROC TRANSPOSE — handled"),
         (r'data\s+\w+;\s*set\s+',   -2, "DATA step SET — simple"),
         (r'proc\s+transpose',       -1, "PROC TRANSPOSE — handled"),
         (r'%if\s+.*?%then',         +3, "%IF/%THEN — conditional"),
