@@ -582,17 +582,27 @@ class RuleBasedConverter:
         assigns = re.findall(r'(\w+)\s*=\s*([^;]+);', body)
         # Clean & from values
         assigns = [(v.lstrip('&'), e.strip().replace('&', '')) for v, e in assigns]
+        # Handle IF condition: if var >= threshold then keep
+        if_filters = re.findall(
+            r'if\s+&?(\w+)\s*([<>=!]+)\s*&?(\w+)\s*;',
+            body, re.IGNORECASE
+        )
 
         if dialect == "Modern R (dplyr)":
-            if assigns:
+            if if_filters:
+                for col, op, val in if_filters:
+                    lines = [f"{out} <- {inp}[{inp}[['{col}']] {op} {val}, ]"]
+                conf = 0.88
+            elif assigns:
                 mutate_parts = [f"{v} = {e}" for v, e in assigns]
                 lines = [
                     f"{out} <- {inp} %>%",
                     f"  mutate({', '.join(mutate_parts)})",
                 ]
+                conf = 0.80
             else:
                 lines = [f"{out} <- {inp}  # TODO: Review DATA step body"]
-            conf = 0.80 if assigns else 0.40
+                conf = 0.40
         else:
             if assigns:
                 lines = [f"{out} <- {inp}"]
