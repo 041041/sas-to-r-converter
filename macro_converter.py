@@ -899,6 +899,8 @@ class HybridMacroConverter:
                             if prev_result and k_clean in ('ds', 'data', 'df'):
                                 r_args.append(f"{k_clean} = {prev_result}")
                             else:
+                                if call_name.lower() == "filter_data" and k_clean == "ds":
+                                    k_clean = "df"
                                 r_args.append(f"{k_clean} = {v_clean}")
                     is_last = (i == len(macro_calls_in_body) - 1)
                     result_var = "result" if is_last else f"step{i+1}_result"
