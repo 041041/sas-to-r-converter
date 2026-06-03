@@ -536,7 +536,8 @@ class RuleBasedConverter:
                     agg_name = f"agg_{s}_{v}"
                     fun = fun_map_base.get(s, 'mean')
                     if grp_vars:
-                        formula = f'as.formula(paste({v}, "~", {"+".join(repr(g) for g in grp_vars)}))'
+                        group_expr = "+".join(grp_vars)
+                        formula = f'as.formula(paste("{v}", "~", "{group_expr}"))'
                         lines.append(f"{agg_name} <- aggregate({formula}, data={inp}, FUN={fun})")
                         lines.append(f"names({agg_name})[ncol({agg_name})] <- '{s}_{v}'")
                     else:
