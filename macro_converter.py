@@ -536,7 +536,7 @@ class RuleBasedConverter:
                     agg_name = f"agg_{s}_{v}"
                     fun = fun_map_base.get(s, 'mean')
                     if grp_vars:
-                        formula = f'{inp}[[{v}]] ~ ' + ' + '.join(f'{inp}[[{g}]]' for g in grp_vars)
+                        formula = f'as.formula(paste({v}, "~", {"+".join(repr(g) for g in grp_vars)}))'
                         lines.append(f"{agg_name} <- aggregate({formula}, data={inp}, FUN={fun})")
                         lines.append(f"names({agg_name})[ncol({agg_name})] <- '{s}_{v}'")
                     else:
@@ -901,6 +901,7 @@ class HybridMacroConverter:
                         f"  {result_var} <- {call_name.lower()}("
                         + ", ".join(r_args) + ")"
                     )
+                r_lines.append(f"  # NOTE: Review chaining — ensure correct dataset passed to each function")
                 r_lines.append(f"  return(result)")
                 params_r = ", ".join(p.lower() for p in ir.params)
                 func_name = name.lower()
