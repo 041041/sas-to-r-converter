@@ -545,8 +545,13 @@ class RuleBasedConverter:
                     agg_dfs.append(agg_name)
 
             if len(agg_dfs) > 1:
-                merge_cols = "c(" + ", ".join(g for g in grp_vars) + ")" if grp_vars else "NULL"
-                lines.append(f"{out} <- Reduce(function(a,b) merge(a,b,by={merge_cols}), list({', '.join(agg_dfs)}))")
+                if grp_vars:
+                    merge_cols = repr(grp_vars[0]) if len(grp_vars) == 1 else "c(" + ", ".join(repr(g) for g in grp_vars) + ")"
+                else:
+                    merge_cols = "NULL"
+                lines.append(
+                f"{out} <- Reduce(function(a,b) merge(a,b,by={merge_cols}), list({', '.join(agg_dfs)}))"
+                )
             elif agg_dfs:
                 lines.append(f"{out} <- {agg_dfs[0]}")
 
