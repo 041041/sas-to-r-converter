@@ -546,7 +546,7 @@ class RuleBasedConverter:
 
             if len(agg_dfs) > 1:
                 if grp_vars:
-                    merge_cols = repr(grp_vars[0]) if len(grp_vars) == 1 else "c(" + ", ".join(repr(g) for g in grp_vars) + ")"
+                    merge_cols = "grp" if len(grp_vars) == 1 else "c(" + ", ".join(repr(g) for g in grp_vars) + ")"
                 else:
                     merge_cols = "NULL"
                 lines.append(
