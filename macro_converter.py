@@ -385,8 +385,9 @@ class MacroParser:
 
             # SET with optional WHERE
             set_m = re.search(
-                r'\bset\s+(&?\w+(?:\s+&?\w+)*)\s*(?:;|\(where\s*=\s*\(([^)]*)\))'
-                ds_body, re.IGNORECASE
+                r'\bset\s+(&?\w+(?:\s+&?\w+)*)\s*(?:;|\(where\s*=\s*\((.*?)\)\);?)',
+                ds_body,
+                re.IGNORECASE
             )
             # MERGE
             merge_m = re.search(r'\bmerge\s+(.*?);', ds_body, re.IGNORECASE)
