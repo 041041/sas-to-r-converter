@@ -420,9 +420,10 @@ class MacroParser:
                                (clean(merge_m.group(1).split()) if merge_m else []),
                     'is_merge': bool(merge_m),
                     'by_vars': clean(by_m.group(1).split()) if by_m else [],
-                    'where':   (where_m.group(1) or
-                                (set_m.group(2) if set_m and set_m.group(2) else '')
-                               ).strip(),
+                    'where': (
+                             (where_m.group(1) if where_m else '') or
+                             (set_m.group(2) if set_m and set_m.group(2) else '')
+                            ).strip(),
                     'keep':    clean(keep_m.group(1).split()) if keep_m else [],
                     'drop':    clean(drop_m.group(1).split()) if drop_m else [],
                     'rename':  self._parse_rename(rename_m.group(1)) if rename_m else {},
