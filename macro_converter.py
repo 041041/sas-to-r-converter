@@ -812,7 +812,7 @@ class RuleBasedConverter:
         else:
             tbl_args = ', '.join(f'{inp}[["{v}"]]' for v in vars_)
             lines = [
-                f"{out} <- as.data.frame(table({', '.join(f'{inp}[[\"{v}\"]]' for v in vars_)}))"
+                f"{out} <- as.data.frame(table({', '.join(f'{inp}[[\"{v}\"]]' for v in vars_)}))",
                 f"names({out}) <- c({', '.join(repr(v) for v in vars_)}, 'COUNT')",
                 f"{out} <- {out}[{out}$COUNT > 0, ]",
             ]
