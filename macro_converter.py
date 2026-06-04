@@ -768,10 +768,10 @@ class RuleBasedConverter:
                     agg_name = f"agg_{s}_{v}"
                     fun      = fun_map.get(s, 'mean')
                     if grp_vars:
-                        grp_formula = ' + '.join(grp_vars)
                         lines.append(
-                            f"{agg_name} <- aggregate({v} ~ {grp_formula},"
-                            f" data={inp}, FUN={fun}, na.rm=TRUE)"
+                        f"{agg_name} <- aggregate("
+                        f"as.formula(paste('{v}', '~', grp)), "
+                        f"data={inp}, FUN={fun}, na.rm=TRUE)"
                         )
                         lines.append(f"names({agg_name})[ncol({agg_name})] <- '{s}_{v}'")
                     else:
@@ -781,10 +781,7 @@ class RuleBasedConverter:
                         )
                     agg_dfs.append(agg_name)
             if len(agg_dfs) > 1:
-                by_cols = (
-                    "c(" + ", ".join(f'"{g}"' for g in grp_vars) + ")"
-                    if grp_vars else "NULL"
-                )
+                by_cols = "grp" if grp_vars else "NULL"
                 lines.append(
                     f"{out} <- Reduce(function(a,b) merge(a, b, by={by_cols}),"
                     f" list({', '.join(agg_dfs)}))"
