@@ -1271,40 +1271,94 @@ class RuleBasedConverter:
             lines.append(f"  summarise({', '.join(sum_parts)}, .groups='drop')")
             conf = min(conf, 0.85)
 
-        # Fix #7 + #9: Simple COMPUTE block expression parser
-        # Translate col.sum / col.mean references before passing to _sas_cond_to_r
+        # ── COMPUTE block expression parser ─────────────────────────
+        #
+        # SAS semantics: inside a COMPUTE block, "col.stat" is a reference to
+        # the aggregated value that PROC REPORT already computed for that row —
+        # NOT a request to re-aggregate.  In our generated R, the summarise()
+        # step above already produces a column named exactly 'col' for each
+        # analysis column (e.g. `count = sum(count, na.rm=TRUE)`).  So:
+        #
+        #   col.stat  where col is in analysis_cols  →  bare column name  "col"
+        #   col.stat  where col is NOT in analysis_cols  →  intermediate var
+        #             "col_stat" plus a pre-computation line added before mutate()
+        #
+        # This gives correct output for every reported case:
+        #   count.sum / 100          →  count / 100
+        #   sales.sum - cost.sum     →  sales - cost
+        #   qty.sum / total.sum      →  qty_sum / total_sum  (with pre-computes)
+        #
         simple_computes = {
             v: e for v, e in computes.items()
             if not re.search(r'_c\d+_|_r_|_break_|\bif\b', e, re.IGNORECASE)
         }
         if simple_computes:
-            mutate_parts = []
+            # Stat functions used by analysis columns, keyed by column name
+            # e.g. {'count': 'sum', 'sales': 'sum', 'revenue': 'mean'}
+            r_stat_fn = {
+                'sum': 'sum', 'mean': 'mean', 'min': 'min', 'max': 'max',
+                'median': 'median', 'n': 'length', 'pctn': 'length',
+                'pctsum': 'sum',
+            }
+
+            pre_compute_lines = []   # extra mutate() lines needed before main mutate
+            mutate_parts      = []
+
             for var, expr in simple_computes.items():
-                # Fix #7: rewrite "col.sum" → "sum(col, na.rm=TRUE)" etc.
-                def _rewrite_proc_report_stat(m):
-                    col_name = m.group(1)
-                    stat_fn  = m.group(2).lower()
-                    fn_map   = {'sum': 'sum', 'mean': 'mean', 'min': 'min',
-                                'max': 'max', 'n': 'n', 'pctn': 'n'}
-                    fn = fn_map.get(stat_fn, stat_fn)
-                    return f'sum({col_name}, na.rm=TRUE)' if fn == 'sum' else \
-                           f'n()' if fn == 'n' else \
-                           f'{fn}({col_name}, na.rm=TRUE)'
-                # Extract just the RHS: COMPUTE body may be "var = expr;"
+                # ── Step 1: extract RHS from "var = expr;" ───────────────
                 inner_assign = re.match(
                     rf'\s*{re.escape(var)}\s*=\s*(.+?)\s*;?\s*$',
                     expr.strip(), re.IGNORECASE | re.DOTALL
                 )
-                rhs = inner_assign.group(1).strip() if inner_assign else expr.strip().rstrip(';')
-                expr_rw = re.sub(
+                rhs = (inner_assign.group(1).strip()
+                       if inner_assign else expr.strip().rstrip(';'))
+
+                # ── Step 2: resolve every col.stat token ─────────────────
+                def _resolve_col_stat(m, _analysis=analysis_cols,
+                                      _pre=pre_compute_lines):
+                    col_name  = m.group(1)
+                    stat_name = m.group(2).lower()
+                    col_lower = col_name.lower()
+
+                    if col_lower in _analysis:
+                        # Column was already aggregated by summarise() under
+                        # its own name → just use the bare column reference.
+                        return col_lower
+                    else:
+                        # Column not in analysis_cols: need an intermediate
+                        # variable col_stat computed via mutate() beforehand.
+                        intermediate = f'{col_lower}_{stat_name}'
+                        fn = r_stat_fn.get(stat_name, stat_name)
+                        pre_line = (
+                            f'n()' if fn == 'length'
+                            else f'{fn}({col_lower}, na.rm=TRUE)'
+                        )
+                        pre_compute_lines.append(
+                            f'{intermediate} = {pre_line}'
+                        )
+                        return intermediate
+
+                rhs_resolved = re.sub(
                     r'(\w+)\.(sum|mean|min|max|n|pctn|pctsum)\b',
-                    _rewrite_proc_report_stat,
+                    _resolve_col_stat,
                     rhs, flags=re.IGNORECASE
                 )
-                # Fix #9: don't replace literal numeric divisors with percentage logic
-                e_r = _sas_cond_to_r(expr_rw)
+
+                # ── Step 3: translate remaining SAS operators ─────────────
+                e_r = _sas_cond_to_r(rhs_resolved)
                 mutate_parts.append(f'{var} = {e_r}')
-            lines[-1] += " %>%"
+
+            # Emit pre-computations (for cols not in analysis_cols) first.
+            # Guard: only append %>% if the last line doesn't already end with one.
+            def _pipe(ls):
+                if ls and not ls[-1].rstrip().endswith('%>%'):
+                    ls[-1] += " %>%"
+
+            if pre_compute_lines:
+                _pipe(lines)
+                lines.append(f"  mutate({', '.join(pre_compute_lines)}) %>%")
+
+            _pipe(lines)
             lines.append(f"  mutate({', '.join(mutate_parts)})")
 
         # SELECT columns
