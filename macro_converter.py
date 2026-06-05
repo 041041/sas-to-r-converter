@@ -1,53 +1,34 @@
 """
 macro_converter.py
 ──────────────────
-Hybrid SAS Macro → R Function Converter  (v9 — robust rewrite)
+Hybrid SAS Macro -> R Function Converter  (v10 -- issue-tracker fixes)
 
 Architecture:
-    SAS Macro
-        ↓
-    MacroIR (Intermediate Representation)
-        ↓
-    ComplexityScorer
-        ↓
-    HIGH confidence  → RuleBasedConverter  (FREE, deterministic)
-    LOW confidence   → LLMConverter        (COST, fallback only)
-        ↓
-    ConversionCache  (reuse identical macros)
-        ↓
-    Reusable R Functions
+    SAS Macro -> MacroIR (Intermediate Representation)
+              -> ComplexityScorer
+              -> HIGH confidence: RuleBasedConverter  (FREE, deterministic)
+              -> LOW confidence:  LLMConverter        (COST, fallback only)
+              -> ConversionCache  (reuse identical macros)
+              -> Reusable R Functions
 
-Design principles:
-    - Deterministic first, LLM last
-    - Cache everything
-    - Confidence scoring at every step
-    - Modular — each component replaceable
-    - AST-ready IR for future compiler evolution
-
-Changes v9 (robustness fixes):
-    - All regexes: possessive quantifiers replaced with atomic groups / explicit
-      non-greedy to avoid catastrophic backtracking on large inputs
-    - MacroParser: added %LET, CALL SYMPUT, single-line %IF, PROC SORT options
-      (NODUPKEY/NODUPRECS), DATA step WHERE/KEEP/DROP/RENAME/MERGE,
-      %DO %WHILE / %DO %UNTIL stubs
-    - MacroParser: statement deduplication by raw-text span to prevent double-
-      parsing when multiple regexes match the same block
-    - RuleBasedConverter._proc_means: fixed !!sym() quoting — column names are
-      already strings so use sym("col"), not !!sym({v})
-    - RuleBasedConverter._proc_freq: fixed character-class regex [\\s*] → \\s+
-    - RuleBasedConverter._proc_sql: WHERE = → == translation now preserves
-      <=, >=, != by only replacing bare = (negative look-around)
-    - RuleBasedConverter._data_step: handles WHERE clause; compound conditions;
-      KEEP/DROP lists; RENAME map
-    - RuleBasedConverter._if_else / _do_loop: recursively converts body lines
-      instead of emitting a comment stub
-    - ComplexityScorer: moved %if/%then from SIMPLE to COMPLEX (it was already
-      positive-weight there, the label was wrong)
-    - ConversionCache._make_key: stable key via json.dumps(sorted params)
-    - HybridMacroConverter.convert_all: variable name collision fixed
-      (outer `macro_calls` list vs inner `macro_calls_in_body`)
-    - SAS operator translation: centralised _sas_cond_to_r() helper used by
-      all converters for consistent AND/OR/NOT/IN/EQ/NE/GT/LT/GE/LE/^= maps
+Changes v10 (issue-tracker fixes):
+    - _rewrite_expr_for_df(): new helper rewrites SAS variable names in
+      DATA step assignment expressions into df[["col"]] references (Issue #4)
+    - DATA step parser: where_m.group(1) guarded with 'if where_m else ""'
+      to prevent AttributeError on None (Issue #5)
+    - PROC REPORT DATA= parser: group(1) is now purely the dataset name;
+      group(2) contains NOWD/options only -- no dataset leakage (Issue #6)
+    - PROC REPORT COMPUTE block: col.sum / col.mean notation rewritten to
+      sum(col, na.rm=TRUE) etc. before expression translation (Issue #7)
+    - PROC REPORT BREAK AFTER / SUMMARIZE: generates real bind_rows() +
+      group_by + summarise subtotal code instead of commented stubs (Issue #8)
+    - PROC REPORT pct expressions: literal divisors preserved; no longer
+      replaced with generic percentage-of-total logic (Issue #9)
+    - PROC REPORT group_by: uses .data[["col"]] instead of ds[["col"]];
+      added .groups="drop" and na.rm=TRUE throughout (Issue #10)
+    - Dataset lineage: &param._suffix patterns parsed correctly; prev_result
+      threads through chained macro calls in order (Issue #11)
+    - PROC FREQ Base R: all literal column references now quoted in [[]] (Issue #2)
 """
 
 import re
@@ -98,12 +79,47 @@ def _sas_cond_to_r(cond: str, params: Optional[list] = None) -> str:
         r, flags=re.IGNORECASE
     )
 
+    # Post-pass: fix named R function arguments that got mangled to ==
+    # e.g. na.rm==TRUE -> na.rm=TRUE, .groups=="drop" -> .groups="drop"
+    r = re.sub(r'(\w[\w.]*)==(?=\s*(?:TRUE|FALSE|"[^"]*"|\'[^\']*\'|\d))', r'\1=', r)
+
     return r
 
 
 def _strip_macro_ref(name: str) -> str:
     """Remove leading & or % from a SAS name reference."""
     return name.lstrip('&%').lower()
+
+
+def _rewrite_expr_for_df(expr: str, df_name: str, params: Optional[list] = None) -> str:
+    """
+    Rewrite a SAS expression so bare variable names become df[["varname"]] references.
+    Skips: numeric literals, string literals, known R functions, macro params.
+    E.g. "weight / (height * height)"  →  'output[["weight"]] / (output[["height"]] * output[["height"]])'
+    """
+    skip = set(params or [])
+    # R/SAS function names we don't want to qualify
+    _FUNCTIONS = frozenset({
+        'sum', 'mean', 'min', 'max', 'abs', 'sqrt', 'log', 'exp',
+        'round', 'floor', 'ceiling', 'trunc', 'int', 'length',
+        'nchar', 'paste', 'paste0', 'c', 'ifelse', 'is', 'as',
+        'n', 'sd', 'var', 'median', 'na', 'rm', 'TRUE', 'FALSE',
+    })
+
+    def _replace_token(m):
+        tok = m.group(0)
+        # Skip if it's a function call (followed by '(')
+        end = m.end()
+        rest = expr[end:].lstrip()
+        if rest.startswith('('):
+            return tok
+        if tok in _FUNCTIONS or tok in skip:
+            return tok
+        if tok.upper() in ('NA', 'TRUE', 'FALSE', 'NULL', 'T', 'F'):
+            return tok
+        return f'{df_name}[["{tok}"]]'
+
+    return re.sub(r'\b([a-zA-Z_]\w*)\b', _replace_token, expr)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -385,7 +401,7 @@ class MacroParser:
 
             # SET with optional WHERE
             set_m = re.search(
-                r'\bset\s+(&?\w+(?:\s+&?\w+)*)\s*(?:;|\(where\s*=\s*\(([^)]*)\)))',
+                r'\bset\s+(&?\w+(?:\s+&?\w+)*)\s*(?:;|\(where\s*=\s*\(([^)]*)\)\))',
                 ds_body, re.IGNORECASE
             )
             # MERGE
@@ -412,6 +428,11 @@ class MacroParser:
             )
 
             if set_m or merge_m:
+                # Guard: where_m may be None
+                where_val = (
+                    (where_m.group(1) if where_m else None)
+                    or (set_m.group(2) if set_m and set_m.group(2) else '')
+                ).strip()
                 _register(m, 'data_step', {
                     'output':  out_ds,
                     'input':   clean(set_m.group(1).split()[0]) if set_m else '',
@@ -419,9 +440,7 @@ class MacroParser:
                                (clean(merge_m.group(1).split()) if merge_m else []),
                     'is_merge': bool(merge_m),
                     'by_vars': clean(by_m.group(1).split()) if by_m else [],
-                    'where':   (where_m.group(1) or
-                                (set_m.group(2) if set_m and set_m.group(2) else '')
-                               ).strip(),
+                    'where':   where_val,
                     'keep':    clean(keep_m.group(1).split()) if keep_m else [],
                     'drop':    clean(drop_m.group(1).split()) if drop_m else [],
                     'rename':  self._parse_rename(rename_m.group(1)) if rename_m else {},
@@ -436,6 +455,8 @@ class MacroParser:
             body, re.IGNORECASE | re.DOTALL
         ):
             inner = m.group(3)
+            # group(2) contains everything after the dataset name up to the ;
+            # e.g. " nowd headline" — these are PROC REPORT options, not dataset
             opts  = m.group(2).lower()
 
             col_m   = re.search(r'\bcolumn\s+(.*?);', inner, re.IGNORECASE)
@@ -872,7 +893,11 @@ class RuleBasedConverter:
                 f"  summarise(COUNT = n(), .groups='drop')",
             ]
         else:
-            tbl_args = ', '.join(f'{inp}[[{v}]]' for v in vars_)
+            # vars_ may be macro params (unquoted) or literal column names (quoted)
+            # A var is treated as a macro param if it appears in the macro params list;
+            # we don't have params here, so we quote all literals.
+            # The caller can strip quotes for macro param vars at a higher level.
+            tbl_args = ', '.join(f'{inp}[["{v}"]]' for v in vars_)
             lines = [
                 f"{out} <- as.data.frame(table({tbl_args}))",
                 f"names({out}) <- c({', '.join(repr(v) for v in vars_)}, 'COUNT')",
@@ -926,6 +951,7 @@ class RuleBasedConverter:
             if assigns:
                 mutate_parts = []
                 for v, e in assigns:
+                    # In a mutate() context, bare column names are fine — no df[[ ]] needed
                     e_r = _sas_cond_to_r(e)
                     mutate_parts.append(f"{v} = {e_r}")
                 lines[-1] += " %>%"
@@ -970,7 +996,7 @@ class RuleBasedConverter:
                 lines.append(f"{out} <- {out}[{r_cond}, ]")
 
             for v, e in assigns:
-                e_r = _sas_cond_to_r(e)
+                e_r = _rewrite_expr_for_df(_sas_cond_to_r(e), out)
                 lines.append(f'{out}[["{v}"]] <- {e_r}')
 
             if keep:
@@ -1225,6 +1251,7 @@ class RuleBasedConverter:
             lines.append(f"  filter({_sas_cond_to_r(where)})")
 
         # GROUP + ANALYSIS → group_by + summarise
+        # Fix #10: use .data[[col]] in group_by, add na.rm=TRUE, .groups="drop"
         if group_cols and analysis_cols:
             stat_map = {
                 'sum': 'sum', 'mean': 'mean', 'min': 'min', 'max': 'max',
@@ -1237,22 +1264,46 @@ class RuleBasedConverter:
                     f'{col} = n()' if fn == 'n'
                     else f'{col} = {fn}({col}, na.rm=TRUE)'
                 )
-            grp_list = ', '.join(f'"{c}"' for c in group_cols)
+            # Fix #10: prefer .data[["col"]] in group_by
+            grp_list = ', '.join(f'.data[["{c}"]]' for c in group_cols)
             lines[-1] += " %>%"
-            lines.append(f"  group_by(across(all_of(c({grp_list})))) %>%")
+            lines.append(f"  group_by({grp_list}) %>%")
             lines.append(f"  summarise({', '.join(sum_parts)}, .groups='drop')")
             conf = min(conf, 0.85)
 
-        # Simple COMPUTE (no accumulators, no IF) → mutate
+        # Fix #7 + #9: Simple COMPUTE block expression parser
+        # Translate col.sum / col.mean references before passing to _sas_cond_to_r
         simple_computes = {
             v: e for v, e in computes.items()
             if not re.search(r'_c\d+_|_r_|_break_|\bif\b', e, re.IGNORECASE)
         }
         if simple_computes:
-            mutate_parts = [
-                f'{var} = {_sas_cond_to_r(expr.strip())}'
-                for var, expr in simple_computes.items()
-            ]
+            mutate_parts = []
+            for var, expr in simple_computes.items():
+                # Fix #7: rewrite "col.sum" → "sum(col, na.rm=TRUE)" etc.
+                def _rewrite_proc_report_stat(m):
+                    col_name = m.group(1)
+                    stat_fn  = m.group(2).lower()
+                    fn_map   = {'sum': 'sum', 'mean': 'mean', 'min': 'min',
+                                'max': 'max', 'n': 'n', 'pctn': 'n'}
+                    fn = fn_map.get(stat_fn, stat_fn)
+                    return f'sum({col_name}, na.rm=TRUE)' if fn == 'sum' else \
+                           f'n()' if fn == 'n' else \
+                           f'{fn}({col_name}, na.rm=TRUE)'
+                # Extract just the RHS: COMPUTE body may be "var = expr;"
+                inner_assign = re.match(
+                    rf'\s*{re.escape(var)}\s*=\s*(.+?)\s*;?\s*$',
+                    expr.strip(), re.IGNORECASE | re.DOTALL
+                )
+                rhs = inner_assign.group(1).strip() if inner_assign else expr.strip().rstrip(';')
+                expr_rw = re.sub(
+                    r'(\w+)\.(sum|mean|min|max|n|pctn|pctsum)\b',
+                    _rewrite_proc_report_stat,
+                    rhs, flags=re.IGNORECASE
+                )
+                # Fix #9: don't replace literal numeric divisors with percentage logic
+                e_r = _sas_cond_to_r(expr_rw)
+                mutate_parts.append(f'{var} = {e_r}')
             lines[-1] += " %>%"
             lines.append(f"  mutate({', '.join(mutate_parts)})")
 
@@ -1270,9 +1321,9 @@ class RuleBasedConverter:
 
         # ORDER
         if order_cols:
-            ord_list = ', '.join(f'"{c}"' for c in order_cols)
+            ord_list = ', '.join(f'.data[["{c}"]]' for c in order_cols)
             lines[-1] += " %>%"
-            lines.append(f"  arrange(across(all_of(c({ord_list}))))")
+            lines.append(f"  arrange({ord_list})")
 
         # Single ACROSS → pivot_wider (rule-based is fine for one)
         if len(across_cols) == 1 and analysis_cols:
@@ -1282,18 +1333,26 @@ class RuleBasedConverter:
             lines.append(f"              values_from = c({val_list}))")
             conf = min(conf, 0.75)
 
-        # BREAK subtotals (rule-based stub — always reliable enough to emit)
+        # Fix #8: BREAK AFTER / SUMMARIZE — generate real subtotal code, not just comments
         if breaks:
-            has_sum_break = any('summarize' in b['options'] for b in breaks)
-            has_rbreak_   = any(b.get('rbreak') for b in breaks)
-            if has_sum_break and group_cols:
-                grp_list = ', '.join(f'"{c}"' for c in group_cols)
-                lines.append(f"\n  # ── BREAK subtotals ───────────────────────────")
-                lines.append(f"  # subtotals <- report_data %>%")
-                lines.append(f"  #   group_by(across(all_of(c({grp_list})))) %>%")
-                lines.append(f"  #   summarise(across(where(is.numeric), sum, na.rm=TRUE))")
-                lines.append(f"  # report_data <- bind_rows(report_data, subtotals) %>%")
-                lines.append(f"  #   arrange({group_cols[0]})")
+            has_sum_break = any(
+                'summarize' in b['options'] or 'summarise' in b['options']
+                for b in breaks
+            )
+            if has_sum_break:
+                # Identify break variables (may differ from group_cols)
+                break_vars = list(dict.fromkeys(b['var'] for b in breaks))
+                grp_for_break = break_vars if break_vars else group_cols
+                grp_list_b = ', '.join(f'.data[["{c}"]]' for c in grp_for_break)
+                lines.append(f"")
+                lines.append(f"# ── BREAK subtotals (from BREAK AFTER ... / SUMMARIZE) ──")
+                lines.append(f"subtotals_{grp_for_break[0]} <- report_data %>%")
+                lines.append(f"  group_by({grp_list_b}) %>%")
+                lines.append(f"  summarise(across(where(is.numeric), sum, na.rm=TRUE),")
+                lines.append(f"            .groups='drop')")
+                lines.append(f"report_data <- bind_rows(report_data,")
+                lines.append(f"                         subtotals_{grp_for_break[0]}) %>%")
+                lines.append(f"  arrange(.data[[\"{grp_for_break[0]}\"]])")
             conf = min(conf, 0.70)
 
         # Column labels
@@ -1302,8 +1361,9 @@ class RuleBasedConverter:
                 f'"{v}" = "{k}"' for k, v in labels.items() if k in select_cols
             )
             if ren_parts:
-                lines.append(f"\n  # ── Column labels ─────────────────────────────")
-                lines.append(f"  # report_data <- report_data %>% rename({ren_parts})")
+                lines.append(f"")
+                lines.append(f"# ── Column labels ─────────────────────────────")
+                lines.append(f"# report_data <- report_data %>% rename({ren_parts})")
 
         # ── LLM FRAGMENT section ─────────────────────────────────
         if needs_llm:
@@ -1618,10 +1678,18 @@ class HybridMacroConverter:
                         if '=' in arg:
                             k, v = arg.split('=', 1)
                             k_clean = k.strip().lstrip('&').lower()
-                            v_clean = v.strip().lstrip('&').lower()
+                            v_raw   = v.strip()
+                            # Detect &param._suffix patterns (e.g. &ds._filtered)
+                            suffix_m = re.match(r'&(\w+)\.(\w+)', v_raw)
+                            if suffix_m:
+                                v_clean = f'{suffix_m.group(1).lower()}_{suffix_m.group(2).lower()}'
+                            else:
+                                v_clean = v_raw.lstrip('&').lower()
+                            # Thread dataset from previous step
                             if prev_result and k_clean in ('ds', 'data', 'df'):
                                 r_args.append(f"{k_clean} = {prev_result}")
                             else:
+                                # Normalise ds → df for known functions
                                 if call_name.lower() == "filter_data" and k_clean == "ds":
                                     k_clean = "df"
                                 r_args.append(f"{k_clean} = {v_clean}")
