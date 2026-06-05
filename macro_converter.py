@@ -206,7 +206,7 @@ class ComplexityScorer:
         (r'%scan\s*\(',             5,  "SCAN — string parsing"),
         (r'%substr\s*\(',           4,  "SUBSTR — substring"),
         (r'proc\s+sql',             3,  "PROC SQL — handled but complex"),
-        (r'proc\s+report',          7,  "PROC REPORT"),
+        (r'proc\s+report',          4,  "PROC REPORT — partially handled"),
         (r'proc\s+tabulate',        7,  "PROC TABULATE"),
         (r'%do\s+%while',           6,  "%DO %WHILE loop"),
         (r'%do\s+%until',           6,  "%DO %UNTIL loop"),
@@ -430,6 +430,64 @@ class MacroParser:
                     'body':    ds_body.strip(),
                 })
 
+        # ── PROC REPORT ─────────────────────────────────────────
+        for m in re.finditer(
+            r'proc\s+report\s+data\s*=\s*&?(\w+)([^;]*?);(.*?)run\s*;',
+            body, re.IGNORECASE | re.DOTALL
+        ):
+            inner = m.group(3)
+            opts  = m.group(2).lower()
+
+            col_m   = re.search(r'\bcolumn\s+(.*?);', inner, re.IGNORECASE)
+            columns = col_m.group(1).split() if col_m else []
+
+            defines = {}
+            for d in re.finditer(
+                r'\bdefine\s+(\w+)\s*/\s*'
+                r'(group|display|analysis|computed|order|across)?'
+                r'(?:\s+(sum|mean|min|max|median|n|pctn|pctsum))?'
+                r'[^;]*?(?:\'([^\']*?)\'|"([^"]*?)")?'
+                r'\s*;',
+                inner, re.IGNORECASE
+            ):
+                col_name = d.group(1).lower()
+                role     = (d.group(2) or 'display').lower()
+                stat     = (d.group(3) or '').lower()
+                label    = d.group(4) or d.group(5) or col_name
+                defines[col_name] = {'role': role, 'stat': stat, 'label': label}
+
+            where_m = re.search(r'\bwhere\s+(.*?);', inner, re.IGNORECASE)
+
+            breaks = []
+            for b in re.finditer(
+                r'\bbreak\s+(before|after)\s+(\w+)\s*/\s*([^;]*?);',
+                inner, re.IGNORECASE
+            ):
+                breaks.append({
+                    'when': b.group(1).lower(),
+                    'var':  b.group(2).lower(),
+                    'options': b.group(3).lower(),
+                })
+
+            computes = {}
+            for c in re.finditer(
+                r'\bcompute\s+(\w+)\s*;(.*?)\bendcomp\b\s*;',
+                inner, re.IGNORECASE | re.DOTALL
+            ):
+                computes[c.group(1).lower()] = c.group(2).strip()
+
+            _register(m, 'proc_report', {
+                'input':        clean(m.group(1)),
+                'columns':      [c.lower() for c in columns],
+                'defines':      defines,
+                'where':        where_m.group(1).strip() if where_m else '',
+                'breaks':       breaks,
+                'computes':     computes,
+                'has_across':   any(v['role'] == 'across'   for v in defines.values()),
+                'has_computed': bool(computes),
+                'nowd':         'nowd' in opts,
+            })
+
         # ── PROC TRANSPOSE ──────────────────────────────────────
         for m in re.finditer(
             r'proc\s+transpose\s+data\s*=\s*&?(\w+)(?:\s+out\s*=\s*&?(\w+))?'
@@ -607,6 +665,7 @@ class RuleBasedConverter:
             'data_step':      self._data_step,
             'proc_sql':       self._proc_sql,
             'proc_transpose': self._proc_transpose,
+            'proc_report':    self._proc_report,
             'if_else':        self._if_else,
             'do_loop':        self._do_loop,
             'do_while':       self._do_while,
@@ -1092,6 +1151,150 @@ class RuleBasedConverter:
                 lines.append(f"  {ln}")
         lines.append("}")
         return lines, 0.65
+
+
+    # ── PROC REPORT ─────────────────────────────────────────────
+    def _proc_report(self, stmt: MacroStatement, dialect: str) -> tuple:
+        inp          = stmt.attrs['input']
+        columns      = stmt.attrs['columns']
+        defines      = stmt.attrs['defines']
+        where        = stmt.attrs['where']
+        breaks       = stmt.attrs['breaks']
+        computes     = stmt.attrs['computes']
+        has_across   = stmt.attrs['has_across']
+        has_computed = stmt.attrs['has_computed']
+
+        group_cols    = [c for c, d in defines.items() if d['role'] == 'group']
+        display_cols  = [c for c, d in defines.items() if d['role'] == 'display']
+        order_cols    = [c for c, d in defines.items() if d['role'] == 'order']
+        across_cols   = [c for c, d in defines.items() if d['role'] == 'across']
+        analysis_cols = {
+            c: d['stat'] or 'mean'
+            for c, d in defines.items() if d['role'] == 'analysis'
+        }
+        computed_cols = [c for c, d in defines.items() if d['role'] == 'computed']
+        labels        = {c: d['label'] for c, d in defines.items() if d['label'] != c}
+
+        lines = []
+        conf  = 0.80
+
+        lines.append(f"# PROC REPORT: {inp}")
+        lines.append(f"report_data <- {inp}")
+
+        # WHERE filter
+        if where:
+            r_cond = _sas_cond_to_r(where)
+            lines[-1] += " %>%"
+            lines.append(f"  filter({r_cond})")
+
+        # GROUP + ANALYSIS → group_by + summarise
+        if group_cols and analysis_cols:
+            stat_map = {
+                'sum': 'sum', 'mean': 'mean', 'min': 'min', 'max': 'max',
+                'median': 'median', 'n': 'n', 'pctn': 'n', 'pctsum': 'sum',
+            }
+            sum_parts = []
+            for col, stat in analysis_cols.items():
+                fn = stat_map.get(stat, stat)
+                if fn == 'n':
+                    sum_parts.append(f'{col}_{stat} = n()')
+                else:
+                    sum_parts.append(f'{col}_{stat} = {fn}({col}, na.rm=TRUE)')
+            grp_list = ', '.join(f'"{c}"' for c in group_cols)
+            lines[-1] += " %>%"
+            lines.append(f"  group_by(across(all_of(c({grp_list})))) %>%")
+            lines.append(f"  summarise({', '.join(sum_parts)}, .groups='drop')")
+            conf = min(conf, 0.85)
+
+        # COMPUTE blocks → mutate
+        if computes:
+            mutate_parts = []
+            for var, expr in computes.items():
+                r_expr = re.sub(r'_c\d+_', 'sum(n)', expr.strip())
+                r_expr = re.sub(r'_r_',    'n()',    r_expr)
+                r_expr = re.sub(r'_break_', '0',     r_expr)
+                r_expr = _sas_cond_to_r(r_expr)
+                mutate_parts.append(f'{var} = {r_expr}')
+            lines[-1] += " %>%"
+            lines.append(f"  mutate({', '.join(mutate_parts)})")
+            if any('_c' in e for e in computes.values()):
+                lines.append(
+                    "  # ⚠️  _c_ accumulator approximated — verify pct logic manually"
+                )
+                conf = min(conf, 0.55)
+
+        # DISPLAY / ORDER → select + arrange
+        select_cols = list(dict.fromkeys(
+            group_cols + display_cols + list(analysis_cols.keys()) + computed_cols
+        ))
+        if columns:
+            select_cols = [c for c in columns if c in
+                           (set(select_cols) | set(analysis_cols))]
+        if select_cols:
+            col_list = ', '.join(f'"{c}"' for c in select_cols)
+            lines[-1] += " %>%"
+            lines.append(f"  select(any_of(c({col_list})))")
+
+        if order_cols:
+            ord_list = ', '.join(f'"{c}"' for c in order_cols)
+            lines[-1] += " %>%"
+            lines.append(f"  arrange(across(all_of(c({ord_list}))))")
+
+        # ACROSS → pivot_wider
+        if across_cols and analysis_cols:
+            across_col = across_cols[0]
+            val_list   = ', '.join(f'"{c}"' for c in analysis_cols.keys())
+            lines[-1] += " %>%"
+            lines.append(f"  pivot_wider(names_from  = '{across_col}',")
+            lines.append(f"              values_from = c({val_list}))")
+            if len(across_cols) > 1:
+                lines.append(
+                    "  # ⚠️  Multiple ACROSS cols — review pivot_wider nesting"
+                )
+            conf = min(conf, 0.65)
+
+        # BREAK / subtotals stub
+        if breaks:
+            if any('summarize' in b['options'] for b in breaks) and group_cols:
+                grp_list = ', '.join(f'"{c}"' for c in group_cols)
+                lines.append(f"\n  # BREAK subtotals — uncomment to append group summaries")
+                lines.append(f"  # subtotals <- report_data %>%")
+                lines.append(f"  #   group_by(across(all_of(c({grp_list})))) %>%")
+                lines.append(f"  #   summarise(across(where(is.numeric), sum, na.rm=TRUE))")
+                lines.append(f"  # report_data <- bind_rows(report_data, subtotals)")
+            conf = min(conf, 0.60)
+
+        # Column labels stub
+        if labels:
+            ren_parts = ', '.join(
+                f'"{v}" = "{k}"' for k, v in labels.items() if k in select_cols
+            )
+            if ren_parts:
+                lines.append(f"\n  # Rename to SAS labels (uncomment to apply)")
+                lines.append(f"  # report_data <- report_data %>% rename({ren_parts})")
+
+        # Rendering stub
+        lines.append(f"\n# ── Table rendering ──────────────────────────────────")
+        lines.append(f"# library(gt)")
+        if group_cols:
+            grp = group_cols[0]
+            lines.append(f"# report_data %>%")
+            lines.append(f"#   gt(groupname_col = '{grp}') %>%")
+            lines.append(f"#   tab_header(title = '{inp} Summary') %>%")
+            lines.append(f"#   grand_summary_rows(fns = list(Total = ~sum(., na.rm=TRUE)))")
+        else:
+            lines.append(f"# report_data %>% gt()")
+        lines.append(f"#")
+        lines.append(f"# library(flextable)  # alternative")
+        lines.append(f"# flextable(report_data)")
+
+        if has_across and has_computed:
+            conf = min(conf, 0.50)
+            lines.append(
+                f"\n# ⚠️  PROC REPORT has ACROSS + COMPUTED — review carefully"
+            )
+
+        return lines, conf
 
 
 # ─────────────────────────────────────────────────────────────────
