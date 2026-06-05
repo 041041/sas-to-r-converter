@@ -621,6 +621,10 @@ class RuleBasedConverter:
     Returns (r_code, confidence).
     """
 
+    def __init__(self, llm_client=None):
+        # Optional LLM client passed in for PROC REPORT hard fragments
+        self._llm_client = llm_client
+
     def convert(self, ir: MacroIR, dialect: str = "Modern R (dplyr)") -> tuple:
         func_name    = ir.name.lower()
         params_lower = [p.lower() for p in ir.params]
@@ -674,6 +678,9 @@ class RuleBasedConverter:
         }
         handler = dispatch.get(stmt.kind)
         if handler:
+            if stmt.kind == 'proc_report':
+                llm = getattr(self, '_llm_client', None)
+                return handler(stmt, dialect, llm_client=llm)
             if stmt.kind in ('if_else', 'do_loop', 'do_while', 'let', 'call_symput'):
                 return handler(stmt, params, dialect)
             return handler(stmt, dialect)
@@ -1154,15 +1161,25 @@ class RuleBasedConverter:
 
 
     # ── PROC REPORT ─────────────────────────────────────────────
-    def _proc_report(self, stmt: MacroStatement, dialect: str) -> tuple:
+    #
+    # Hybrid approach:
+    #   Rule-based  → GROUP/DISPLAY/ANALYSIS/ORDER/WHERE/simple COMPUTE
+    #   LLM fragment → _c_/_r_ accumulators, COMPUTE+IF, multi-ACROSS,
+    #                  SPANNING headers, LINE, RBREAK
+    #
+    # Only the hard fragments go to LLM — not the whole PROC REPORT.
+    # llm_client is passed in via the converter; None = stub comments only.
+    # ────────────────────────────────────────────────────────────
+
+    def _proc_report(self, stmt: MacroStatement, dialect: str,
+                     llm_client=None) -> tuple:
         inp          = stmt.attrs['input']
         columns      = stmt.attrs['columns']
         defines      = stmt.attrs['defines']
         where        = stmt.attrs['where']
         breaks       = stmt.attrs['breaks']
         computes     = stmt.attrs['computes']
-        has_across   = stmt.attrs['has_across']
-        has_computed = stmt.attrs['has_computed']
+        raw_sas      = stmt.raw   # full original SAS for LLM context
 
         group_cols    = [c for c, d in defines.items() if d['role'] == 'group']
         display_cols  = [c for c, d in defines.items() if d['role'] == 'display']
@@ -1178,14 +1195,34 @@ class RuleBasedConverter:
         lines = []
         conf  = 0.80
 
+        # ── detect which hard features are present ───────────────
+        has_accum      = any(
+            re.search(r'_c\d+_|_r_|_break_', e, re.IGNORECASE)
+            for e in computes.values()
+        )
+        has_compute_if = any(
+            re.search(r'\bif\b', e, re.IGNORECASE)
+            for e in computes.values()
+        )
+        has_multi_across = len(across_cols) > 1
+        has_spanning   = bool(re.search(r'\w+\s*=\s*\(', ' '.join(columns)))
+        has_line       = bool(re.search(r'\bline\b', raw_sas, re.IGNORECASE))
+        has_rbreak     = bool(re.search(r'\brbreak\b', raw_sas, re.IGNORECASE))
+
+        needs_llm = any([
+            has_accum, has_compute_if, has_multi_across,
+            has_spanning, has_line, has_rbreak
+        ])
+
+        # ── RULE-BASED section ───────────────────────────────────
+
         lines.append(f"# PROC REPORT: {inp}")
         lines.append(f"report_data <- {inp}")
 
-        # WHERE filter
+        # WHERE
         if where:
-            r_cond = _sas_cond_to_r(where)
             lines[-1] += " %>%"
-            lines.append(f"  filter({r_cond})")
+            lines.append(f"  filter({_sas_cond_to_r(where)})")
 
         # GROUP + ANALYSIS → group_by + summarise
         if group_cols and analysis_cols:
@@ -1196,105 +1233,238 @@ class RuleBasedConverter:
             sum_parts = []
             for col, stat in analysis_cols.items():
                 fn = stat_map.get(stat, stat)
-                if fn == 'n':
-                    sum_parts.append(f'{col}_{stat} = n()')
-                else:
-                    sum_parts.append(f'{col}_{stat} = {fn}({col}, na.rm=TRUE)')
+                sum_parts.append(
+                    f'{col} = n()' if fn == 'n'
+                    else f'{col} = {fn}({col}, na.rm=TRUE)'
+                )
             grp_list = ', '.join(f'"{c}"' for c in group_cols)
             lines[-1] += " %>%"
             lines.append(f"  group_by(across(all_of(c({grp_list})))) %>%")
             lines.append(f"  summarise({', '.join(sum_parts)}, .groups='drop')")
             conf = min(conf, 0.85)
 
-        # COMPUTE blocks → mutate
-        if computes:
-            mutate_parts = []
-            for var, expr in computes.items():
-                r_expr = re.sub(r'_c\d+_', 'sum(n)', expr.strip())
-                r_expr = re.sub(r'_r_',    'n()',    r_expr)
-                r_expr = re.sub(r'_break_', '0',     r_expr)
-                r_expr = _sas_cond_to_r(r_expr)
-                mutate_parts.append(f'{var} = {r_expr}')
+        # Simple COMPUTE (no accumulators, no IF) → mutate
+        simple_computes = {
+            v: e for v, e in computes.items()
+            if not re.search(r'_c\d+_|_r_|_break_|\bif\b', e, re.IGNORECASE)
+        }
+        if simple_computes:
+            mutate_parts = [
+                f'{var} = {_sas_cond_to_r(expr.strip())}'
+                for var, expr in simple_computes.items()
+            ]
             lines[-1] += " %>%"
             lines.append(f"  mutate({', '.join(mutate_parts)})")
-            if any('_c' in e for e in computes.values()):
-                lines.append(
-                    "  # ⚠️  _c_ accumulator approximated — verify pct logic manually"
-                )
-                conf = min(conf, 0.55)
 
-        # DISPLAY / ORDER → select + arrange
+        # SELECT columns
         select_cols = list(dict.fromkeys(
             group_cols + display_cols + list(analysis_cols.keys()) + computed_cols
         ))
-        if columns:
-            select_cols = [c for c in columns if c in
-                           (set(select_cols) | set(analysis_cols))]
+        if columns and not has_spanning:
+            select_cols = [c for c in columns
+                           if c in (set(select_cols) | set(analysis_cols))]
         if select_cols:
             col_list = ', '.join(f'"{c}"' for c in select_cols)
             lines[-1] += " %>%"
             lines.append(f"  select(any_of(c({col_list})))")
 
+        # ORDER
         if order_cols:
             ord_list = ', '.join(f'"{c}"' for c in order_cols)
             lines[-1] += " %>%"
             lines.append(f"  arrange(across(all_of(c({ord_list}))))")
 
-        # ACROSS → pivot_wider
-        if across_cols and analysis_cols:
-            across_col = across_cols[0]
-            val_list   = ', '.join(f'"{c}"' for c in analysis_cols.keys())
+        # Single ACROSS → pivot_wider (rule-based is fine for one)
+        if len(across_cols) == 1 and analysis_cols:
+            val_list = ', '.join(f'"{c}"' for c in analysis_cols.keys())
             lines[-1] += " %>%"
-            lines.append(f"  pivot_wider(names_from  = '{across_col}',")
+            lines.append(f"  pivot_wider(names_from  = '{across_cols[0]}',")
             lines.append(f"              values_from = c({val_list}))")
-            if len(across_cols) > 1:
-                lines.append(
-                    "  # ⚠️  Multiple ACROSS cols — review pivot_wider nesting"
-                )
-            conf = min(conf, 0.65)
+            conf = min(conf, 0.75)
 
-        # BREAK / subtotals stub
+        # BREAK subtotals (rule-based stub — always reliable enough to emit)
         if breaks:
-            if any('summarize' in b['options'] for b in breaks) and group_cols:
+            has_sum_break = any('summarize' in b['options'] for b in breaks)
+            has_rbreak_   = any(b.get('rbreak') for b in breaks)
+            if has_sum_break and group_cols:
                 grp_list = ', '.join(f'"{c}"' for c in group_cols)
-                lines.append(f"\n  # BREAK subtotals — uncomment to append group summaries")
+                lines.append(f"\n  # ── BREAK subtotals ───────────────────────────")
                 lines.append(f"  # subtotals <- report_data %>%")
                 lines.append(f"  #   group_by(across(all_of(c({grp_list})))) %>%")
                 lines.append(f"  #   summarise(across(where(is.numeric), sum, na.rm=TRUE))")
-                lines.append(f"  # report_data <- bind_rows(report_data, subtotals)")
-            conf = min(conf, 0.60)
+                lines.append(f"  # report_data <- bind_rows(report_data, subtotals) %>%")
+                lines.append(f"  #   arrange({group_cols[0]})")
+            conf = min(conf, 0.70)
 
-        # Column labels stub
+        # Column labels
         if labels:
             ren_parts = ', '.join(
                 f'"{v}" = "{k}"' for k, v in labels.items() if k in select_cols
             )
             if ren_parts:
-                lines.append(f"\n  # Rename to SAS labels (uncomment to apply)")
+                lines.append(f"\n  # ── Column labels ─────────────────────────────")
                 lines.append(f"  # report_data <- report_data %>% rename({ren_parts})")
 
-        # Rendering stub
+        # ── LLM FRAGMENT section ─────────────────────────────────
+        if needs_llm:
+            lines.append(f"\n# ── LLM-assisted fragments ───────────────────────")
+
+            hard_fragments = []
+
+            if has_accum or has_compute_if:
+                hard_computes = {
+                    v: e for v, e in computes.items()
+                    if re.search(r'_c\d+_|_r_|_break_|\bif\b', e, re.IGNORECASE)
+                }
+                hard_fragments.append(('compute', hard_computes, analysis_cols))
+
+            if has_multi_across:
+                hard_fragments.append(('multi_across', across_cols, analysis_cols))
+
+            if has_spanning:
+                hard_fragments.append(('spanning', columns, labels))
+
+            if has_line:
+                line_stmts = re.findall(r'\bline\b[^;]+;', raw_sas, re.IGNORECASE)
+                hard_fragments.append(('line_stmt', line_stmts, {}))
+
+            if has_rbreak:
+                hard_fragments.append(('rbreak', analysis_cols, group_cols))
+
+            for frag_type, frag_data, frag_ctx in hard_fragments:
+                r_fragment, frag_conf = self._proc_report_llm_fragment(
+                    frag_type, frag_data, frag_ctx,
+                    inp, dialect, raw_sas, llm_client
+                )
+                lines.extend(r_fragment)
+                conf = min(conf, frag_conf)
+
+        # ── Rendering stub ───────────────────────────────────────
         lines.append(f"\n# ── Table rendering ──────────────────────────────────")
         lines.append(f"# library(gt)")
         if group_cols:
             grp = group_cols[0]
             lines.append(f"# report_data %>%")
             lines.append(f"#   gt(groupname_col = '{grp}') %>%")
-            lines.append(f"#   tab_header(title = '{inp} Summary') %>%")
-            lines.append(f"#   grand_summary_rows(fns = list(Total = ~sum(., na.rm=TRUE)))")
+            lines.append(f"#   tab_header(title = '{inp} Summary')")
+            if has_rbreak or any('summarize' in b.get('options','') for b in breaks):
+                lines.append(
+                    f"#   grand_summary_rows(fns = list(Total = ~sum(., na.rm=TRUE)))"
+                )
+            if has_spanning:
+                lines.append(f"#   # ↑ add tab_spanner() calls from LLM fragment above")
         else:
             lines.append(f"# report_data %>% gt()")
         lines.append(f"#")
-        lines.append(f"# library(flextable)  # alternative")
-        lines.append(f"# flextable(report_data)")
-
-        if has_across and has_computed:
-            conf = min(conf, 0.50)
-            lines.append(
-                f"\n# ⚠️  PROC REPORT has ACROSS + COMPUTED — review carefully"
-            )
+        lines.append(f"# library(flextable)  # alternative: flextable(report_data)")
 
         return lines, conf
+
+    def _proc_report_llm_fragment(
+        self, frag_type: str, frag_data, frag_ctx,
+        inp: str, dialect: str, raw_sas: str, llm_client
+    ) -> tuple:
+        """
+        Send a specific hard PROC REPORT fragment to LLM.
+        Returns (r_lines, confidence).
+        If no LLM client available, returns a TODO comment stub.
+        """
+        dialect_hint = "tidyverse/dplyr + gt" if "dplyr" in dialect else "base R"
+
+        prompts = {
+            'compute': (
+                f"Convert these SAS PROC REPORT COMPUTE blocks to R using {dialect_hint}.\n"
+                f"Input dataframe is called 'report_data'.\n"
+                f"Analysis columns available: {list(frag_ctx.keys())}\n\n"
+                f"COMPUTE blocks:\n"
+                + "\n".join(f"  {v}: {e}" for v, e in frag_data.items())
+                + "\n\nRULES:\n"
+                "1. _c1_, _c2_ etc = column totals from ACROSS grouping — use group totals\n"
+                "2. _r_ = row total — use rowSums()\n"
+                "3. _break_ = subtotal context — use 0 as default\n"
+                "4. IF/ELSE inside COMPUTE → ifelse() or case_when()\n"
+                "5. Return ONLY a dplyr mutate() call, no explanation\n"
+                "6. Format: report_data <- report_data %>% mutate(...)"
+            ),
+            'multi_across': (
+                f"Convert this SAS PROC REPORT multi-ACROSS layout to R using {dialect_hint}.\n"
+                f"Input dataframe: 'report_data'\n"
+                f"ACROSS columns (in order): {frag_data}\n"
+                f"Value columns: {list(frag_ctx.keys())}\n\n"
+                "RULES:\n"
+                "1. Use pivot_wider() — may need nested or sequential pivots\n"
+                "2. Return ONLY the pivot_wider() chain\n"
+                "3. Format: report_data <- report_data %>% pivot_wider(...)"
+            ),
+            'spanning': (
+                f"Convert this SAS PROC REPORT COLUMN spanning header to R gt code.\n"
+                f"COLUMN statement tokens: {frag_data}\n"
+                f"Column labels: {frag_ctx}\n\n"
+                "RULES:\n"
+                "1. Use gt::tab_spanner() for each spanning group\n"
+                "2. Return ONLY the gt tab_spanner() calls\n"
+                "3. Format: report_data %>% gt() %>% tab_spanner(...) %>% ..."
+            ),
+            'line_stmt': (
+                f"Convert these SAS PROC REPORT LINE statements to R using gt.\n"
+                f"Input dataframe: 'report_data'\n"
+                f"LINE statements: {frag_data}\n\n"
+                "RULES:\n"
+                "1. Static text LINE → gt::tab_source_note() or tab_footnote()\n"
+                "2. LINE with variable → format as string and add as note\n"
+                "3. Return ONLY gt calls, no explanation"
+            ),
+            'rbreak': (
+                f"Convert SAS PROC REPORT RBREAK AFTER / SUMMARIZE to R.\n"
+                f"Input dataframe: 'report_data'\n"
+                f"Analysis columns: {list(frag_data.keys()) if isinstance(frag_data, dict) else frag_data}\n"
+                f"Group columns: {frag_ctx}\n\n"
+                "RULES:\n"
+                "1. Grand total row → bind_rows() with colSums()\n"
+                "2. OR use gt::grand_summary_rows()\n"
+                "3. Return ONLY the R code, no explanation"
+            ),
+        }
+
+        prompt = prompts.get(frag_type)
+        if not prompt:
+            return [f"# TODO: Unknown fragment type '{frag_type}'"], 0.30
+
+        # No LLM available → emit a clear TODO stub
+        if llm_client is None:
+            stub_labels = {
+                'compute':      '_c_/_r_ accumulator COMPUTE block',
+                'multi_across': 'multi-column ACROSS layout',
+                'spanning':     'spanning header (COLUMN nesting)',
+                'line_stmt':    'LINE statement',
+                'rbreak':       'RBREAK grand total',
+            }
+            label = stub_labels.get(frag_type, frag_type)
+            return [
+                f"# ⚠️  TODO [{label}] — connect LLM client for auto-conversion",
+                f"# Relevant SAS:",
+                f"# {raw_sas[:200].replace(chr(10), ' ')[:200]}",
+            ], 0.30
+
+        # Call LLM
+        raw = None
+        try:
+            res = llm_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0
+            )
+            raw = res.choices[0].message.content
+        except Exception:
+            return [
+                f"# ⚠️  LLM call failed for {frag_type} fragment — manual conversion needed"
+            ], 0.20
+
+        # Clean markdown fences
+        raw = re.sub(r'```[rR]?\n?', '', raw)
+        raw = re.sub(r'```', '', raw)
+        r_lines = [ln for ln in raw.strip().split('\n') if ln.strip()]
+        return r_lines, 0.85
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -1369,7 +1539,7 @@ class HybridMacroConverter:
     def __init__(self, groq_client=None, gemini_client=None, cache_file=None):
         self.parser    = MacroParser()
         self.scorer    = ComplexityScorer()
-        self.rules     = RuleBasedConverter()
+        self.rules     = RuleBasedConverter(llm_client=groq_client)
         self.llm       = LLMConverter(groq_client, gemini_client) if groq_client else None
         self.cache     = ConversionCache(cache_file)
 
