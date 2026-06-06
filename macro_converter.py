@@ -1952,3 +1952,115 @@ def convert_macros_to_r(
         cache_file=cache_file
     )
     return converter.convert_all(macro_definitions, macro_calls, dialect)
+
+
+def parse_sas_source(sas_text: str) -> dict:
+    """
+    Extract macro definitions and top-level macro calls from raw SAS source text.
+
+    This is the single authoritative extractor for app.py to call instead of
+    doing its own regex — that is where "No valid SAS steps found" originates
+    when the extraction misses the PROC REPORT block.
+
+    Returns:
+        {
+            'macro_definitions': {name: {'params': [...], 'body': str}},
+            'macro_calls':       [call_string, ...],
+            'warnings':          [str, ...],
+        }
+
+    Handles:
+        - %macro name(p1, p2, ...); ... %mend name;
+        - %macro name(p1, p2, ...); ... %mend;   (mend without name)
+        - %macro name;              ... %mend;   (no params)
+        - CRLF line endings
+        - Case-insensitive keywords
+        - Nested comment blocks (* ... ;  and /* ... */)
+        - Bare PROC/DATA steps at top level (wrapped as unnamed macro 'main')
+    """
+    warnings_out = []
+
+    # Normalise line endings
+    sas_text = sas_text.replace('\r\n', '\n').replace('\r', '\n')
+
+    # Strip block comments /* ... */ so they don't confuse the macro regex
+    sas_clean = re.sub(r'/\*.*?\*/', ' ', sas_text, flags=re.DOTALL)
+
+    macro_defs = {}
+
+    # Extract all %macro...%mend blocks (name on %mend is optional)
+    macro_pat = re.compile(
+        r'%macro\s+(\w+)\s*'           # %macro name
+        r'(?:\(([^)]*)\))?\s*;'        # optional (params);
+        r'(.*?)'                       # body
+        r'%mend(?:\s+\1)?\s*;',        # %mend  or  %mend name;
+        re.IGNORECASE | re.DOTALL
+    )
+
+    for m in macro_pat.finditer(sas_clean):
+        name       = m.group(1).strip().upper()
+        params_raw = m.group(2) or ''
+        body       = m.group(3).strip()
+        params     = [p.strip().lstrip('&')
+                      for p in params_raw.split(',') if p.strip()]
+        macro_defs[name] = {'params': params, 'body': body}
+
+    # If no %macro blocks found, treat the whole file as a single anonymous macro
+    # so that bare PROC/DATA steps are still converted.
+    if not macro_defs:
+        body = sas_clean.strip()
+        if body:
+            macro_defs['MAIN'] = {'params': [], 'body': body}
+            warnings_out.append(
+                "No %macro blocks found — treating entire source as a single block."
+            )
+
+    # Extract top-level macro calls (%name(...) outside any macro body)
+    # Remove all macro definition bodies first so we only get call-site calls
+    sas_no_defs = macro_pat.sub('', sas_clean)
+    call_pat    = re.compile(r'%(\w+)\s*\([^)]*\)', re.IGNORECASE)
+    builtins    = MacroParser._MACRO_BUILTINS
+    macro_calls = [
+        m.group(0) for m in call_pat.finditer(sas_no_defs)
+        if m.group(1).upper() not in builtins
+    ]
+
+    return {
+        'macro_definitions': macro_defs,
+        'macro_calls':       macro_calls,
+        'warnings':          warnings_out,
+    }
+
+
+def convert_sas_to_r(
+    sas_text: str,
+    dialect: str = 'Modern R (dplyr)',
+    groq_client=None,
+    gemini_client=None,
+    cache_file: str = None,
+) -> dict:
+    """
+    All-in-one entry point: raw SAS text → R code.
+
+    Replaces the pattern in app.py of:
+        1. (app.py extracts macros)          ← THIS is where "No valid SAS steps" comes from
+        2. convert_macros_to_r(macro_defs, ...)
+
+    With a single reliable call:
+        result = convert_sas_to_r(sas_text, dialect)
+
+    Returns same dict as convert_macros_to_r plus an 'extraction_warnings' key.
+    """
+    extracted = parse_sas_source(sas_text)
+
+    result = convert_macros_to_r(
+        macro_definitions=extracted['macro_definitions'],
+        macro_calls=extracted['macro_calls'],
+        dialect=dialect,
+        groq_client=groq_client,
+        gemini_client=gemini_client,
+        cache_file=cache_file,
+    )
+
+    result['extraction_warnings'] = extracted['warnings']
+    return result
