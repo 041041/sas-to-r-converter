@@ -8,6 +8,7 @@ from table_builder import render_table_builder_tab
 from listing_builder import render_listing_builder_tab
 from macro_processor import expand_sas_macros, has_macros
 from macro_converter import convert_macros_to_r
+from tlf_shell_builder import render_shell_tlf_tab
 
 
 # --- CONFIGURATION ---
@@ -1221,3 +1222,6 @@ if page == "📈 Clinical Graphs":
 
 if page == "📋 Clinical Listings":
     render_listing_builder_tab()
+
+if page == "📋 TLF from Shell":
+    render_shell_tlf_tab()
