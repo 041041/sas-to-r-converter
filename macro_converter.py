@@ -460,7 +460,22 @@ class MacroParser:
             opts  = m.group(2).lower()
 
             col_m   = re.search(r'\bcolumn\s+(.*?);', inner, re.IGNORECASE)
-            columns = col_m.group(1).split() if col_m else []
+            # Parse COLUMN statement:
+            # SAS uses comma syntax (no spaces required) to express ACROSS groupings:
+            #   COLUMN TRT01A,AVAL;   means TRT01A is ACROSS col, AVAL is value col.
+            # We normalise around commas then split on whitespace so both
+            #   "TRT01A,AVAL" and "TRT01A, AVAL" tokenise identically.
+            _col_raw = col_m.group(1) if col_m else ''
+            _col_raw = re.sub(r'\s*,\s*', ',', _col_raw)   # "A , B" -> "A,B"
+            columns      = []   # all column names (flattened, for ordering / select)
+            across_pairs = []   # [(across_col, [val_col, ...]), ...]
+            for _tok in _col_raw.split():
+                if ',' in _tok:
+                    _parts = [p.lower() for p in _tok.split(',')]
+                    across_pairs.append((_parts[0], _parts[1:]))
+                    columns.extend(_parts)
+                else:
+                    columns.append(_tok.lower())
 
             defines = {}
             for d in re.finditer(
@@ -499,7 +514,8 @@ class MacroParser:
 
             _register(m, 'proc_report', {
                 'input':        clean(m.group(1)),
-                'columns':      [c.lower() for c in columns],
+                'columns':      columns,
+                'across_pairs': across_pairs,
                 'defines':      defines,
                 'where':        where_m.group(1).strip() if where_m else '',
                 'breaks':       breaks,
@@ -1201,6 +1217,7 @@ class RuleBasedConverter:
                      llm_client=None) -> tuple:
         inp          = stmt.attrs['input']
         columns      = stmt.attrs['columns']
+        across_pairs = stmt.attrs.get('across_pairs', [])  # [(across_col, [val_cols])]
         defines      = stmt.attrs['defines']
         where        = stmt.attrs['where']
         breaks       = stmt.attrs['breaks']
@@ -1250,9 +1267,56 @@ class RuleBasedConverter:
             lines[-1] += " %>%"
             lines.append(f"  filter({_sas_cond_to_r(where)})")
 
-        # GROUP + ANALYSIS → group_by + summarise
+        # ── ACROSS → group_by + summarise + pivot_wider ─────────────
+        #
+        # SAS semantics: ACROSS columns become column headers after pivoting.
+        # The analysis columns are aggregated first (grouped by ACROSS col +
+        # any GROUP cols), then pivot_wider spreads ACROSS levels into columns.
+        #
+        # Correct sequence:
+        #   1. group_by(group_cols + across_cols)
+        #   2. summarise(stat_AVAL = stat(AVAL, na.rm=TRUE), ...)
+        #   3. pivot_wider(names_from = across_col, values_from = "stat_AVAL")
+        #
+        # This is emitted HERE, before select(), so pivot_wider has access to
+        # the across column before it gets dropped.
+        #
+        if across_cols and analysis_cols and not has_multi_across:
+            stat_map = {
+                'sum': 'sum', 'mean': 'mean', 'min': 'min', 'max': 'max',
+                'median': 'median', 'n': 'n', 'pctn': 'n', 'pctsum': 'sum',
+            }
+            # Build descriptive column names for the summarised values:
+            # e.g. analysis col AVAL with stat mean -> "mean_aval"
+            agg_col_names = {}   # analysis_col -> agg_result_col_name
+            sum_parts     = []
+            for col, stat in analysis_cols.items():
+                fn  = stat_map.get(stat, stat)
+                agg = f'{fn}_{col}' if fn != 'n' else f'n_{col}'
+                agg_col_names[col] = agg
+                sum_parts.append(
+                    f'{agg} = n()' if fn == 'n'
+                    else f'{agg} = {fn}({col}, na.rm=TRUE)'
+                )
+
+            # GROUP cols (if any) + ACROSS cols together form the grouping key
+            all_grp = group_cols + across_cols
+            grp_list = ', '.join(f'.data[["{c}"]]' for c in all_grp)
+
+            lines[-1] += " %>%"
+            lines.append(f"  group_by({grp_list}) %>%")
+            lines.append(f"  summarise({', '.join(sum_parts)}, .groups='drop') %>%")
+
+            # pivot_wider: one ACROSS col, values are the aggregated columns
+            ac          = across_cols[0]
+            val_list    = ', '.join(f'"{v}"' for v in agg_col_names.values())
+            lines.append(f"  pivot_wider(names_from  = \"{ac}\",")
+            lines.append(f"              values_from = c({val_list}))")
+            conf = min(conf, 0.75)
+
+        # GROUP + ANALYSIS → group_by + summarise (non-ACROSS path)
         # Fix #10: use .data[[col]] in group_by, add na.rm=TRUE, .groups="drop"
-        if group_cols and analysis_cols:
+        elif group_cols and analysis_cols:
             stat_map = {
                 'sum': 'sum', 'mean': 'mean', 'min': 'min', 'max': 'max',
                 'median': 'median', 'n': 'n', 'pctn': 'n', 'pctsum': 'sum',
@@ -1362,16 +1426,20 @@ class RuleBasedConverter:
             lines.append(f"  mutate({', '.join(mutate_parts)})")
 
         # SELECT columns
-        select_cols = list(dict.fromkeys(
-            group_cols + display_cols + list(analysis_cols.keys()) + computed_cols
-        ))
-        if columns and not has_spanning:
-            select_cols = [c for c in columns
-                           if c in (set(select_cols) | set(analysis_cols))]
-        if select_cols:
-            col_list = ', '.join(f'"{c}"' for c in select_cols)
-            lines[-1] += " %>%"
-            lines.append(f"  select(any_of(c({col_list})))")
+        # After pivot_wider (ACROSS path) the column layout is determined by the
+        # pivot — emitting select() would reference columns that no longer exist
+        # (e.g. the original analysis col or the across col).  Skip it there.
+        if not (across_cols and analysis_cols and not has_multi_across):
+            select_cols = list(dict.fromkeys(
+                group_cols + display_cols + list(analysis_cols.keys()) + computed_cols
+            ))
+            if columns and not has_spanning:
+                select_cols = [c for c in columns
+                               if c in (set(select_cols) | set(analysis_cols))]
+            if select_cols:
+                col_list = ', '.join(f'"{c}"' for c in select_cols)
+                lines[-1] += " %>%"
+                lines.append(f"  select(any_of(c({col_list})))")
 
         # ORDER
         if order_cols:
@@ -1379,13 +1447,7 @@ class RuleBasedConverter:
             lines[-1] += " %>%"
             lines.append(f"  arrange({ord_list})")
 
-        # Single ACROSS → pivot_wider (rule-based is fine for one)
-        if len(across_cols) == 1 and analysis_cols:
-            val_list = ', '.join(f'"{c}"' for c in analysis_cols.keys())
-            lines[-1] += " %>%"
-            lines.append(f"  pivot_wider(names_from  = '{across_cols[0]}',")
-            lines.append(f"              values_from = c({val_list}))")
-            conf = min(conf, 0.75)
+        # (multi-ACROSS is handled by LLM fragment below)
 
         # Fix #8: BREAK AFTER / SUMMARIZE — generate real subtotal code, not just comments
         if breaks:
