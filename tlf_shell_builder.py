@@ -287,68 +287,70 @@ def _build_ae_summary_r_code(spec: dict, has_adam: bool) -> str:
 
     dummy = "" if has_adam else """
 set.seed(42)
-n <- 20
+n <- 40
 df <- data.frame(
-  USUBJID  = paste0("S", 1:n),
-  TRT01P   = rep(c("Placebo","Drug A"), each=n/2),
-  TRTEMFL  = sample(c("Y","N"), n, replace=TRUE, prob=c(0.7,0.3)),
-  AEBODSYS = sample(c("Gastrointestinal","Nervous System","Skin"), n, replace=TRUE),
-  AEDECOD  = sample(c("Nausea","Headache","Rash","Vomiting","Dizziness"), n, replace=TRUE),
-  AESER    = sample(c("Y","N"), n, replace=TRUE, prob=c(0.2,0.8)),
+  USUBJID  = paste0("S", rep(1:20, each=2)),
+  TRT01P   = rep(c("Placebo","Drug A"), 20),
+  TRTEMFL  = sample(c("Y","N"), 40, replace=TRUE, prob=c(0.7,0.3)),
+  AEBODSYS = sample(c("Gastrointestinal disorders","Nervous system disorders","Skin disorders"), 40, replace=TRUE),
+  AEDECOD  = sample(c("Nausea","Headache","Rash","Vomiting","Dizziness"), 40, replace=TRUE),
+  AESER    = sample(c("Y","N"), 40, replace=TRUE, prob=c(0.2,0.8)),
+  AESDTH   = sample(c("Y","N"), 40, replace=TRUE, prob=c(0.05,0.95)),
   SAFFL    = "Y",
   stringsAsFactors=FALSE
 )
 """
-    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag} == "Y")"""
+    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df[df${pop_flag}=="Y", ]"""
 
     return f"""{dummy}
 {pop_filter}
 
-# Subjects per treatment (denominator)
-n_trt <- df %>% select(USUBJID, TRT01P) %>% distinct() %>%
-  count(TRT01P, name="N_total")
-n_total_all <- n_distinct(df$USUBJID)
+# Denominators
+trts    <- sort(unique(df$TRT01P))
+n_trt   <- sapply(trts, function(t) length(unique(df$USUBJID[df$TRT01P==t])))
+n_all   <- length(unique(df$USUBJID))
 
-# TEAE only
-ae <- df %>% filter(TRTEMFL == "Y")
+# TEAE subset
+ae <- df[!is.na(df$TRTEMFL) & df$TRTEMFL=="Y", ]
 
-# Helper: count subjects with event
-subj_pct <- function(data, grp_col, n_ref) {{
-  data %>%
-    group_by(across(all_of(grp_col))) %>%
-    summarise(n_subj = n_distinct(USUBJID), .groups="drop") %>%
-    left_join(n_ref, by="TRT01P") %>%
-    mutate(val = sprintf("%d (%.1f%%)", n_subj, 100*n_subj/N_total)) %>%
-    select(TRT01P, val)
-}}
-
-# Summary rows
-make_row <- function(data, label) {{
-  row <- data %>% subj_pct("TRT01P", n_trt) %>%
-    pivot_wider(names_from=TRT01P, values_from=val, values_fill="0 (0.0%)")
-  total_n <- n_distinct(data$USUBJID)
-  row$Total <- sprintf("%d (%.1f%%)", total_n, 100*mean(df$USUBJID %in% data$USUBJID))
-  row$Category  <- label
+# Core function: count unique subjects with condition, return formatted string per trt
+make_row <- function(subdata, label) {{
+  trt_vals <- sapply(trts, function(t) {{
+    n_subj <- length(unique(subdata$USUBJID[subdata$TRT01P==t]))
+    denom  <- n_trt[t]
+    sprintf("%d (%.1f%%)", n_subj, 100*n_subj/max(denom,1))
+  }})
+  tot_n <- length(unique(subdata$USUBJID))
+  row   <- as.data.frame(t(trt_vals), stringsAsFactors=FALSE)
+  row$Total    <- sprintf("%d (%.1f%%)", tot_n, 100*tot_n/max(n_all,1))
+  row$Category <- label
   row
 }}
 
-rows <- bind_rows(
-  make_row(ae,                                    "Any TEAE"),
-  make_row(ae %>% filter(AESER=="Y"),             "Any Serious TEAE"),
-  make_row(ae %>% filter(AEBODSYS=="Gastrointestinal"), "Gastrointestinal disorders"),
-  make_row(ae %>% filter(AEBODSYS=="Nervous System"),   "Nervous system disorders"),
-  make_row(ae %>% filter(AEBODSYS=="Skin"),             "Skin disorders")
+# Build each summary row
+rows <- rbind(
+  make_row(ae,                                                        "Any TEAE"),
+  make_row(ae[!is.na(ae$AESER)  & ae$AESER=="Y",  ],                "Any Serious TEAE"),
+  if ("AESDTH" %in% names(ae)) make_row(ae[!is.na(ae$AESDTH) & ae$AESDTH=="Y", ], "Fatal TEAE") else NULL,
+  make_row(ae[grepl("Gastro",    ae$AEBODSYS, ignore.case=TRUE), ],  "Gastrointestinal disorders"),
+  make_row(ae[grepl("Nervous",   ae$AEBODSYS, ignore.case=TRUE), ],  "Nervous system disorders"),
+  make_row(ae[grepl("Skin",      ae$AEBODSYS, ignore.case=TRUE), ],  "Skin disorders")
 )
 
-# Reorder columns: Category first, then treatments alphabetically, Total last
-col_order <- c("Category", sort(setdiff(names(rows), c("Category","Total"))), "Total")
-rows <- rows %>% select(all_of(col_order))
+# Reorder: Category | trts alphabetically | Total
+col_order <- c("Category", sort(trts), "Total")
+col_order <- col_order[col_order %in% names(rows)]
+rows      <- rows[, col_order]
 
-tbl <- gt(rows, groupname_col=NULL) %>%
+tbl <- gt(rows) %>%
   tab_header(title="{title}") %>%
   {fn_lines}  cols_label(Category="Adverse Event Category") %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
-  tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
+  tab_style(
+    style=cell_text(weight="bold"),
+    locations=cells_body(columns="Category", rows=Category=="Any TEAE")
+  ) %>%
+  tab_options(table.width=pct(100))
 
 cat(as_raw_html(tbl))
 """
@@ -368,74 +370,66 @@ def _build_ae_socpt_r_code(spec: dict, has_adam: bool) -> str:
 
     dummy = "" if has_adam else """
 set.seed(42)
-n <- 30
+subj_ids <- paste0("S", 1:15)
 df <- data.frame(
-  USUBJID  = paste0("S", sample(1:15, n, replace=TRUE)),
-  TRT01P   = sample(c("Placebo","Drug A"), n, replace=TRUE),
+  USUBJID  = sample(subj_ids, 40, replace=TRUE),
+  TRT01P   = sample(c("Placebo","Drug A"), 40, replace=TRUE),
   TRTEMFL  = "Y",
-  AEBODSYS = sample(c("Gastrointestinal disorders","Nervous system disorders","Skin disorders"), n, replace=TRUE),
-  AEDECOD  = sample(c("Nausea","Vomiting","Headache","Dizziness","Rash","Pruritus"), n, replace=TRUE),
+  AEBODSYS = sample(c("Gastrointestinal disorders","Nervous system disorders","Skin disorders"), 40, replace=TRUE),
+  AEDECOD  = sample(c("Nausea","Vomiting","Headache","Dizziness","Rash","Pruritus"), 40, replace=TRUE),
   SAFFL    = "Y",
   stringsAsFactors=FALSE
 )
 """
-    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag} == "Y")"""
+    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df[df${pop_flag}=="Y", ]"""
 
     return f"""{dummy}
 {pop_filter}
 
-ae <- df %>% filter(TRTEMFL == "Y")
-n_trt   <- df %>% select(USUBJID, TRT01P) %>% distinct() %>% count(TRT01P, name="N_total")
-n_all   <- n_distinct(df$USUBJID)
-trts    <- sort(unique(df$TRT01P))
+ae    <- df[!is.na(df$TRTEMFL) & df$TRTEMFL=="Y", ]
+trts  <- sort(unique(df$TRT01P))
+n_trt <- sapply(trts, function(t) length(unique(df$USUBJID[df$TRT01P==t])))
+n_all <- length(unique(df$USUBJID))
 
-fmt_pct <- function(n, denom) sprintf("%d (%.1f%%)", n, 100*n/max(denom,1))
+fmt_n <- function(n, denom) sprintf("%d (%.1f%%)", n, 100*n/max(denom,1))
 
-# SOC rows
-soc_rows <- ae %>%
-  group_by(AEBODSYS, TRT01P) %>%
-  summarise(n_subj=n_distinct(USUBJID), .groups="drop") %>%
-  left_join(n_trt, by="TRT01P") %>%
-  mutate(val=fmt_pct(n_subj, N_total)) %>%
-  select(AEBODSYS, TRT01P, val) %>%
-  pivot_wider(names_from=TRT01P, values_from=val, values_fill="0 (0.0%)")
-soc_tot <- ae %>% group_by(AEBODSYS) %>%
-  summarise(n_subj=n_distinct(USUBJID), .groups="drop") %>%
-  mutate(Total=fmt_pct(n_subj, n_all)) %>% select(AEBODSYS, Total)
-soc_rows <- left_join(soc_rows, soc_tot, by="AEBODSYS") %>%
-  mutate(Term=AEBODSYS, Level="SOC") %>% select(-AEBODSYS)
+# Count unique subjects per treatment for a subset
+count_row <- function(subdata, label, indent=FALSE) {{
+  trt_vals <- sapply(trts, function(t) {{
+    fmt_n(length(unique(subdata$USUBJID[subdata$TRT01P==t])), n_trt[t])
+  }})
+  tot <- length(unique(subdata$USUBJID))
+  row <- as.data.frame(t(trt_vals), stringsAsFactors=FALSE)
+  row$Total <- fmt_n(tot, n_all)
+  row$Term  <- if (indent) paste0("    ", label) else label
+  row$Level <- if (indent) "PT" else "SOC"
+  row
+}}
 
-# PT rows
-pt_rows <- ae %>%
-  group_by(AEBODSYS, AEDECOD, TRT01P) %>%
-  summarise(n_subj=n_distinct(USUBJID), .groups="drop") %>%
-  left_join(n_trt, by="TRT01P") %>%
-  mutate(val=fmt_pct(n_subj, N_total)) %>%
-  select(AEBODSYS, AEDECOD, TRT01P, val) %>%
-  pivot_wider(names_from=TRT01P, values_from=val, values_fill="0 (0.0%)")
-pt_tot <- ae %>% group_by(AEBODSYS, AEDECOD) %>%
-  summarise(n_subj=n_distinct(USUBJID), .groups="drop") %>%
-  mutate(Total=fmt_pct(n_subj, n_all)) %>% select(AEBODSYS, AEDECOD, Total)
-pt_rows <- left_join(pt_rows, pt_tot, by=c("AEBODSYS","AEDECOD")) %>%
-  mutate(Term=paste0("  ", AEDECOD), Level="PT") %>% select(-AEBODSYS, -AEDECOD)
-
-# Interleave SOC + PT rows
-all_soc <- sort(unique(soc_rows$Term))
-tbl_data <- bind_rows(lapply(all_soc, function(soc) {{
-  bind_rows(
-    soc_rows %>% filter(Term==soc),
-    pt_rows  %>% filter(grepl(trimws(soc), ae$AEBODSYS[match(trimws(Term), paste0("  ", ae$AEDECOD))], fixed=TRUE))
-  )
+# Build SOC then PT rows interleaved
+all_soc  <- sort(unique(ae$AEBODSYS))
+tbl_rows <- do.call(rbind, lapply(all_soc, function(soc) {{
+  soc_data <- ae[ae$AEBODSYS==soc, ]
+  soc_row  <- count_row(soc_data, soc, indent=FALSE)
+  pts      <- sort(unique(soc_data$AEDECOD))
+  pt_rows  <- do.call(rbind, lapply(pts, function(pt) {{
+    count_row(soc_data[soc_data$AEDECOD==pt, ], pt, indent=TRUE)
+  }}))
+  rbind(soc_row, pt_rows)
 }}))
-tbl_data <- bind_rows(soc_rows, pt_rows) %>% arrange(Term)
 
-tbl <- gt(tbl_data) %>%
+# Column order
+col_order  <- c("Term", sort(trts), "Total", "Level")
+col_order  <- col_order[col_order %in% names(tbl_rows)]
+tbl_rows   <- tbl_rows[, col_order]
+
+tbl <- gt(tbl_rows) %>%
   tab_header(title="{title}") %>%
-  {fn_lines}  cols_label(Term="System Organ Class / Preferred Term", Level="") %>%
+  {fn_lines}  cols_label(Term="System Organ Class / Preferred Term") %>%
   cols_hide("Level") %>%
   tab_style(
-    style=cell_text(weight="bold"),
-    locations=cells_body(columns="Term", rows=Level=="SOC")
+    style = cell_text(weight="bold"),
+    locations = cells_body(columns="Term", rows=Level=="SOC")
   ) %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
   tab_options(table.width=pct(100))
