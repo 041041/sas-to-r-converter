@@ -38,6 +38,7 @@ class ShellTLFState(TypedDict):
     final_r_code:      str
     final_output:      str            # rendered HTML table or message
     detected_type:     str            # demog|ae_summary|ae_socpt|lab|vitals|efficacy|listing|llm
+    ai_instructions:   str            # extra user instructions for LLM enhancement
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -488,26 +489,42 @@ params_list <- sort(unique(df[[param_col]]))
 visits_list <- unique(df[[visit_col]])
 if ("AVISITN" %in% names(df)) visits_list <- visits_list[order(match(visits_list, df[[visit_col]][order(df$AVISITN)]))]
 
-make_cont_row <- function(data, stat_label, stat_fn) {{
+make_cont_row <- function(data, vc, stat_label, stat_fn) {{
+  vals <- data[[vc]]
   data %>% group_by(TRT01P) %>%
-    summarise(val=stat_fn(.data[[val_col]]), .groups="drop") %>%
+    summarise(val=stat_fn(vals[match(seq_along(vals), which(data$TRT01P==TRT01P[1]))]), .groups="drop") %>%
     pivot_wider(names_from=TRT01P, values_from=val) %>%
     mutate(Statistic=stat_label)
 }}
 
+# Simpler: compute stats directly without dynamic column issues
 tbl_list <- lapply(params_list, function(p) {{
   lapply(visits_list, function(v) {{
-    sub <- df %>% filter(.data[[param_col]]==p, .data[[visit_col]]==v)
+    sub <- df[df[[param_col]]==p & df[[visit_col]]==v, ]
     if (nrow(sub)==0) return(NULL)
-    n_trt <- sub %>% group_by(TRT01P) %>% summarise(val=as.character(n()), .groups="drop") %>%
-      pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="n")
-    mn    <- make_cont_row(sub, "Mean (SD)",
-      function(x) sprintf("%.1f (%.1f)", mean(x,na.rm=TRUE), sd(x,na.rm=TRUE)))
-    med   <- make_cont_row(sub, "Median",
-      function(x) sprintf("%.1f", median(x,na.rm=TRUE)))
-    rng   <- make_cont_row(sub, "Min, Max",
-      function(x) sprintf("%g, %g", min(x,na.rm=TRUE), max(x,na.rm=TRUE)))
-    rows  <- bind_rows(n_trt, mn, med, rng)
+    avals <- sub[[val_col]]
+    trts  <- sort(unique(sub$TRT01P))
+    
+    make_stat <- function(stat_label, fn) {{
+      vals <- sapply(trts, function(t) fn(avals[sub$TRT01P==t]))
+      row  <- as.data.frame(t(vals))
+      names(row) <- trts
+      row$Statistic <- stat_label
+      row
+    }}
+    
+    rows <- bind_rows(
+      make_stat("n",          function(x) as.character(sum(!is.na(x)))),
+      make_stat("Mean (SD)",  function(x) sprintf("%.1f (%.1f)", mean(x,na.rm=TRUE), sd(x,na.rm=TRUE))),
+      make_stat("Median",     function(x) sprintf("%.1f", median(x,na.rm=TRUE))),
+      make_stat("Min, Max",   function(x) sprintf("%g, %g", min(x,na.rm=TRUE), max(x,na.rm=TRUE)))
+    )
+    rows$Total     <- c(
+      as.character(sum(!is.na(avals))),
+      sprintf("%.1f (%.1f)", mean(avals,na.rm=TRUE), sd(avals,na.rm=TRUE)),
+      sprintf("%.1f", median(avals,na.rm=TRUE)),
+      sprintf("%g, %g", min(avals,na.rm=TRUE), max(avals,na.rm=TRUE))
+    )
     rows$Parameter <- p
     rows$Visit     <- v
     rows
@@ -778,7 +795,39 @@ Generate complete R code now:"""
         raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
 
     state["generated_code"] = raw
-    state["detected_type"]  = table_type   # store for agent log
+    state["detected_type"]  = table_type
+
+    # ── AI instructions enhancement pass ──────────────────────────────────
+    # If user provided extra instructions AND a template was used (not LLM),
+    # run a quick LLM enhancement pass to apply the customisations.
+    ai_instr = state.get("ai_instructions", "").strip()
+    if ai_instr and table_type != "llm":
+        enhance_prompt = f"""You are an R clinical TLF code editor. Apply ONLY the requested changes below.
+
+EXISTING R CODE:
+{raw}
+
+USER INSTRUCTIONS:
+{ai_instr}
+
+RULES:
+- Touch ONLY what the instructions ask. Preserve all other logic exactly.
+- Do NOT add library(), read.csv, or ggsave — these are handled externally.
+- Valid gt functions: gt(), tab_header(), tab_footnote(), cols_label(), tab_row_group(),
+  tab_style(), cell_text(), cells_row_groups(), cells_title(), cells_column_labels(),
+  cells_body(), as_raw_html().
+- Last line must remain: cat(as_raw_html(tbl))
+- Return ONLY complete R code. No markdown fences. No explanations.
+"""
+        try:
+            enhanced = _call_llm(enhance_prompt)
+            enhanced = re.sub(r'```[rR]?\n?', '', enhanced)
+            enhanced = re.sub(r'```', '', enhanced).strip()
+            if enhanced:
+                state["generated_code"] = enhanced
+        except Exception:
+            pass  # silently keep template code if enhancement fails
+
     return state
 
 
@@ -974,6 +1023,7 @@ def run_shell_pipeline(shell_text: str, adam_csv: Optional[str] = None) -> Shell
         "final_r_code":      "",
         "final_output":      "",
         "detected_type":     "",
+        "ai_instructions":   "",
     }
 
     # Node 1: Parse
@@ -1208,6 +1258,7 @@ b. Note: xx""",
                     "final_r_code":      "",
                     "final_output":      "",
                     "detected_type":     "",
+                    "ai_instructions":   ai_instructions.strip(),
                 }
                 state = node_parse_shell(state)
                 agent_log.append(("✅ Shell Parsed", str(state["parsed_spec"])[:300]))
@@ -1217,16 +1268,17 @@ b. Note: xx""",
                 state = node_generate_code(state)
                 detected = state.get("detected_type", "unknown")
                 template_map = {
-                    "demog": "📊 Demographics template",
+                    "demog":      "📊 Demographics template",
                     "ae_summary": "🔴 AE Summary template",
-                    "ae_socpt": "🔴 AE SOC/PT template",
-                    "lab": "🧪 Lab Values template",
-                    "vitals": "💓 Vital Signs template",
-                    "efficacy": "📈 Efficacy template",
-                    "listing": "📋 Listing template",
-                    "llm": "🤖 LLM generated",
+                    "ae_socpt":   "🔴 AE SOC/PT template",
+                    "lab":        "🧪 Lab Values template",
+                    "vitals":     "💓 Vital Signs template",
+                    "efficacy":   "📈 Efficacy template",
+                    "listing":    "📋 Listing template",
+                    "llm":        "🤖 LLM generated",
                 }
-                agent_log.append(("✅ Code Generated", f"{template_map.get(detected, detected)} — {len(state['generated_code'])} chars"))
+                ai_note = " + AI customised" if ai_instructions.strip() and detected != "llm" else ""
+                agent_log.append(("✅ Code Generated", f"{template_map.get(detected, detected)}{ai_note} — {len(state['generated_code'])} chars"))
 
                 # Steps 3-5: Execute → Validate → Fix loop
                 for attempt in range(MAX_RETRIES + 1):
@@ -1292,6 +1344,7 @@ b. Note: xx""",
             "final_r_code":      "",
             "final_output":      "",
             "detected_type":     "",
+            "ai_instructions":   "",
         }
         with st.spinner("⚙️ Running R..."):
             run_state = node_execute(run_state)
