@@ -628,8 +628,8 @@ with st.sidebar:
     # Clinical group — label replaces repeating "Clinical" in each item
     st.markdown("**📋 Clinical**")
     
-    bottom_tools_display = ["🏥 Tables", "📋 Listings", "📈 Graphs"]
-    bottom_tools_actual  = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs"]
+    bottom_tools_display = ["🏥 Tables", "📋 Listings", "📈 Graphs", "📋 TLF from Shell"]
+    bottom_tools_actual  = ["🏥 Clinical Tables", "📋 Clinical Listings", "📈 Clinical Graphs", "📋 TLF from Shell"]
     
     if st.session_state.selected_tool in bottom_tools_actual:
         bottom_idx = bottom_tools_actual.index(st.session_state.selected_tool)
@@ -712,6 +712,30 @@ with st.sidebar:
 """)
         st.caption("Built with Gemini + Groq + Rscript")
 
+    elif page == "📋 TLF from Shell":
+    st.header("📋 TLF from Shell")
+    st.markdown("""
+**How to use:**
+1. Paste or upload a mock shell
+2. Optionally upload ADaM CSV
+3. Add any AI instructions
+4. Click Generate → pipeline runs automatically
+
+---
+**Pipeline nodes:**
+🔍 Parse shell spec  
+⚙️ Generate R code  
+▶️ Execute R  
+✅ Validate output  
+🔧 Auto-fix & retry (up to 3x)
+
+---
+**Supported outputs:**
+- Tables → HTML (gt)
+- Listings → plain text
+- Figures → PNG (ggplot2)
+""")
+    st.caption("Powered by Gemini + Groq + LangGraph-style pipeline")
     elif page == "📊 Graph Builder":
         st.header("📊 Graph Builder")
         st.markdown("""
