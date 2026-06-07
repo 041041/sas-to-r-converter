@@ -37,6 +37,7 @@ class ShellTLFState(TypedDict):
     retry_count:       int
     final_r_code:      str
     final_output:      str            # rendered HTML table or message
+    detected_type:     str            # demog|ae_summary|ae_socpt|lab|vitals|efficacy|listing|llm
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -271,11 +272,446 @@ cat(as_raw_html(tbl))
     return code
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE: AE Summary (incidence by treatment)
+# ══════════════════════════════════════════════════════════════════════════════
+def _build_ae_summary_r_code(spec: dict, has_adam: bool) -> str:
+    title     = spec.get("title", "Summary of Adverse Events")
+    pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
+    footnotes = spec.get("footnotes", [])
+
+    fn_lines = ""
+    for fn in footnotes[:5]:
+        fn_lines += f'  tab_footnote(footnote="{fn}", locations=cells_title()) %>%\n'
+
+    dummy = "" if has_adam else """
+set.seed(42)
+n <- 20
+df <- data.frame(
+  USUBJID  = paste0("S", 1:n),
+  TRT01P   = rep(c("Placebo","Drug A"), each=n/2),
+  TRTEMFL  = sample(c("Y","N"), n, replace=TRUE, prob=c(0.7,0.3)),
+  AEBODSYS = sample(c("Gastrointestinal","Nervous System","Skin"), n, replace=TRUE),
+  AEDECOD  = sample(c("Nausea","Headache","Rash","Vomiting","Dizziness"), n, replace=TRUE),
+  AESER    = sample(c("Y","N"), n, replace=TRUE, prob=c(0.2,0.8)),
+  SAFFL    = "Y",
+  stringsAsFactors=FALSE
+)
+"""
+    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag} == "Y")"""
+
+    return f"""{dummy}
+{pop_filter}
+
+# Subjects per treatment (denominator)
+n_trt <- df %>% select(USUBJID, TRT01P) %>% distinct() %>%
+  count(TRT01P, name="N_total")
+n_total_all <- n_distinct(df$USUBJID)
+
+# TEAE only
+ae <- df %>% filter(TRTEMFL == "Y")
+
+# Helper: count subjects with event
+subj_pct <- function(data, grp_col, n_ref) {{
+  data %>%
+    group_by(across(all_of(grp_col))) %>%
+    summarise(n_subj = n_distinct(USUBJID), .groups="drop") %>%
+    left_join(n_ref, by="TRT01P") %>%
+    mutate(val = sprintf("%d (%.1f%%)", n_subj, 100*n_subj/N_total)) %>%
+    select(TRT01P, val)
+}}
+
+# Summary rows
+make_row <- function(data, label) {{
+  row <- data %>% subj_pct("TRT01P", n_trt) %>%
+    pivot_wider(names_from=TRT01P, values_from=val, values_fill="0 (0.0%)")
+  total_n <- n_distinct(data$USUBJID)
+  row$Total     <- sprintf("%d (%.1f%%)", total_n, 100*total_n/n_total_all)
+  row$Category  <- label
+  row
+}}
+
+rows <- bind_rows(
+  make_row(ae,                                    "Any TEAE"),
+  make_row(ae %>% filter(AESER=="Y"),             "Any Serious TEAE"),
+  make_row(ae %>% filter(AEBODSYS=="Gastrointestinal"), "Gastrointestinal disorders"),
+  make_row(ae %>% filter(AEBODSYS=="Nervous System"),   "Nervous system disorders"),
+  make_row(ae %>% filter(AEBODSYS=="Skin"),             "Skin disorders")
+)
+
+tbl <- gt(rows, groupname_col=NULL) %>%
+  tab_header(title="{title}") %>%
+  {fn_lines}  cols_label(Category="Adverse Event Category") %>%
+  tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
+  tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
+
+cat(as_raw_html(tbl))
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE: AE by SOC and PT (nested)
+# ══════════════════════════════════════════════════════════════════════════════
+def _build_ae_socpt_r_code(spec: dict, has_adam: bool) -> str:
+    title     = spec.get("title", "Adverse Events by System Organ Class and Preferred Term")
+    pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
+    footnotes = spec.get("footnotes", [])
+
+    fn_lines = ""
+    for fn in footnotes[:5]:
+        fn_lines += f'  tab_footnote(footnote="{fn}", locations=cells_title()) %>%\n'
+
+    dummy = "" if has_adam else """
+set.seed(42)
+n <- 30
+df <- data.frame(
+  USUBJID  = paste0("S", sample(1:15, n, replace=TRUE)),
+  TRT01P   = sample(c("Placebo","Drug A"), n, replace=TRUE),
+  TRTEMFL  = "Y",
+  AEBODSYS = sample(c("Gastrointestinal disorders","Nervous system disorders","Skin disorders"), n, replace=TRUE),
+  AEDECOD  = sample(c("Nausea","Vomiting","Headache","Dizziness","Rash","Pruritus"), n, replace=TRUE),
+  SAFFL    = "Y",
+  stringsAsFactors=FALSE
+)
+"""
+    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag} == "Y")"""
+
+    return f"""{dummy}
+{pop_filter}
+
+ae <- df %>% filter(TRTEMFL == "Y")
+n_trt   <- df %>% select(USUBJID, TRT01P) %>% distinct() %>% count(TRT01P, name="N_total")
+n_all   <- n_distinct(df$USUBJID)
+trts    <- sort(unique(df$TRT01P))
+
+fmt_pct <- function(n, denom) sprintf("%d (%.1f%%)", n, 100*n/max(denom,1))
+
+# SOC rows
+soc_rows <- ae %>%
+  group_by(AEBODSYS, TRT01P) %>%
+  summarise(n_subj=n_distinct(USUBJID), .groups="drop") %>%
+  left_join(n_trt, by="TRT01P") %>%
+  mutate(val=fmt_pct(n_subj, N_total)) %>%
+  select(AEBODSYS, TRT01P, val) %>%
+  pivot_wider(names_from=TRT01P, values_from=val, values_fill="0 (0.0%)")
+soc_tot <- ae %>% group_by(AEBODSYS) %>%
+  summarise(n_subj=n_distinct(USUBJID), .groups="drop") %>%
+  mutate(Total=fmt_pct(n_subj, n_all)) %>% select(AEBODSYS, Total)
+soc_rows <- left_join(soc_rows, soc_tot, by="AEBODSYS") %>%
+  mutate(Term=AEBODSYS, Level="SOC") %>% select(-AEBODSYS)
+
+# PT rows
+pt_rows <- ae %>%
+  group_by(AEBODSYS, AEDECOD, TRT01P) %>%
+  summarise(n_subj=n_distinct(USUBJID), .groups="drop") %>%
+  left_join(n_trt, by="TRT01P") %>%
+  mutate(val=fmt_pct(n_subj, N_total)) %>%
+  select(AEBODSYS, AEDECOD, TRT01P, val) %>%
+  pivot_wider(names_from=TRT01P, values_from=val, values_fill="0 (0.0%)")
+pt_tot <- ae %>% group_by(AEBODSYS, AEDECOD) %>%
+  summarise(n_subj=n_distinct(USUBJID), .groups="drop") %>%
+  mutate(Total=fmt_pct(n_subj, n_all)) %>% select(AEBODSYS, AEDECOD, Total)
+pt_rows <- left_join(pt_rows, pt_tot, by=c("AEBODSYS","AEDECOD")) %>%
+  mutate(Term=paste0("  ", AEDECOD), Level="PT") %>% select(-AEBODSYS, -AEDECOD)
+
+# Interleave SOC + PT rows
+all_soc <- sort(unique(soc_rows$Term))
+tbl_data <- bind_rows(lapply(all_soc, function(soc) {{
+  bind_rows(
+    soc_rows %>% filter(Term==soc),
+    pt_rows  %>% filter(grepl(trimws(soc), ae$AEBODSYS[match(trimws(Term), paste0("  ", ae$AEDECOD))], fixed=TRUE))
+  )
+}}))
+tbl_data <- bind_rows(soc_rows, pt_rows) %>% arrange(Term)
+
+tbl <- gt(tbl_data) %>%
+  tab_header(title="{title}") %>%
+  {fn_lines}  cols_label(Term="System Organ Class / Preferred Term", Level="") %>%
+  cols_hide("Level") %>%
+  tab_style(
+    style=cell_text(weight="bold"),
+    locations=cells_body(columns="Term", rows=Level=="SOC")
+  ) %>%
+  tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
+  tab_options(table.width=pct(100))
+
+cat(as_raw_html(tbl))
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE: Lab Values / Vital Signs Summary
+# ══════════════════════════════════════════════════════════════════════════════
+def _build_lab_r_code(spec: dict, has_adam: bool) -> str:
+    title     = spec.get("title", "Summary of Laboratory Values")
+    pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
+    footnotes = spec.get("footnotes", [])
+    is_vitals = any(k in spec.get("title","").lower() for k in ["vital","weight","height","pulse","blood pressure"])
+
+    fn_lines = ""
+    for fn in footnotes[:5]:
+        fn_lines += f'  tab_footnote(footnote="{fn}", locations=cells_title()) %>%\n'
+
+    dummy = "" if has_adam else f"""
+set.seed(42)
+n <- 40
+params <- if ({str(is_vitals).upper()} == TRUE) c("Systolic BP","Diastolic BP","Pulse","Weight") else c("ALT","AST","Creatinine","Hemoglobin")
+visits  <- c("Baseline","Week 4","Week 8","Week 12")
+df <- expand.grid(
+  USUBJID  = paste0("S", 1:5),
+  TRT01P   = c("Placebo","Drug A"),
+  PARAM    = params,
+  AVISIT   = visits,
+  stringsAsFactors=FALSE
+)
+df$AVAL  <- round(rnorm(nrow(df), 50, 10), 1)
+df$BASE  <- round(rnorm(nrow(df), 50, 8),  1)
+df$CHG   <- round(df$AVAL - df$BASE, 1)
+df$SAFFL <- "Y"
+df$AVISITN <- match(df$AVISIT, visits)
+"""
+    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag} == "Y")"""
+
+    return f"""{dummy}
+{pop_filter}
+
+# Detect column names flexibly
+param_col <- if ("PARAM" %in% names(df)) "PARAM" else if ("PARAMCD" %in% names(df)) "PARAMCD" else names(df)[1]
+visit_col <- if ("AVISIT" %in% names(df)) "AVISIT" else if ("VISIT" %in% names(df)) "VISIT" else names(df)[2]
+val_col   <- if ("AVAL"   %in% names(df)) "AVAL"   else if ("VALUE"  %in% names(df)) "VALUE"  else names(df)[3]
+
+params_list <- sort(unique(df[[param_col]]))
+visits_list <- unique(df[[visit_col]])
+if ("AVISITN" %in% names(df)) visits_list <- visits_list[order(match(visits_list, df[[visit_col]][order(df$AVISITN)]))]
+
+make_cont_row <- function(data, stat_label, stat_fn) {{
+  data %>% group_by(TRT01P) %>%
+    summarise(val=stat_fn(.data[[val_col]]), .groups="drop") %>%
+    pivot_wider(names_from=TRT01P, values_from=val) %>%
+    mutate(Statistic=stat_label)
+}}
+
+tbl_list <- lapply(params_list, function(p) {{
+  lapply(visits_list, function(v) {{
+    sub <- df %>% filter(.data[[param_col]]==p, .data[[visit_col]]==v)
+    if (nrow(sub)==0) return(NULL)
+    n_trt <- sub %>% group_by(TRT01P) %>% summarise(val=as.character(n()), .groups="drop") %>%
+      pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="n")
+    mn    <- make_cont_row(sub, "Mean (SD)",
+      function(x) sprintf("%.1f (%.1f)", mean(x,na.rm=TRUE), sd(x,na.rm=TRUE)))
+    med   <- make_cont_row(sub, "Median",
+      function(x) sprintf("%.1f", median(x,na.rm=TRUE)))
+    rng   <- make_cont_row(sub, "Min, Max",
+      function(x) sprintf("%g, %g", min(x,na.rm=TRUE), max(x,na.rm=TRUE)))
+    rows  <- bind_rows(n_trt, mn, med, rng)
+    rows$Parameter <- p
+    rows$Visit     <- v
+    rows
+  }})
+}})
+
+tbl_data <- bind_rows(unlist(tbl_list, recursive=FALSE)) %>%
+  select(Parameter, Visit, Statistic, everything())
+
+tbl <- gt(tbl_data, groupname_col="Parameter") %>%
+  tab_header(title="{title}") %>%
+  {fn_lines}  cols_label(Visit="Visit", Statistic="Statistic") %>%
+  tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
+  tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
+  tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
+
+cat(as_raw_html(tbl))
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE: Efficacy / Primary Endpoint
+# ══════════════════════════════════════════════════════════════════════════════
+def _build_efficacy_r_code(spec: dict, has_adam: bool) -> str:
+    title     = spec.get("title", "Summary of Efficacy")
+    pop_flag  = spec.get("pop_flag", "ITTFL") or "ITTFL"
+    footnotes = spec.get("footnotes", [])
+
+    fn_lines = ""
+    for fn in footnotes[:5]:
+        fn_lines += f'  tab_footnote(footnote="{fn}", locations=cells_title()) %>%\n'
+
+    dummy = "" if has_adam else """
+set.seed(42)
+n_per <- 15
+df <- data.frame(
+  USUBJID = paste0("S", 1:(n_per*2)),
+  TRT01P  = rep(c("Placebo","Drug A"), each=n_per),
+  AVAL    = c(rnorm(n_per, 2.1, 0.8), rnorm(n_per, 3.4, 0.9)),
+  BASE    = rnorm(n_per*2, 2.0, 0.5),
+  ITTFL   = "Y",
+  AVALCAT1= sample(c("Responder","Non-Responder"), n_per*2, replace=TRUE, prob=c(0.4,0.6)),
+  stringsAsFactors=FALSE
+)
+df$CHG  <- df$AVAL - df$BASE
+df$PCHG <- 100 * df$CHG / df$BASE
+"""
+    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag} == "Y")"""
+
+    return f"""{dummy}
+{pop_filter}
+
+n_trt   <- df %>% select(USUBJID, TRT01P) %>% distinct() %>% count(TRT01P, name="N_total")
+n_all   <- n_distinct(df$USUBJID)
+
+# Continuous endpoint summary
+val_col <- if ("AVAL" %in% names(df)) "AVAL" else names(df)[3]
+chg_col <- if ("CHG"  %in% names(df)) "CHG"  else NULL
+
+make_row <- function(data, col, label) {{
+  r <- data %>% group_by(TRT01P) %>%
+    summarise(
+      n_val   = as.character(sum(!is.na(.data[[col]]))),
+      mean_sd = sprintf("%.2f (%.2f)", mean(.data[[col]],na.rm=TRUE), sd(.data[[col]],na.rm=TRUE)),
+      med_val = sprintf("%.2f", median(.data[[col]],na.rm=TRUE)),
+      rng_val = sprintf("%.2f, %.2f", min(.data[[col]],na.rm=TRUE), max(.data[[col]],na.rm=TRUE)),
+      .groups = "drop"
+    )
+  bind_rows(
+    r %>% select(TRT01P, val=n_val)   %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="n", Parameter=label),
+    r %>% select(TRT01P, val=mean_sd) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="Mean (SD)", Parameter=label),
+    r %>% select(TRT01P, val=med_val) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="Median", Parameter=label),
+    r %>% select(TRT01P, val=rng_val) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="Min, Max", Parameter=label)
+  )
+}}
+
+rows <- make_row(df, val_col, "Primary Endpoint")
+if (!is.null(chg_col) && chg_col %in% names(df)) {{
+  rows <- bind_rows(rows, make_row(df, chg_col, "Change from Baseline"))
+}}
+
+# Responder analysis if categorical column exists
+if ("AVALCAT1" %in% names(df)) {{
+  resp <- df %>% group_by(TRT01P) %>%
+    summarise(val=sprintf("%d (%.1f%%)",
+      sum(AVALCAT1=="Responder",na.rm=TRUE),
+      100*mean(AVALCAT1=="Responder",na.rm=TRUE)), .groups="drop") %>%
+    pivot_wider(names_from=TRT01P, values_from=val) %>%
+    mutate(Statistic="Responders, n (%)", Parameter="Response")
+  rows <- bind_rows(rows, resp)
+}}
+
+# Total column
+tot_aval <- df[[val_col]]
+rows$Total <- NA_character_
+for (i in seq_len(nrow(rows))) {{
+  stat <- rows$Statistic[i]
+  if (stat=="n")             rows$Total[i] <- as.character(sum(!is.na(tot_aval)))
+  else if (stat=="Mean (SD)")rows$Total[i] <- sprintf("%.2f (%.2f)", mean(tot_aval,na.rm=TRUE), sd(tot_aval,na.rm=TRUE))
+  else if (stat=="Median")   rows$Total[i] <- sprintf("%.2f", median(tot_aval,na.rm=TRUE))
+  else if (stat=="Min, Max") rows$Total[i] <- sprintf("%.2f, %.2f", min(tot_aval,na.rm=TRUE), max(tot_aval,na.rm=TRUE))
+  else if (grepl("Responder", stat)) rows$Total[i] <- sprintf("%d (%.1f%%)", sum(df$AVALCAT1=="Responder",na.rm=TRUE), 100*mean(df$AVALCAT1=="Responder",na.rm=TRUE))
+}}
+
+tbl <- gt(rows, groupname_col="Parameter") %>%
+  tab_header(title="{title}") %>%
+  {fn_lines}  cols_label(Statistic="Statistic") %>%
+  cols_hide("Parameter") %>%
+  tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
+  tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
+  tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
+
+cat(as_raw_html(tbl))
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE: Generic Clinical Listing
+# ══════════════════════════════════════════════════════════════════════════════
+def _build_listing_r_code(spec: dict, has_adam: bool) -> str:
+    title     = spec.get("title", "Clinical Listing")
+    pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
+    footnotes = spec.get("footnotes", [])
+    columns   = spec.get("columns", [])
+
+    fn_lines = ""
+    for fn in footnotes[:5]:
+        fn_lines += f'  tab_footnote(footnote="{fn}", locations=cells_title()) %>%\n'
+
+    col_select = ""
+    if columns:
+        cols_r = ", ".join(f'"{c}"' for c in columns[:10])
+        col_select = f"""
+# Select requested columns if they exist
+req_cols <- c({cols_r})
+avail    <- req_cols[req_cols %in% names(df)]
+if (length(avail) > 0) df <- df %>% select(all_of(avail))
+"""
+
+    dummy = "" if has_adam else f"""
+set.seed(42)
+df <- data.frame(
+  USUBJID  = paste0("SUBJ-", 1:10),
+  TRT01P   = rep(c("Placebo","Drug A"), 5),
+  AGE      = sample(30:70, 10),
+  SEX      = sample(c("M","F"), 10, replace=TRUE),
+  AEDECOD  = sample(c("Headache","Nausea","Rash","Fatigue"), 10, replace=TRUE),
+  AESTDTC  = format(Sys.Date() - sample(1:60, 10), "%Y-%m-%d"),
+  AEENDTC  = format(Sys.Date() - sample(0:30, 10), "%Y-%m-%d"),
+  AESEV    = sample(c("MILD","MODERATE","SEVERE"), 10, replace=TRUE),
+  SAFFL    = "Y",
+  stringsAsFactors=FALSE
+)
+"""
+    pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag} == "Y")"""
+
+    return f"""{dummy}
+{pop_filter}
+{col_select}
+
+# Sort by USUBJID if present
+if ("USUBJID" %in% names(df)) df <- df %>% arrange(USUBJID)
+
+tbl <- gt(df) %>%
+  tab_header(title="{title}") %>%
+  {fn_lines}  tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
+  tab_options(table.width=pct(100))
+
+cat(as_raw_html(tbl))
+"""
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE ROUTER — detect table type and dispatch
+# ══════════════════════════════════════════════════════════════════════════════
+def _detect_table_type(spec: dict) -> str:
+    """
+    Returns one of: demog | ae_summary | ae_socpt | lab | vitals | efficacy | listing | llm
+    Based on title keywords and row_stubs.
+    """
+    title      = spec.get("title", "").lower()
+    row_stubs  = [r.lower() for r in spec.get("row_stubs", [])]
+    all_text   = title + " " + " ".join(row_stubs)
+
+    if any(k in all_text for k in ["demographic", "baseline characteristic", "age", "sex, n", "race"]):
+        return "demog"
+    if any(k in all_text for k in ["system organ class", "preferred term", "soc", "pt", "by body system"]):
+        return "ae_socpt"
+    if any(k in all_text for k in ["adverse event", "teae", "ae summary", "incidence of ae"]):
+        return "ae_summary"
+    if any(k in all_text for k in ["vital sign", "blood pressure", "pulse", "weight", "height", "temperature"]):
+        return "vitals"
+    if any(k in all_text for k in ["laborator", "lab value", "haematol", "hematol", "chemistry", "alt", "ast", "creatinine"]):
+        return "lab"
+    if any(k in all_text for k in ["efficacy", "primary endpoint", "response rate", "responder", "change from baseline"]):
+        return "efficacy"
+    if spec.get("output_type", "Table") == "Listing":
+        return "listing"
+    if not spec.get("row_stubs"):
+        return "demog"   # safe default
+    return "llm"
+
+
 def node_generate_code(state: ShellTLFState) -> ShellTLFState:
     """
-    Hybrid approach:
-    - Standard demographic Table → Python template (reliable, no hallucination)
-    - Figures or custom Tables   → LLM with strict prompt
+    Hybrid approach — routes to Python template or LLM based on detected table type.
+    Templates: demog | ae_summary | ae_socpt | lab | vitals | efficacy | listing
+    LLM fallback: everything else + Figures
     """
     spec        = state["parsed_spec"]
     output_type = spec.get("output_type", "Table")
@@ -289,19 +725,27 @@ def node_generate_code(state: ShellTLFState) -> ShellTLFState:
         except Exception:
             adam_hint = ""
 
-    # Use Python template for standard demographic tables
-    row_stubs   = spec.get("row_stubs", [])
-    demog_hints = ["age", "sex", "race", "bmi", "gender", "baseline", "demographic"]
-    is_demog    = output_type == "Table" and (
-        any(any(h in r.lower() for h in demog_hints) for r in row_stubs)
-        or any(h in spec.get("title", "").lower() for h in ["demographic", "baseline", "characteristics"])
-        or not row_stubs  # default to template if nothing specified
-    )
-
-    if is_demog:
-        raw = _build_demog_r_code(spec, has_adam)
+    # Figures always go to LLM
+    if output_type == "Figure":
+        table_type = "llm"
     else:
-        # LLM for non-standard tables and figures
+        table_type = _detect_table_type(spec)
+
+    # Dispatch to template
+    if table_type == "demog":
+        raw = _build_demog_r_code(spec, has_adam)
+    elif table_type == "ae_summary":
+        raw = _build_ae_summary_r_code(spec, has_adam)
+    elif table_type == "ae_socpt":
+        raw = _build_ae_socpt_r_code(spec, has_adam)
+    elif table_type in ("lab", "vitals"):
+        raw = _build_lab_r_code(spec, has_adam)
+    elif table_type == "efficacy":
+        raw = _build_efficacy_r_code(spec, has_adam)
+    elif table_type == "listing":
+        raw = _build_listing_r_code(spec, has_adam)
+    else:
+        # LLM fallback for Figures and custom tables
         prompt = f"""You are an expert clinical R programmer generating production-ready TLF code.
 
 SPEC:
@@ -312,18 +756,16 @@ RULES:
 1. Use gt package for Tables, ggplot2 for Figures.
 2. If ADaM data is provided, read from df (already loaded). If not, create realistic dummy data.
 3. Do NOT load any libraries — dplyr, tidyr, gt, ggplot2 are already loaded.
-4. CRITICAL TABLE STRUCTURE:
-   - COLUMNS: Statistic | Treatment Group 1 | Treatment Group 2 | Total
-   - ROWS: one row per statistic/category
-   - Treatment is ALWAYS a column, NEVER a row.
-5. Use bind_rows() + pivot_wider(names_from=TRT01P) pattern. Never mutate(col=c(...)) on grouped data.
-6. ALL column names must be non-empty strings.
-7. VALID gt functions: gt(), tab_header(), tab_footnote(), cols_label(), tab_row_group(),
+4. TABLE STRUCTURE: Treatment groups are ALWAYS columns. Statistics are ALWAYS rows.
+5. Use bind_rows() + pivot_wider(names_from=TRT01P) — never mutate(col=c(...)) on grouped data.
+6. ALL data.frame column names must be non-empty strings.
+7. VALID gt functions only: gt(), tab_header(), tab_footnote(), cols_label(), tab_row_group(),
    tab_style(), cell_text(), cells_row_groups(), cells_title(), cells_column_labels(),
-   cells_body(), as_raw_html(). NEVER: column_labels(), set_column_labels().
-8. Last line MUST be: cat(as_raw_html(tbl))
-9. For Figures: last line must be print(p). No ggsave.
-10. Return ONLY R code. No markdown. No explanations.
+   cells_body(), as_raw_html().
+   NEVER USE: column_labels(), set_column_labels(), tab_column_label().
+8. For Tables: last line MUST be: cat(as_raw_html(tbl))
+9. For Figures: last line MUST be: print(p)  — no ggsave.
+10. Return ONLY R code. No markdown fences. No explanations.
 
 Generate complete R code now:"""
         raw = _call_llm(prompt)
@@ -332,6 +774,7 @@ Generate complete R code now:"""
         raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
 
     state["generated_code"] = raw
+    state["detected_type"]  = table_type   # store for agent log
     return state
 
 
@@ -526,6 +969,7 @@ def run_shell_pipeline(shell_text: str, adam_csv: Optional[str] = None) -> Shell
         "retry_count":       0,
         "final_r_code":      "",
         "final_output":      "",
+        "detected_type":     "",
     }
 
     # Node 1: Parse
@@ -759,6 +1203,7 @@ b. Note: xx""",
                     "retry_count":       0,
                     "final_r_code":      "",
                     "final_output":      "",
+                    "detected_type":     "",
                 }
                 state = node_parse_shell(state)
                 agent_log.append(("✅ Shell Parsed", str(state["parsed_spec"])[:300]))
@@ -766,7 +1211,18 @@ b. Note: xx""",
                 # Step 2: Generate
                 progress.progress(35, text="⚙️ Node 2/5 — Generating R code...")
                 state = node_generate_code(state)
-                agent_log.append(("✅ Code Generated", f"{len(state['generated_code'])} chars"))
+                detected = state.get("detected_type", "unknown")
+                template_map = {
+                    "demog": "📊 Demographics template",
+                    "ae_summary": "🔴 AE Summary template",
+                    "ae_socpt": "🔴 AE SOC/PT template",
+                    "lab": "🧪 Lab Values template",
+                    "vitals": "💓 Vital Signs template",
+                    "efficacy": "📈 Efficacy template",
+                    "listing": "📋 Listing template",
+                    "llm": "🤖 LLM generated",
+                }
+                agent_log.append(("✅ Code Generated", f"{template_map.get(detected, detected)} — {len(state['generated_code'])} chars"))
 
                 # Steps 3-5: Execute → Validate → Fix loop
                 for attempt in range(MAX_RETRIES + 1):
@@ -831,6 +1287,7 @@ b. Note: xx""",
             "retry_count":       0,
             "final_r_code":      "",
             "final_output":      "",
+            "detected_type":     "",
         }
         with st.spinner("⚙️ Running R..."):
             run_state = node_execute(run_state)
