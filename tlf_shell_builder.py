@@ -115,14 +115,18 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     title     = spec.get("title", "Summary of Demographic and Baseline Characteristics")
     pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes = spec.get("footnotes", [])
-    groupby   = spec.get("groupby", "TRT01P") or "TRT01P"
+    groupby   = "TRT01P"   # always TRT01P — executor aliases actual col to this
     row_stubs = spec.get("row_stubs", [])
 
-    # Detect which parameters to include from row_stubs
+    # Detect which parameters to include from row_stubs AND available columns
     has_age  = any("age"  in r.lower() for r in row_stubs) or not row_stubs
     has_sex  = any("sex"  in r.lower() for r in row_stubs) or not row_stubs
     has_race = any("race" in r.lower() for r in row_stubs) or not row_stubs
     has_bmi  = any("bmi"  in r.lower() for r in row_stubs)
+
+    # Wrap each parameter block with column existence check
+    def col_guard(var_col, block):
+        return f'if ("{var_col}" %in% names(df)) {{\n{block}\n}}\n'
 
     # Build footnote lines
     fn_lines = ""
@@ -198,31 +202,33 @@ if ("{pop_flag}" %in% names(df)) {{
 {var_col}_by_trt <- bind_rows({var_col}_rows)
 """
 
-    # Build parameter blocks
+    # Build parameter blocks with column guards
     param_blocks = []
     param_names  = []
+    bind_vars    = []
 
     if has_age:
-        param_blocks.append(cont_block("AGE", "Age", "Age (years)"))
+        param_blocks.append(f'if ("AGE" %in% names(df)) {{\n{cont_block("AGE", "Age", "Age (years)")}\n}}')
         param_names.append("Age (years)")
+        bind_vars.append('if (exists("AGE_by_trt")) AGE_by_trt else NULL')
     if has_bmi:
-        param_blocks.append(cont_block("BMIBL", "BMI", "BMI (kg/m\u00b2)"))
-        param_names.append("BMI (kg/m\u00b2)")
+        param_blocks.append(f'if ("BMIBL" %in% names(df)) {{\n{cont_block("BMIBL", "BMI", "BMI (kg/m²)")}\n}}')
+        param_names.append("BMI (kg/m²)")
+        bind_vars.append('if (exists("BMIBL_by_trt")) BMIBL_by_trt else NULL')
     if has_sex:
-        param_blocks.append(cat_block("SEX", "Sex", "Sex, n (%)"))
+        param_blocks.append(f'if ("SEX" %in% names(df)) {{\n{cat_block("SEX", "Sex", "Sex, n (%)")}\n}}')
         param_names.append("Sex, n (%)")
+        bind_vars.append('if (exists("SEX_by_trt")) SEX_by_trt else NULL')
     if has_race:
-        param_blocks.append(cat_block("RACE", "Race", "Race, n (%)"))
+        param_blocks.append(f'if ("RACE" %in% names(df)) {{\n{cat_block("RACE", "Race", "Race, n (%)")}\n}}')
         param_names.append("Race, n (%)")
+        bind_vars.append('if (exists("RACE_by_trt")) RACE_by_trt else NULL')
 
-    # bind_rows call
-    bind_vars = []
-    if has_age:  bind_vars.append("AGE_by_trt")
-    if has_bmi:  bind_vars.append("BMIBL_by_trt")
-    if has_sex:  bind_vars.append("SEX_by_trt")
-    if has_race: bind_vars.append("RACE_by_trt")
-
-    bind_call = "tbl_data <- bind_rows(\n  " + ",\n  ".join(bind_vars) + "\n)"
+    bind_call = (
+        "tbl_data <- bind_rows(\n  " +
+        ",\n  ".join(bind_vars) +
+        "\n)\ntbl_data <- tbl_data[!sapply(tbl_data, function(x) all(is.na(x)))]"
+    )
 
     # row_group calls
     rg_lines = ""
@@ -358,7 +364,24 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             inp = os.path.join(d, "adam.csv")
             with open(inp, "w") as f:
                 f.write(state["adam_csv"])
+            # Auto-detect treatment column name from actual data
+            try:
+                df_cols = pd.read_csv(io.StringIO(state["adam_csv"]), nrows=0).columns.tolist()
+                trt_col = next(
+                    (c for c in ["TRT01P","TRT01A","TRTP","TRTPN","ARM","ACTARM"] if c in df_cols),
+                    None
+                )
+            except Exception:
+                trt_col = None
+
             prefix_lines.append(f'df <- read.csv("{inp}", stringsAsFactors=FALSE)')
+
+            # If detected trt col differs from what template uses, alias it
+            if trt_col and trt_col != "TRT01P":
+                prefix_lines.append(f'df$TRT01P <- df${trt_col}')
+            elif not trt_col:
+                # No known treatment col — create placeholder so group_by doesn't crash
+                prefix_lines.append('if (!"TRT01P" %in% names(df)) df$TRT01P <- "Total"')
 
         suffix_lines = []
         if output_type == "Figure":
