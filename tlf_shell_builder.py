@@ -165,23 +165,26 @@ if ("{pop_flag}" %in% names(df)) {{
     else:
         pop_filter = "# No population flag specified — using all records"
 
+    # Non-breaking space prefix for indented stat rows
+    ind = "\u00a0\u00a0\u00a0\u00a0"  # 4 nbsp
+
     # Continuous variable block builder
     def cont_block(var_col, var_label, param_name):
         return f"""
 # --- {var_label} ---
 {var_col}_by_trt <- bind_rows(
-  df %>% group_by({groupby}) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic="n"),
-  df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Mean (SD)"),
-  df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Median"),
-  df %>% group_by({groupby}) %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Min, Max")
+  df %>% group_by({groupby}) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic="{ind}n"),
+  df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="{ind}Mean (SD)"),
+  df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="{ind}Median"),
+  df %>% group_by({groupby}) %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="{ind}Min, Max")
 ) %>% pivot_wider(names_from={groupby}, values_from=val)
 {var_col}_total <- bind_rows(
-  df %>% summarise(val=as.character(n())) %>% mutate(Statistic="n"),
-  df %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE))) %>% mutate(Statistic="Mean (SD)"),
-  df %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE))) %>% mutate(Statistic="Median"),
-  df %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE))) %>% mutate(Statistic="Min, Max")
+  df %>% summarise(val=as.character(n())) %>% mutate(Statistic="{ind}n"),
+  df %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE))) %>% mutate(Statistic="{ind}Mean (SD)"),
+  df %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE))) %>% mutate(Statistic="{ind}Median"),
+  df %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE))) %>% mutate(Statistic="{ind}Min, Max")
 )
-{var_col}_by_trt$Total   <- {var_col}_total$val
+{var_col}_by_trt$Total     <- {var_col}_total$val
 {var_col}_by_trt$Parameter <- "{param_name}"
 """
 
@@ -195,10 +198,10 @@ if ("{pop_flag}" %in% names(df)) {{
     summarise(val=sprintf("%d (%.1f%%)", sum({var_col}==cat,na.rm=TRUE),
               100*mean({var_col}==cat,na.rm=TRUE)), .groups="drop") %>%
     pivot_wider(names_from={groupby}, values_from=val)
-  trt_vals$Total <- sprintf("%d (%.1f%%)", sum(df${var_col}==cat,na.rm=TRUE),
-                            100*mean(df${var_col}==cat,na.rm=TRUE))
-  trt_vals$Statistic  <- cat
-  trt_vals$Parameter  <- "{param_name}"
+  trt_vals$Total     <- sprintf("%d (%.1f%%)", sum(df${var_col}==cat,na.rm=TRUE),
+                                100*mean(df${var_col}==cat,na.rm=TRUE))
+  trt_vals$Statistic <- paste0("{ind}", cat)
+  trt_vals$Parameter <- "{param_name}"
   trt_vals
 }})
 {var_col}_by_trt <- bind_rows({var_col}_rows)
@@ -515,10 +518,10 @@ tbl_list <- lapply(params_list, function(p) {{
     }}
     
     rows <- bind_rows(
-      make_stat("n",          function(x) as.character(sum(!is.na(x)))),
-      make_stat("Mean (SD)",  function(x) sprintf("%.1f (%.1f)", mean(x,na.rm=TRUE), sd(x,na.rm=TRUE))),
-      make_stat("Median",     function(x) sprintf("%.1f", median(x,na.rm=TRUE))),
-      make_stat("Min, Max",   function(x) sprintf("%g, %g", min(x,na.rm=TRUE), max(x,na.rm=TRUE)))
+      make_stat("\u00a0\u00a0\u00a0\u00a0n",          function(x) as.character(sum(!is.na(x)))),
+      make_stat("\u00a0\u00a0\u00a0\u00a0Mean (SD)",  function(x) sprintf("%.1f (%.1f)", mean(x,na.rm=TRUE), sd(x,na.rm=TRUE))),
+      make_stat("\u00a0\u00a0\u00a0\u00a0Median",     function(x) sprintf("%.1f", median(x,na.rm=TRUE))),
+      make_stat("\u00a0\u00a0\u00a0\u00a0Min, Max",   function(x) sprintf("%g, %g", min(x,na.rm=TRUE), max(x,na.rm=TRUE)))
     )
     rows$Total     <- c(
       as.character(sum(!is.na(avals))),
@@ -586,6 +589,7 @@ val_col <- if ("AVAL" %in% names(df)) "AVAL" else names(df)[3]
 chg_col <- if ("CHG"  %in% names(df)) "CHG"  else NULL
 
 make_row <- function(data, col, label) {{
+  ind <- "\u00a0\u00a0\u00a0\u00a0"
   r <- data %>% group_by(TRT01P) %>%
     summarise(
       n_val   = as.character(sum(!is.na(.data[[col]]))),
@@ -595,10 +599,10 @@ make_row <- function(data, col, label) {{
       .groups = "drop"
     )
   bind_rows(
-    r %>% select(TRT01P, val=n_val)   %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="n", Parameter=label),
-    r %>% select(TRT01P, val=mean_sd) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="Mean (SD)", Parameter=label),
-    r %>% select(TRT01P, val=med_val) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="Median", Parameter=label),
-    r %>% select(TRT01P, val=rng_val) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic="Min, Max", Parameter=label)
+    r %>% select(TRT01P, val=n_val)   %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic=paste0(ind,"n"), Parameter=label),
+    r %>% select(TRT01P, val=mean_sd) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic=paste0(ind,"Mean (SD)"), Parameter=label),
+    r %>% select(TRT01P, val=med_val) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic=paste0(ind,"Median"), Parameter=label),
+    r %>% select(TRT01P, val=rng_val) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Statistic=paste0(ind,"Min, Max"), Parameter=label)
   )
 }}
 
@@ -609,20 +613,21 @@ if (!is.null(chg_col) && chg_col %in% names(df)) {{
 
 # Responder analysis if categorical column exists
 if ("AVALCAT1" %in% names(df)) {{
+  ind <- "\u00a0\u00a0\u00a0\u00a0"
   resp <- df %>% group_by(TRT01P) %>%
     summarise(val=sprintf("%d (%.1f%%)",
       sum(AVALCAT1=="Responder",na.rm=TRUE),
       100*mean(AVALCAT1=="Responder",na.rm=TRUE)), .groups="drop") %>%
     pivot_wider(names_from=TRT01P, values_from=val) %>%
-    mutate(Statistic="Responders, n (%)", Parameter="Response")
+    mutate(Statistic=paste0(ind,"Responders, n (%)"), Parameter="Response")
   rows <- bind_rows(rows, resp)
 }}
 
-# Total column
+# Total column — match using trimws to ignore nbsp prefix
 tot_aval <- df[[val_col]]
 rows$Total <- NA_character_
 for (i in seq_len(nrow(rows))) {{
-  stat <- rows$Statistic[i]
+  stat <- trimws(rows$Statistic[i])
   if (stat=="n")             rows$Total[i] <- as.character(sum(!is.na(tot_aval)))
   else if (stat=="Mean (SD)")rows$Total[i] <- sprintf("%.2f (%.2f)", mean(tot_aval,na.rm=TRUE), sd(tot_aval,na.rm=TRUE))
   else if (stat=="Median")   rows$Total[i] <- sprintf("%.2f", median(tot_aval,na.rm=TRUE))
