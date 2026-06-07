@@ -144,6 +144,18 @@ RULES:
 9. Last line MUST be: cat(gt::as_raw_html(tbl))
 10. Never include read.csv or ggsave.
 11. Return ONLY R code. No markdown fences. No explanations.
+12. CRITICAL - Build stats row by row, NOT using mutate() with c() vector on grouped data.
+    Use this exact pattern for continuous variables:
+    age_stats <- bind_rows(
+      df %>% group_by(TRT01P) %>% summarise(val = as.character(n()), .groups="drop") %>% mutate(Statistic="n"),
+      df %>% group_by(TRT01P) %>% summarise(val = sprintf("%.1f (%.1f)", mean(AGE,na.rm=T), sd(AGE,na.rm=T)), .groups="drop") %>% mutate(Statistic="Mean (SD)"),
+      df %>% group_by(TRT01P) %>% summarise(val = sprintf("%.1f", median(AGE,na.rm=T)), .groups="drop") %>% mutate(Statistic="Median"),
+      df %>% group_by(TRT01P) %>% summarise(val = sprintf("%g, %g", min(AGE,na.rm=T), max(AGE,na.rm=T)), .groups="drop") %>% mutate(Statistic="Min, Max")
+    ) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Parameter="Age")
+    
+    Each bind_rows() block produces exactly 1 row per stat per treatment.
+    Never use mutate(Statistic = c("n","Mean","Median","Min,Max")) on grouped data.
+13. Suppress all dplyr messages with suppressMessages() wrapping all dplyr calls.
 
 Generate complete R code now:"""
     raw = _call_llm(prompt)
