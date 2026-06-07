@@ -1166,10 +1166,36 @@ b. Note: xx""",
 
     with shell_tab2:
         uploaded_shell = st.file_uploader(
-            "Upload shell (.txt, .rtf, .docx content as text, .csv)",
-            type=["txt", "rtf", "csv"],
-            key="ms_shell_upload"
+        "Upload shell (.txt, .rtf, .csv, .xlsx, .xls, .docx)",
+        type=["txt", "rtf", "csv", "xlsx", "xls", "docx"],
+        key="ms_shell_upload"
         )
+        if uploaded_shell:
+            try:
+                ext = os.path.splitext(uploaded_shell.name)[1].lower()
+                if ext in (".xlsx", ".xls"):
+                    # Read all sheets, convert cells to text preserving layout
+                    import openpyxl
+                    wb  = openpyxl.load_workbook(uploaded_shell, data_only=True)
+                    ws  = wb.active
+                    lines = []
+                    for row in ws.iter_rows():
+                        row_vals = [str(cell.value) if cell.value is not None else "" for cell in row]
+                        lines.append("  ".join(row_vals))
+                    shell_content = "\n".join(lines)
+                elif ext == ".docx":
+                    import docx
+                    doc = docx.Document(uploaded_shell)
+                    shell_content = "\n".join([p.text for p in doc.paragraphs])
+                else:
+                    shell_content = uploaded_shell.read().decode("utf-8", errors="ignore")
+
+                    st.session_state["ms_shell_text"] = shell_content
+                    st.success(f"✅ Loaded shell: {uploaded_shell.name}")
+                    with st.expander("👁️ Shell Preview"):
+                        st.text(shell_content[:1000])
+            except Exception as e:
+                st.error(f"Failed to read file: {e}")
         if uploaded_shell:
             try:
                 shell_content = uploaded_shell.read().decode("utf-8", errors="ignore")
