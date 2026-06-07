@@ -309,46 +309,49 @@ df <- data.frame(
     return f"""{dummy}
 {pop_filter}
 
-# Denominators
-trts    <- sort(unique(df$TRT01P))
-n_trt   <- sapply(trts, function(t) length(unique(df$USUBJID[df$TRT01P==t])))
-n_all   <- length(unique(df$USUBJID))
+# Denominators — named vector so [[t]] lookup works with spaces in names
+trts  <- sort(unique(df$TRT01P))
+n_trt <- setNames(
+  sapply(trts, function(t) length(unique(df$USUBJID[df$TRT01P == t]))),
+  trts
+)
+n_all <- length(unique(df$USUBJID))
 
 # TEAE subset — guard against NA and whitespace in TRTEMFL
 if ("TRTEMFL" %in% names(df)) {{
-  ae <- df[!is.na(df$TRTEMFL) & trimws(df$TRTEMFL)=="Y", ]
+  ae <- df[!is.na(df$TRTEMFL) & trimws(df$TRTEMFL) == "Y", ]
 }} else {{
-  ae <- df  # if no TRTEMFL flag, treat all AE records as TEAE
+  ae <- df
 }}
 
-# Core function: count unique subjects with condition, return formatted string per trt
+# Core function: count unique subjects per treatment
 make_row <- function(subdata, label) {{
   trt_vals <- sapply(trts, function(t) {{
-    n_subj <- length(unique(subdata$USUBJID[subdata$TRT01P==t]))
-    denom  <- n_trt[t]
-    sprintf("%d (%.1f%%)", n_subj, 100*n_subj/max(denom,1))
+    n_subj <- length(unique(subdata$USUBJID[subdata$TRT01P == t]))
+    denom  <- n_trt[[t]]
+    if (is.null(denom) || is.na(denom) || denom == 0) return("0 (0.0%)")
+    sprintf("%d (%.1f%%)", n_subj, 100 * n_subj / denom)
   }})
-  tot_n <- length(unique(subdata$USUBJID))
-  row   <- as.data.frame(t(trt_vals), stringsAsFactors=FALSE)
-  row$Total    <- sprintf("%d (%.1f%%)", tot_n, 100*tot_n/max(n_all,1))
+  tot_n      <- length(unique(subdata$USUBJID))
+  row        <- as.data.frame(t(trt_vals), stringsAsFactors=FALSE)
+  names(row) <- trts
+  row$Total    <- sprintf("%d (%.1f%%)", tot_n, 100 * tot_n / max(n_all, 1))
   row$Category <- label
   row
 }}
 
-# Build each summary row
-rows <- rbind(
-  make_row(ae,                                                        "Any TEAE"),
-  make_row(ae[!is.na(ae$AESER)  & ae$AESER=="Y",  ],                "Any Serious TEAE"),
-  if ("AESDTH" %in% names(ae)) make_row(ae[!is.na(ae$AESDTH) & ae$AESDTH=="Y", ], "Fatal TEAE") else NULL,
-  make_row(ae[grepl("Gastro",    ae$AEBODSYS, ignore.case=TRUE), ],  "Gastrointestinal disorders"),
-  make_row(ae[grepl("Nervous",   ae$AEBODSYS, ignore.case=TRUE), ],  "Nervous system disorders"),
-  make_row(ae[grepl("Skin",      ae$AEBODSYS, ignore.case=TRUE), ],  "Skin disorders")
-)
+# Build each summary row separately then rbind
+r1 <- make_row(ae, "Any TEAE")
+r2 <- make_row(ae[!is.na(ae$AESER) & ae$AESER == "Y", ], "Any Serious TEAE")
+r3 <- make_row(ae[grepl("Gastro",  ae$AEBODSYS, ignore.case=TRUE), ], "Gastrointestinal disorders")
+r4 <- make_row(ae[grepl("Nervous", ae$AEBODSYS, ignore.case=TRUE), ], "Nervous system disorders")
+r5 <- make_row(ae[grepl("Skin",    ae$AEBODSYS, ignore.case=TRUE), ], "Skin disorders")
+rows <- rbind(r1, r2, r3, r4, r5)
 
 # Reorder: Category | trts alphabetically | Total
 col_order <- c("Category", sort(trts), "Total")
 col_order <- col_order[col_order %in% names(rows)]
-rows      <- rows[, col_order]
+rows      <- rows[, col_order, drop=FALSE]
 
 tbl <- gt(rows) %>%
   tab_header(title="{title}") %>%
@@ -356,7 +359,7 @@ tbl <- gt(rows) %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
   tab_style(
     style=cell_text(weight="bold"),
-    locations=cells_body(columns="Category", rows=Category=="Any TEAE")
+    locations=cells_body(columns="Category", rows=1)
   ) %>%
   tab_options(table.width=pct(100))
 
