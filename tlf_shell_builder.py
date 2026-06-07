@@ -287,15 +287,19 @@ def _build_ae_summary_r_code(spec: dict, has_adam: bool) -> str:
 
     dummy = "" if has_adam else """
 set.seed(42)
-n <- 40
+n_subj <- 20
+subj   <- paste0("S", 1:n_subj)
+trt    <- rep(c("Placebo","Drug A"), each=n_subj/2)
+
+# Each subject can have multiple AE records
 df <- data.frame(
-  USUBJID  = paste0("S", rep(1:20, each=2)),
-  TRT01P   = rep(c("Placebo","Drug A"), 20),
-  TRTEMFL  = sample(c("Y","N"), 40, replace=TRUE, prob=c(0.7,0.3)),
-  AEBODSYS = sample(c("Gastrointestinal disorders","Nervous system disorders","Skin disorders"), 40, replace=TRUE),
-  AEDECOD  = sample(c("Nausea","Headache","Rash","Vomiting","Dizziness"), 40, replace=TRUE),
-  AESER    = sample(c("Y","N"), 40, replace=TRUE, prob=c(0.2,0.8)),
-  AESDTH   = sample(c("Y","N"), 40, replace=TRUE, prob=c(0.05,0.95)),
+  USUBJID  = rep(subj, each=3),
+  TRT01P   = rep(trt,  each=3),
+  TRTEMFL  = c(rep("Y", n_subj*2), rep("N", n_subj)),
+  AEBODSYS = sample(c("Gastrointestinal disorders","Nervous system disorders","Skin disorders"), n_subj*3, replace=TRUE),
+  AEDECOD  = sample(c("Nausea","Headache","Rash","Vomiting","Dizziness"), n_subj*3, replace=TRUE),
+  AESER    = sample(c("Y","N"), n_subj*3, replace=TRUE, prob=c(0.2,0.8)),
+  AESDTH   = "N",
   SAFFL    = "Y",
   stringsAsFactors=FALSE
 )
@@ -310,8 +314,12 @@ trts    <- sort(unique(df$TRT01P))
 n_trt   <- sapply(trts, function(t) length(unique(df$USUBJID[df$TRT01P==t])))
 n_all   <- length(unique(df$USUBJID))
 
-# TEAE subset
-ae <- df[!is.na(df$TRTEMFL) & df$TRTEMFL=="Y", ]
+# TEAE subset — guard against NA and whitespace in TRTEMFL
+if ("TRTEMFL" %in% names(df)) {{
+  ae <- df[!is.na(df$TRTEMFL) & trimws(df$TRTEMFL)=="Y", ]
+}} else {{
+  ae <- df  # if no TRTEMFL flag, treat all AE records as TEAE
+}}
 
 # Core function: count unique subjects with condition, return formatted string per trt
 make_row <- function(subdata, label) {{
