@@ -713,8 +713,8 @@ with st.sidebar:
         st.caption("Built with Gemini + Groq + Rscript")
 
     elif page == "📋 TLF from Shell":
-    st.header("📋 TLF from Shell")
-    st.markdown("""
+        st.header("📋 TLF from Shell")
+        st.markdown("""
 **How to use:**
 1. Paste or upload a mock shell
 2. Optionally upload ADaM CSV
