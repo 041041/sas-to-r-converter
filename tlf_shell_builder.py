@@ -127,22 +127,25 @@ SPEC:
 {adam_hint}
 
 RULES:
-1. Use gt package for Tables and Listings, ggplot2 for Figures.
-2. If ADaM data is provided, read from df (already loaded as data.frame).
-   If not provided, create realistic dummy data matching the spec.
-3. For Tables: produce an HTML string using gt::as_raw_html(tbl).
-   Last line MUST be: cat(gt::as_raw_html(tbl))
-4. For Listings: produce plain text using capture.output(print(df_out)).
-   Last line MUST be: cat(paste(capture.output(print(df_out)), collapse="\\n"))
-5. For Figures: produce a ggplot object named p. Last line MUST be: print(p)
-6. Apply population filter using pop_flag column if available (filter == "Y").
-7. Include title from spec as gt::tab_header or labs().
-8. Include footnotes from spec as gt::tab_footnote or annotate().
-9. Never include read.csv or ggsave — data loading is handled externally.
-10. Return ONLY R code. No markdown fences. No explanations.
+1. Use gt package for Tables, ggplot2 for Figures.
+2. If ADaM data is provided, read from df. If not, create realistic dummy ADSL data.
+3. CRITICAL TABLE STRUCTURE — clinical shell format:
+   - COLUMNS (left to right): Parameter | Statistic | Placebo (N=xx) | Drug A (N=xx) | Total (N=xx)
+   - ROWS (top to bottom): Age > n, Mean (SD), Median, Min Max | Sex > Male n(%), Female n(%) | etc.
+   - Treatment group is NEVER a row. It is ALWAYS a column header.
+   - Statistics are NEVER column headers. They are row values.
+4. Build the table as a long data.frame with cols: Parameter, Statistic, Placebo, DrugA, Total
+   then pass to gt().
+5. Round means/SD to 1 decimal. Format as "48.8 (7.2)" in one cell.
+   Format Min, Max as "38, 61" in one cell. Percentages as "4 (50.0%)".
+6. Apply population filter: filter(SAFFL == "Y") or equivalent pop_flag if available.
+7. Add title with gt::tab_header(). Footnotes with gt::tab_footnote() on title only.
+8. Use gt::tab_row_group() to group rows by Parameter.
+9. Last line MUST be: cat(gt::as_raw_html(tbl))
+10. Never include read.csv or ggsave.
+11. Return ONLY R code. No markdown fences. No explanations.
 
 Generate complete R code now:"""
-
     raw = _call_llm(prompt)
     raw = re.sub(r'```[rR]?\n?', '', raw)
     raw = re.sub(r'```', '', raw).strip()
