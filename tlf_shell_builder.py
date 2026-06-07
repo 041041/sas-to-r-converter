@@ -156,6 +156,14 @@ RULES:
     Each bind_rows() block produces exactly 1 row per stat per treatment.
     Never use mutate(Statistic = c("n","Mean","Median","Min,Max")) on grouped data.
 13. Suppress all dplyr messages with suppressMessages() wrapping all dplyr calls.
+14. CRITICAL gt package rules — only use these exact functions, nothing else:
+    VALID:   gt(), tab_header(), tab_footnote(), tab_spanner(), 
+             cols_label(), fmt_number(), tab_style(), cell_text(),
+             cells_column_labels(), cells_body(), cells_row_groups(),
+             tab_row_group(), row_group_order(), as_raw_html()
+    INVALID: column_labels(), tab_column_label(), set_column_labels()
+             — these do NOT exist in gt, never use them.
+    To rename columns use: cols_label(col1 = "Label 1", col2 = "Label 2")
 
 Generate complete R code now:"""
     raw = _call_llm(prompt)
