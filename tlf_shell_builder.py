@@ -287,19 +287,15 @@ def _build_ae_summary_r_code(spec: dict, has_adam: bool) -> str:
 
     dummy = "" if has_adam else """
 set.seed(42)
-n_subj <- 20
-subj   <- paste0("S", 1:n_subj)
-trt    <- rep(c("Placebo","Drug A"), each=n_subj/2)
-
-# Each subject can have multiple AE records
+# Build one record per subject-AE combination explicitly
 df <- data.frame(
-  USUBJID  = rep(subj, each=3),
-  TRT01P   = rep(trt,  each=3),
-  TRTEMFL  = c(rep("Y", n_subj*2), rep("N", n_subj)),
-  AEBODSYS = sample(c("Gastrointestinal disorders","Nervous system disorders","Skin disorders"), n_subj*3, replace=TRUE),
-  AEDECOD  = sample(c("Nausea","Headache","Rash","Vomiting","Dizziness"), n_subj*3, replace=TRUE),
-  AESER    = sample(c("Y","N"), n_subj*3, replace=TRUE, prob=c(0.2,0.8)),
-  AESDTH   = "N",
+  USUBJID  = c(paste0("P",1:10), paste0("P",1:10), paste0("P",1:8),
+               paste0("D",1:10), paste0("D",1:10), paste0("D",1:8)),
+  TRT01P   = c(rep("Placebo",28), rep("Drug A",28)),
+  TRTEMFL  = "Y",
+  AEBODSYS = sample(c("Gastrointestinal disorders","Nervous system disorders","Skin disorders"), 56, replace=TRUE),
+  AEDECOD  = sample(c("Nausea","Headache","Rash","Vomiting","Dizziness"), 56, replace=TRUE),
+  AESER    = sample(c("Y","N"), 56, replace=TRUE, prob=c(0.2,0.8)),
   SAFFL    = "Y",
   stringsAsFactors=FALSE
 )
