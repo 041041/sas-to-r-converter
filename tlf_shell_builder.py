@@ -128,42 +128,48 @@ SPEC:
 
 RULES:
 1. Use gt package for Tables, ggplot2 for Figures.
-2. If ADaM data is provided, read from df. If not, create realistic dummy ADSL data.
-3. CRITICAL TABLE STRUCTURE — clinical shell format:
+2. If ADaM data is provided, read from df (already loaded). If not, create realistic dummy data.
+3. Do NOT load any libraries — dplyr, tidyr, gt, ggplot2 are already loaded.
+
+4. CRITICAL TABLE STRUCTURE — clinical shell format:
    - COLUMNS (left to right): Parameter | Statistic | Placebo (N=xx) | Drug A (N=xx) | Total (N=xx)
-   - ROWS (top to bottom): Age > n, Mean (SD), Median, Min Max | Sex > Male n(%), Female n(%) | etc.
+   - ROWS (top to bottom): Age > n / Mean (SD) / Median / Min, Max | Sex > Male / Female | etc.
    - Treatment group is NEVER a row. It is ALWAYS a column header.
-   - Statistics are NEVER column headers. They are row values.
-4. Build the table as a long data.frame with cols: Parameter, Statistic, Placebo, DrugA, Total
-   then pass to gt().
-5. Round means/SD to 1 decimal. Format as "48.8 (7.2)" in one cell.
-   Format Min, Max as "38, 61" in one cell. Percentages as "4 (50.0%)".
-6. Apply population filter: filter(SAFFL == "Y") or equivalent pop_flag if available.
-7. Add title with gt::tab_header(). Footnotes with gt::tab_footnote() on title only.
-8. Use gt::tab_row_group() to group rows by Parameter.
-9. Last line MUST be: cat(gt::as_raw_html(tbl))
-10. Never include read.csv or ggsave.
-11. Return ONLY R code. No markdown fences. No explanations.
-12. CRITICAL - Build stats row by row, NOT using mutate() with c() vector on grouped data.
-    Use this exact pattern for continuous variables:
-    age_stats <- bind_rows(
-      df %>% group_by(TRT01P) %>% summarise(val = as.character(n()), .groups="drop") %>% mutate(Statistic="n"),
-      df %>% group_by(TRT01P) %>% summarise(val = sprintf("%.1f (%.1f)", mean(AGE,na.rm=T), sd(AGE,na.rm=T)), .groups="drop") %>% mutate(Statistic="Mean (SD)"),
-      df %>% group_by(TRT01P) %>% summarise(val = sprintf("%.1f", median(AGE,na.rm=T)), .groups="drop") %>% mutate(Statistic="Median"),
-      df %>% group_by(TRT01P) %>% summarise(val = sprintf("%g, %g", min(AGE,na.rm=T), max(AGE,na.rm=T)), .groups="drop") %>% mutate(Statistic="Min, Max")
-    ) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Parameter="Age")
-    
-    Each bind_rows() block produces exactly 1 row per stat per treatment.
-    Never use mutate(Statistic = c("n","Mean","Median","Min,Max")) on grouped data.
-13. Suppress all dplyr messages with suppressMessages() wrapping all dplyr calls.
-14. CRITICAL gt package rules — only use these exact functions, nothing else:
-    VALID:   gt(), tab_header(), tab_footnote(), tab_spanner(), 
-             cols_label(), fmt_number(), tab_style(), cell_text(),
-             cells_column_labels(), cells_body(), cells_row_groups(),
-             tab_row_group(), row_group_order(), as_raw_html()
-    INVALID: column_labels(), tab_column_label(), set_column_labels()
-             — these do NOT exist in gt, never use them.
-    To rename columns use: cols_label(col1 = "Label 1", col2 = "Label 2")
+   - Statistics (n, Mean, Median) are NEVER column headers. They are row labels.
+
+5. CRITICAL — build stats row by row using bind_rows + summarise, NOT mutate(col = c(...)):
+   age_stats <- bind_rows(
+     df %>% group_by(TRT01P) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic="n"),
+     df %>% group_by(TRT01P) %>% summarise(val=sprintf("%.1f (%.1f)", mean(AGE,na.rm=TRUE), sd(AGE,na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Mean (SD)"),
+     df %>% group_by(TRT01P) %>% summarise(val=sprintf("%.1f", median(AGE,na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Median"),
+     df %>% group_by(TRT01P) %>% summarise(val=sprintf("%g, %g", min(AGE,na.rm=TRUE), max(AGE,na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Min, Max")
+   ) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Parameter="Age (years)")
+
+   Add a Total column: df_total <- df (no group filter), same summarise pattern.
+
+6. After building all parameter blocks, bind_rows() them all into one data.frame called tbl_data.
+   Columns must be: Parameter, Statistic, then one column per treatment group, then Total.
+   ALL column names must be non-empty strings — never empty string "" as a column name.
+
+7. Pass tbl_data to gt() and format:
+   tbl <- gt(tbl_data) %>%
+     tab_header(title="{spec.get('title','Table')}") %>%
+     cols_label(Parameter="Parameter", Statistic="Statistic") %>%
+     tab_row_group(label=<param>, rows=Parameter==<param>) for each parameter %>%
+     tab_style(style=cell_text(weight="bold"), locations=cells_row_groups())
+
+8. Footnotes: tab_footnote(footnote="...", locations=cells_title()) only. NOT on column headers.
+
+9. VALID gt functions only:
+   gt(), tab_header(), tab_footnote(), tab_spanner(), cols_label(),
+   fmt_number(), tab_style(), cell_text(), cells_column_labels(),
+   cells_body(), cells_row_groups(), cells_title(),
+   tab_row_group(), row_group_order(), as_raw_html()
+   NEVER USE: column_labels(), tab_column_label(), set_column_labels()
+
+10. Last line MUST be: cat(gt::as_raw_html(tbl))
+11. Never include read.csv, library(), or ggsave.
+12. Return ONLY R code. No markdown fences. No explanations.
 
 Generate complete R code now:"""
     raw = _call_llm(prompt)
@@ -188,11 +194,17 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
         script_path = os.path.join(d, "tlf_script.R")
         plot_path   = os.path.join(d, "figure.png")
 
-        # Prefix: library path + optional data load
+        # Prefix: library path + preload packages silently + optional data load
         prefix_lines = [
             "user_lib <- path.expand('~/R/library')",
             "if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))",
             "options(warn=-1)",
+            "suppressMessages(suppressWarnings({",
+            "  library(dplyr)",
+            "  library(tidyr)",
+            "  library(gt)",
+            "  library(ggplot2)",
+            "}))",
         ]
 
         if state.get("adam_csv"):
@@ -221,10 +233,19 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             return state
 
         if res.returncode != 0:
-            state["execution_error"]  = res.stderr
+            # Extract actual R error — skip dplyr/package warning noise
+            stderr_lines = res.stderr.splitlines()
+            error_lines  = [
+                l for l in stderr_lines
+                if any(kw in l for kw in ["Error", "error", "Execution halted", "object '"])
+                and not any(kw in l for kw in ["masked from", "Attaching", "summarise()", "grouped by"])
+            ]
+            clean_error = "\n".join(error_lines) if error_lines else res.stderr
+            state["execution_error"]  = clean_error
             state["execution_output"] = ""
             return state
 
+        # returncode == 0 — success even if stderr has dplyr noise
         state["execution_error"] = ""
 
         if output_type == "Figure":
@@ -248,7 +269,7 @@ def node_validate(state: ShellTLFState) -> ShellTLFState:
     Check output against spec. Simple rule-based + LLM sanity check.
     Sets validation_result = "pass" or "fail: <reason>"
     """
-    if state.get("execution_error"):
+    if state.get("execution_error") and not state.get("execution_output"):
         state["validation_result"] = f"fail: R execution error — {state['execution_error'][:300]}"
         return state
 
@@ -301,7 +322,11 @@ SPEC:
 
 RULES:
 - Fix ONLY what caused the error. Preserve all other logic.
-- Never add read.csv or ggsave.
+- Do NOT add library(), read.csv, or ggsave — these are handled externally.
+- Do NOT use mutate(col = c("a","b","c","d")) on grouped data — use bind_rows() pattern instead.
+- Do NOT use column_labels() — use cols_label() for renaming gt columns.
+- ALL column names in data.frame must be non-empty strings.
+- Never produce an empty string "" as a column name.
 - Return ONLY corrected R code. No markdown. No explanation.
 """
     raw = _call_llm(prompt)
