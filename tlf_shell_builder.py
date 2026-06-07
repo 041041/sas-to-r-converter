@@ -251,9 +251,12 @@ if ("{pop_flag}" %in% names(df)) {{
 # Combine all parameters
 {bind_call}
 
-# Move Parameter and Statistic to front, drop Parameter from display (used as row group)
+# Move Parameter and Statistic to front
 tbl_data <- tbl_data %>%
   select(Parameter, Statistic, everything())
+
+# Strip any nbsp from Statistic — indentation handled by gt tab_style
+tbl_data$Statistic <- trimws(tbl_data$Statistic)
 
 # Build gt table
 tbl <- gt(tbl_data, groupname_col="Parameter") %>%
@@ -261,12 +264,16 @@ tbl <- gt(tbl_data, groupname_col="Parameter") %>%
   {fn_lines}  cols_label(Statistic="Statistic") %>%
   cols_hide(columns="Parameter") %>%
   tab_style(
-    style=cell_text(weight="bold"),
-    locations=cells_row_groups()
+    style = cell_text(weight="bold"),
+    locations = cells_row_groups()
   ) %>%
   tab_style(
-    style=cell_text(weight="bold"),
-    locations=cells_column_labels()
+    style = cell_text(weight="bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_style(
+    style = cell_text(indent=px(20)),
+    locations = cells_body(columns="Statistic")
   ) %>%
   tab_options(
     table.width=pct(100),
@@ -540,11 +547,17 @@ tbl_list <- lapply(params_list, function(p) {{
 tbl_data <- bind_rows(unlist(tbl_list, recursive=FALSE)) %>%
   select(Parameter, Visit, Statistic, everything())
 
+tbl_data$Statistic <- trimws(tbl_data$Statistic)
+
 tbl <- gt(tbl_data, groupname_col="Parameter") %>%
   tab_header(title="{title}") %>%
   {fn_lines}  cols_label(Visit="Visit", Statistic="Statistic") %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
+  tab_style(
+    style=cell_text(indent=px(20)),
+    locations=cells_body(columns="Statistic")
+  ) %>%
   tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
 
 cat(as_raw_html(tbl))
@@ -637,12 +650,18 @@ for (i in seq_len(nrow(rows))) {{
   else if (grepl("Responder", stat)) rows$Total[i] <- sprintf("%d (%.1f%%)", sum(df$AVALCAT1=="Responder",na.rm=TRUE), 100*mean(df$AVALCAT1=="Responder",na.rm=TRUE))
 }}
 
+rows$Statistic <- trimws(rows$Statistic)
+
 tbl <- gt(rows, groupname_col="Parameter") %>%
   tab_header(title="{title}") %>%
   {fn_lines}  cols_label(Statistic="Statistic") %>%
   cols_hide("Parameter") %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
+  tab_style(
+    style=cell_text(indent=px(20)),
+    locations=cells_body(columns="Statistic")
+  ) %>%
   tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
 
 cat(as_raw_html(tbl))
