@@ -735,7 +735,7 @@ with st.sidebar:
 - Listings → plain text
 - Figures → PNG (ggplot2)
 """)
-st.caption("Powered by Gemini + Groq + LangGraph-style pipeline")
+        st.caption("Powered by Gemini + Groq + LangGraph-style pipeline")
     elif page == "📊 Graph Builder":
         st.header("📊 Graph Builder")
         st.markdown("""
