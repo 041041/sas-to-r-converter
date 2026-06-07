@@ -113,9 +113,9 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     Produces: Statistic rows × Treatment columns (correct clinical format).
     """
     title     = spec.get("title", "Summary of Demographic and Baseline Characteristics")
-    pop_flag  = spec.get("pop_flag", "SAFFL")
+    pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes = spec.get("footnotes", [])
-    groupby   = spec.get("groupby", "TRT01P")
+    groupby   = spec.get("groupby", "TRT01P") or "TRT01P"
     row_stubs = spec.get("row_stubs", [])
 
     # Detect which parameters to include from row_stubs
@@ -134,18 +134,30 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
 set.seed(42)
 n_per <- 10
 df <- data.frame(
-  USUBJID = paste0("SUBJ-", 1:(n_per*2)),
-  {groupby} = rep(c("Placebo", "Drug A"), each=n_per),
-  AGE     = c(round(rnorm(n_per, 45, 8)), round(rnorm(n_per, 48, 7))),
-  SEX     = sample(c("Male","Female"), n_per*2, replace=TRUE),
-  RACE    = sample(c("White","Asian","Black"), n_per*2, replace=TRUE, prob=c(0.6,0.2,0.2)),
-  BMIBL   = round(c(rnorm(n_per, 24, 3), rnorm(n_per, 26, 3)), 1),
-  {pop_flag} = "Y",
+  USUBJID  = paste0("SUBJ-", 1:(n_per*2)),
+  TRT01P   = rep(c("Placebo", "Drug A"), each=n_per),
+  AGE      = c(round(rnorm(n_per, 45, 8)), round(rnorm(n_per, 48, 7))),
+  SEX      = sample(c("Male","Female"), n_per*2, replace=TRUE),
+  RACE     = sample(c("White","Asian","Black"), n_per*2, replace=TRUE, prob=c(0.6,0.2,0.2)),
+  BMIBL    = round(c(rnorm(n_per, 24, 3), rnorm(n_per, 26, 3)), 1),
+  SAFFL    = "Y",
   stringsAsFactors = FALSE
 )
+# Alias groupby column if different from TRT01P
+if (!"{groupby}" %in% names(df) && "TRT01P" %in% names(df)) {{
+  df${groupby} <- df$TRT01P
+}}
 """
 
-    pop_filter = f'df <- df %>% filter({pop_flag} == "Y")'
+    # Only filter if pop_flag column is known and non-empty
+    if pop_flag and pop_flag.strip():
+        pop_filter = f"""
+# Apply population filter if column exists
+if ("{pop_flag}" %in% names(df)) {{
+  df <- df %>% filter({pop_flag} == "Y")
+}}"""
+    else:
+        pop_filter = "# No population flag specified — using all records"
 
     # Continuous variable block builder
     def cont_block(var_col, var_label, param_name):
