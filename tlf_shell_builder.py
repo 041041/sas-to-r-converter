@@ -106,21 +106,185 @@ Return ONLY valid JSON, no markdown, no explanation. Schema:
 # ══════════════════════════════════════════════════════════════════════════════
 # NODE 2 — Code Generator
 # ══════════════════════════════════════════════════════════════════════════════
+def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
+    """
+    Generate a reliable R code template for demographic/baseline tables.
+    Pure Python string building — no LLM for structure, only data varies.
+    Produces: Statistic rows × Treatment columns (correct clinical format).
+    """
+    title     = spec.get("title", "Summary of Demographic and Baseline Characteristics")
+    pop_flag  = spec.get("pop_flag", "SAFFL")
+    footnotes = spec.get("footnotes", [])
+    groupby   = spec.get("groupby", "TRT01P")
+    row_stubs = spec.get("row_stubs", [])
+
+    # Detect which parameters to include from row_stubs
+    has_age  = any("age"  in r.lower() for r in row_stubs) or not row_stubs
+    has_sex  = any("sex"  in r.lower() for r in row_stubs) or not row_stubs
+    has_race = any("race" in r.lower() for r in row_stubs) or not row_stubs
+    has_bmi  = any("bmi"  in r.lower() for r in row_stubs)
+
+    # Build footnote lines
+    fn_lines = ""
+    for i, fn in enumerate(footnotes[:5], 1):
+        fn_lines += f"""  tab_footnote(footnote="{fn}", locations=cells_title()) %>%\n"""
+
+    dummy_data = "" if has_adam else f"""
+# Create dummy ADSL data
+set.seed(42)
+n_per <- 10
+df <- data.frame(
+  USUBJID = paste0("SUBJ-", 1:(n_per*2)),
+  {groupby} = rep(c("Placebo", "Drug A"), each=n_per),
+  AGE     = c(round(rnorm(n_per, 45, 8)), round(rnorm(n_per, 48, 7))),
+  SEX     = sample(c("Male","Female"), n_per*2, replace=TRUE),
+  RACE    = sample(c("White","Asian","Black"), n_per*2, replace=TRUE, prob=c(0.6,0.2,0.2)),
+  BMIBL   = round(c(rnorm(n_per, 24, 3), rnorm(n_per, 26, 3)), 1),
+  {pop_flag} = "Y",
+  stringsAsFactors = FALSE
+)
+"""
+
+    pop_filter = f'df <- df %>% filter({pop_flag} == "Y")'
+
+    # Continuous variable block builder
+    def cont_block(var_col, var_label, param_name):
+        return f"""
+# --- {var_label} ---
+{var_col}_by_trt <- bind_rows(
+  df %>% group_by({groupby}) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic="n"),
+  df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Mean (SD)"),
+  df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Median"),
+  df %>% group_by({groupby}) %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Min, Max")
+) %>% pivot_wider(names_from={groupby}, values_from=val)
+{var_col}_total <- bind_rows(
+  df %>% summarise(val=as.character(n())) %>% mutate(Statistic="n"),
+  df %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE))) %>% mutate(Statistic="Mean (SD)"),
+  df %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE))) %>% mutate(Statistic="Median"),
+  df %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE))) %>% mutate(Statistic="Min, Max")
+)
+{var_col}_by_trt$Total   <- {var_col}_total$val
+{var_col}_by_trt$Parameter <- "{param_name}"
+"""
+
+    # Categorical variable block builder
+    def cat_block(var_col, var_label, param_name):
+        return f"""
+# --- {var_label} ---
+{var_col}_cats <- sort(unique(df${var_col}))
+{var_col}_rows <- lapply({var_col}_cats, function(cat) {{
+  trt_vals <- df %>% group_by({groupby}) %>%
+    summarise(val=sprintf("%d (%.1f%%)", sum({var_col}==cat,na.rm=TRUE),
+              100*mean({var_col}==cat,na.rm=TRUE)), .groups="drop") %>%
+    pivot_wider(names_from={groupby}, values_from=val)
+  trt_vals$Total <- sprintf("%d (%.1f%%)", sum(df${var_col}==cat,na.rm=TRUE),
+                            100*mean(df${var_col}==cat,na.rm=TRUE))
+  trt_vals$Statistic  <- cat
+  trt_vals$Parameter  <- "{param_name}"
+  trt_vals
+}})
+{var_col}_by_trt <- bind_rows({var_col}_rows)
+"""
+
+    # Build parameter blocks
+    param_blocks = []
+    param_names  = []
+
+    if has_age:
+        param_blocks.append(cont_block("AGE", "Age", "Age (years)"))
+        param_names.append("Age (years)")
+    if has_bmi:
+        param_blocks.append(cont_block("BMIBL", "BMI", "BMI (kg/m\u00b2)"))
+        param_names.append("BMI (kg/m\u00b2)")
+    if has_sex:
+        param_blocks.append(cat_block("SEX", "Sex", "Sex, n (%)"))
+        param_names.append("Sex, n (%)")
+    if has_race:
+        param_blocks.append(cat_block("RACE", "Race", "Race, n (%)"))
+        param_names.append("Race, n (%)")
+
+    # bind_rows call
+    bind_vars = []
+    if has_age:  bind_vars.append("AGE_by_trt")
+    if has_bmi:  bind_vars.append("BMIBL_by_trt")
+    if has_sex:  bind_vars.append("SEX_by_trt")
+    if has_race: bind_vars.append("RACE_by_trt")
+
+    bind_call = "tbl_data <- bind_rows(\n  " + ",\n  ".join(bind_vars) + "\n)"
+
+    # row_group calls
+    rg_lines = ""
+    for pn in param_names:
+        rg_lines += f'  tab_row_group(label="{pn}", rows=Parameter=="{pn}") %>%\n'
+
+    code = f"""{dummy_data}
+# Apply population filter
+{pop_filter}
+
+{"".join(param_blocks)}
+
+# Combine all parameters
+{bind_call}
+
+# Move Parameter and Statistic to front, drop Parameter from display (used as row group)
+tbl_data <- tbl_data %>%
+  select(Parameter, Statistic, everything())
+
+# Build gt table
+tbl <- gt(tbl_data, groupname_col="Parameter") %>%
+  tab_header(title="{title}") %>%
+  {fn_lines}  cols_label(Statistic="Statistic") %>%
+  cols_hide(columns="Parameter") %>%
+  tab_style(
+    style=cell_text(weight="bold"),
+    locations=cells_row_groups()
+  ) %>%
+  tab_style(
+    style=cell_text(weight="bold"),
+    locations=cells_column_labels()
+  ) %>%
+  tab_options(
+    table.width=pct(100),
+    row_group.background.color="#f5f5f5"
+  )
+
+cat(as_raw_html(tbl))
+"""
+    return code
+
+
 def node_generate_code(state: ShellTLFState) -> ShellTLFState:
     """
-    Generate R code (gt / flextable) from parsed_spec + optional ADaM preview.
+    Hybrid approach:
+    - Standard demographic Table → Python template (reliable, no hallucination)
+    - Figures or custom Tables   → LLM with strict prompt
     """
-    spec      = state["parsed_spec"]
+    spec        = state["parsed_spec"]
+    output_type = spec.get("output_type", "Table")
+    has_adam    = bool(state.get("adam_csv"))
+
     adam_hint = ""
-    if state.get("adam_csv"):
-        # Send only first 5 rows as context
+    if has_adam:
         try:
             df_preview = pd.read_csv(io.StringIO(state["adam_csv"])).head(5).to_string()
             adam_hint  = f"\nADaM dataset preview (first 5 rows):\n{df_preview}\n"
         except Exception:
             adam_hint = ""
 
-    prompt = f"""You are an expert clinical R programmer generating production-ready TLF code.
+    # Use Python template for standard demographic tables
+    row_stubs   = spec.get("row_stubs", [])
+    demog_hints = ["age", "sex", "race", "bmi", "gender", "baseline", "demographic"]
+    is_demog    = output_type == "Table" and (
+        any(any(h in r.lower() for h in demog_hints) for r in row_stubs)
+        or any(h in spec.get("title", "").lower() for h in ["demographic", "baseline", "characteristics"])
+        or not row_stubs  # default to template if nothing specified
+    )
+
+    if is_demog:
+        raw = _build_demog_r_code(spec, has_adam)
+    else:
+        # LLM for non-standard tables and figures
+        prompt = f"""You are an expert clinical R programmer generating production-ready TLF code.
 
 SPEC:
 {spec}
@@ -130,53 +294,24 @@ RULES:
 1. Use gt package for Tables, ggplot2 for Figures.
 2. If ADaM data is provided, read from df (already loaded). If not, create realistic dummy data.
 3. Do NOT load any libraries — dplyr, tidyr, gt, ggplot2 are already loaded.
-
-4. CRITICAL TABLE STRUCTURE — clinical shell format:
-   - COLUMNS (left to right): Parameter | Statistic | Placebo (N=xx) | Drug A (N=xx) | Total (N=xx)
-   - ROWS (top to bottom): Age > n / Mean (SD) / Median / Min, Max | Sex > Male / Female | etc.
-   - Treatment group is NEVER a row. It is ALWAYS a column header.
-   - Statistics (n, Mean, Median) are NEVER column headers. They are row labels.
-
-5. CRITICAL — build stats row by row using bind_rows + summarise, NOT mutate(col = c(...)):
-   age_stats <- bind_rows(
-     df %>% group_by(TRT01P) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic="n"),
-     df %>% group_by(TRT01P) %>% summarise(val=sprintf("%.1f (%.1f)", mean(AGE,na.rm=TRUE), sd(AGE,na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Mean (SD)"),
-     df %>% group_by(TRT01P) %>% summarise(val=sprintf("%.1f", median(AGE,na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Median"),
-     df %>% group_by(TRT01P) %>% summarise(val=sprintf("%g, %g", min(AGE,na.rm=TRUE), max(AGE,na.rm=TRUE)), .groups="drop") %>% mutate(Statistic="Min, Max")
-   ) %>% pivot_wider(names_from=TRT01P, values_from=val) %>% mutate(Parameter="Age (years)")
-
-   Add a Total column: df_total <- df (no group filter), same summarise pattern.
-
-6. After building all parameter blocks, bind_rows() them all into one data.frame called tbl_data.
-   Columns must be: Parameter, Statistic, then one column per treatment group, then Total.
-   ALL column names must be non-empty strings — never empty string "" as a column name.
-
-7. Pass tbl_data to gt() and format:
-   tbl <- gt(tbl_data) %>%
-     tab_header(title="{spec.get('title','Table')}") %>%
-     cols_label(Parameter="Parameter", Statistic="Statistic") %>%
-     tab_row_group(label=<param>, rows=Parameter==<param>) for each parameter %>%
-     tab_style(style=cell_text(weight="bold"), locations=cells_row_groups())
-
-8. Footnotes: tab_footnote(footnote="...", locations=cells_title()) only. NOT on column headers.
-
-9. VALID gt functions only:
-   gt(), tab_header(), tab_footnote(), tab_spanner(), cols_label(),
-   fmt_number(), tab_style(), cell_text(), cells_column_labels(),
-   cells_body(), cells_row_groups(), cells_title(),
-   tab_row_group(), row_group_order(), as_raw_html()
-   NEVER USE: column_labels(), tab_column_label(), set_column_labels()
-
-10. Last line MUST be: cat(gt::as_raw_html(tbl))
-11. Never include read.csv, library(), or ggsave.
-12. Return ONLY R code. No markdown fences. No explanations.
+4. CRITICAL TABLE STRUCTURE:
+   - COLUMNS: Statistic | Treatment Group 1 | Treatment Group 2 | Total
+   - ROWS: one row per statistic/category
+   - Treatment is ALWAYS a column, NEVER a row.
+5. Use bind_rows() + pivot_wider(names_from=TRT01P) pattern. Never mutate(col=c(...)) on grouped data.
+6. ALL column names must be non-empty strings.
+7. VALID gt functions: gt(), tab_header(), tab_footnote(), cols_label(), tab_row_group(),
+   tab_style(), cell_text(), cells_row_groups(), cells_title(), cells_column_labels(),
+   cells_body(), as_raw_html(). NEVER: column_labels(), set_column_labels().
+8. Last line MUST be: cat(as_raw_html(tbl))
+9. For Figures: last line must be print(p). No ggsave.
+10. Return ONLY R code. No markdown. No explanations.
 
 Generate complete R code now:"""
-    raw = _call_llm(prompt)
-    raw = re.sub(r'```[rR]?\n?', '', raw)
-    raw = re.sub(r'```', '', raw).strip()
-    # Strip any stray ggsave
-    raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
+        raw = _call_llm(prompt)
+        raw = re.sub(r'```[rR]?\n?', '', raw)
+        raw = re.sub(r'```', '', raw).strip()
+        raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
 
     state["generated_code"] = raw
     return state
