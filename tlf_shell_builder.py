@@ -326,7 +326,7 @@ make_row <- function(data, label) {{
   row <- data %>% subj_pct("TRT01P", n_trt) %>%
     pivot_wider(names_from=TRT01P, values_from=val, values_fill="0 (0.0%)")
   total_n <- n_distinct(data$USUBJID)
-  row$Total     <- sprintf("%d (%.1f%%)", total_n, 100*total_n/n_total_all)
+  row$Total <- sprintf("%d (%.1f%%)", total_n, 100*mean(df$USUBJID %in% data$USUBJID))
   row$Category  <- label
   row
 }}
@@ -338,6 +338,10 @@ rows <- bind_rows(
   make_row(ae %>% filter(AEBODSYS=="Nervous System"),   "Nervous system disorders"),
   make_row(ae %>% filter(AEBODSYS=="Skin"),             "Skin disorders")
 )
+
+# Reorder columns: Category first, then treatments alphabetically, Total last
+col_order <- c("Category", sort(setdiff(names(rows), c("Category","Total"))), "Total")
+rows <- rows %>% select(all_of(col_order))
 
 tbl <- gt(rows, groupname_col=NULL) %>%
   tab_header(title="{title}") %>%
