@@ -1737,7 +1737,7 @@ b. Note: xx""",
         height=80,
         key="ms_enhance_text"
     )
-
+ 
     if st.button("🔧 Apply Enhancement", use_container_width=True, key="ms_enhance_btn"):
         if not enhance_text.strip():
             st.warning("Enter enhancement instructions first.")
