@@ -357,7 +357,7 @@ if (length(fn_text) > 0) {{
   for (i in seq_along(fn_text)) {{
     tbl <- tbl %>% tab_source_note(
       source_note = html(paste0(
-        '<span style="font-size:11px;"><sup>',letters[i],'</sup> ',fn_text[i],'</span>'
+        '<span style="font-size:11px;font-family:Arial,sans-serif;"><sup style="font-family:Arial,sans-serif;">',letters[i],'</sup>. ',fn_text[i],'</span>'
       ))
     )
   }}
