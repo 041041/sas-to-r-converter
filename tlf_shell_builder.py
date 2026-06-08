@@ -111,29 +111,59 @@ Return ONLY valid JSON, no markdown, no explanation. Schema:
 def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     """
     Generate a reliable R code template for demographic/baseline tables.
-    Pure Python string building — no LLM for structure, only data varies.
-    Produces: Statistic rows × Treatment columns (correct clinical format).
+    Fixes applied per review:
+    - N counts in column headers
+    - Shell row ordering preserved
+    - Category preservation even when count=0
+    - Configurable denominator population
+    - Footnotes in table footer not title
+    - No hardcoded TRT01P
     """
     title     = spec.get("title", "Summary of Demographic and Baseline Characteristics")
     pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes = spec.get("footnotes", [])
-    groupby   = "TRT01P"   # always TRT01P — executor aliases actual col to this
+    groupby   = "TRT01P"
     row_stubs = spec.get("row_stubs", [])
 
-    # Detect which parameters to include from row_stubs AND available columns
+    # Preserve shell row order — detect params in order they appear in row_stubs
+    # Fall back to default order if no stubs
+    default_order = ["age", "sex", "race", "bmi"]
+    if row_stubs:
+        stub_lower = [r.lower() for r in row_stubs]
+        def stub_pos(keyword):
+            for i, s in enumerate(stub_lower):
+                if keyword in s:
+                    return i
+            return 999  # not found — add at end
+
+        param_order = sorted(
+            [("age", "AGE"), ("sex", "SEX"), ("race", "RACE"), ("bmi", "BMIBL")],
+            key=lambda x: stub_pos(x[0])
+        )
+    else:
+        param_order = [("age", "AGE"), ("sex", "SEX"), ("race", "RACE"), ("bmi", "BMIBL")]
+
     has_age  = any("age"  in r.lower() for r in row_stubs) or not row_stubs
     has_sex  = any("sex"  in r.lower() for r in row_stubs) or not row_stubs
     has_race = any("race" in r.lower() for r in row_stubs) or not row_stubs
     has_bmi  = any("bmi"  in r.lower() for r in row_stubs)
 
-    # Wrap each parameter block with column existence check
-    def col_guard(var_col, block):
-        return f'if ("{var_col}" %in% names(df)) {{\n{block}\n}}\n'
+    param_flags = {"age": has_age, "sex": has_sex, "race": has_race, "bmi": has_bmi}
 
-    # Build footnote lines
+    # Footnotes in table SOURCE footer (not title superscripts)
     fn_lines = ""
-    for i, fn in enumerate(footnotes[:5], 1):
-        fn_lines += f"""  tab_footnote(footnote="{fn}", locations=cells_title()) %>%\n"""
+    for fn in footnotes[:5]:
+        fn_lines += f'  tab_source_note(source_note="{fn}") %>%\n'
+
+    # Detect population label from pop_flag
+    pop_label_map = {
+        "SAFFL": "Safety Population",
+        "ITTFL": "ITT Population",
+        "FASFL": "Full Analysis Set",
+        "PKFL":  "PK Population",
+        "PPROTFL": "Per-Protocol Population",
+    }
+    pop_label = pop_label_map.get(pop_flag, f"{pop_flag} Population")
 
     dummy_data = "" if has_adam else f"""
 # Create dummy ADSL data
@@ -144,103 +174,156 @@ df <- data.frame(
   TRT01P   = rep(c("Placebo", "Drug A"), each=n_per),
   AGE      = c(round(rnorm(n_per, 45, 8)), round(rnorm(n_per, 48, 7))),
   SEX      = sample(c("Male","Female"), n_per*2, replace=TRUE),
-  RACE     = sample(c("White","Asian","Black"), n_per*2, replace=TRUE, prob=c(0.6,0.2,0.2)),
+  RACE     = sample(c("White","Asian","Black or African American","Other"),
+               n_per*2, replace=TRUE, prob=c(0.5,0.2,0.2,0.1)),
   BMIBL    = round(c(rnorm(n_per, 24, 3), rnorm(n_per, 26, 3)), 1),
   SAFFL    = "Y",
+  ITTFL    = "Y",
+  FASFL    = "Y",
   stringsAsFactors = FALSE
 )
-# Alias groupby column if different from TRT01P
 if (!"{groupby}" %in% names(df) && "TRT01P" %in% names(df)) {{
   df${groupby} <- df$TRT01P
 }}
 """
 
-    # Only filter if pop_flag column is known and non-empty
     if pop_flag and pop_flag.strip():
         pop_filter = f"""
-# Apply population filter if column exists
 if ("{pop_flag}" %in% names(df)) {{
   df <- df %>% filter({pop_flag} == "Y")
 }}"""
     else:
-        pop_filter = "# No population flag specified — using all records"
+        pop_filter = "# No population flag — using all records"
 
-    # indent string generated in R itself — avoids Python encoding issues
-    ind_r = 'paste0(strrep(intToUtf8(160), 4))'  # 4 non-breaking spaces in R
+    ind_r = 'strrep(intToUtf8(160), 4)'
 
-    # Continuous variable block builder
+    # ── Continuous block ──────────────────────────────────────────────────
     def cont_block(var_col, var_label, param_name):
         return f"""
-# --- {var_label} ---
-.ind <- {ind_r}
-{var_col}_by_trt <- bind_rows(
-  df %>% group_by({groupby}) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic=paste0(.ind,"n")),
-  df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic=paste0(.ind,"Mean (SD)")),
-  df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic=paste0(.ind,"Median")),
-  df %>% group_by({groupby}) %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic=paste0(.ind,"Min, Max"))
-) %>% pivot_wider(names_from={groupby}, values_from=val)
-{var_col}_total <- bind_rows(
-  df %>% summarise(val=as.character(n())) %>% mutate(Statistic=paste0(.ind,"n")),
-  df %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE))) %>% mutate(Statistic=paste0(.ind,"Mean (SD)")),
-  df %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE))) %>% mutate(Statistic=paste0(.ind,"Median")),
-  df %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE))) %>% mutate(Statistic=paste0(.ind,"Min, Max"))
-)
-{var_col}_by_trt$Total     <- {var_col}_total$val
-{var_col}_by_trt$Parameter <- "{param_name}"
+if ("{var_col}" %in% names(df)) {{
+  .ind <- {ind_r}
+  {var_col}_by_trt <- bind_rows(
+    df %>% group_by({groupby}) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic=paste0(.ind,"n")),
+    df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic=paste0(.ind,"Mean (SD)")),
+    df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic=paste0(.ind,"Median")),
+    df %>% group_by({groupby}) %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE)), .groups="drop") %>% mutate(Statistic=paste0(.ind,"Min, Max"))
+  ) %>% pivot_wider(names_from={groupby}, values_from=val)
+  {var_col}_total <- bind_rows(
+    df %>% summarise(val=as.character(n())) %>% mutate(Statistic=paste0(.ind,"n")),
+    df %>% summarise(val=sprintf("%.1f (%.1f)", mean({var_col},na.rm=TRUE), sd({var_col},na.rm=TRUE))) %>% mutate(Statistic=paste0(.ind,"Mean (SD)")),
+    df %>% summarise(val=sprintf("%.1f", median({var_col},na.rm=TRUE))) %>% mutate(Statistic=paste0(.ind,"Median")),
+    df %>% summarise(val=sprintf("%g, %g", min({var_col},na.rm=TRUE), max({var_col},na.rm=TRUE))) %>% mutate(Statistic=paste0(.ind,"Min, Max"))
+  )
+  {var_col}_by_trt$Total     <- {var_col}_total$val
+  {var_col}_by_trt$Parameter <- "{param_name}"
+}}
 """
 
-    # Categorical variable block builder
-    def cat_block(var_col, var_label, param_name):
+    # ── Categorical block — preserves all shell categories even if count=0 ─
+    def cat_block(var_col, var_label, param_name, shell_cats=None):
+        # Build expected categories from shell or use dynamic
+        if shell_cats:
+            cats_r = "c(" + ", ".join(f'"{c}"' for c in shell_cats) + ")"
+            cats_code = f"expected_cats <- {cats_r}"
+        else:
+            cats_code = f"expected_cats <- sort(unique(df${var_col}))"
+
         return f"""
-# --- {var_label} ---
-.ind <- {ind_r}
-{var_col}_cats <- sort(unique(df${var_col}))
-{var_col}_rows <- lapply({var_col}_cats, function(cat) {{
-  trt_vals <- df %>% group_by({groupby}) %>%
-    summarise(val=sprintf("%d (%.1f%%)", sum({var_col}==cat,na.rm=TRUE),
-              100*mean({var_col}==cat,na.rm=TRUE)), .groups="drop") %>%
-    pivot_wider(names_from={groupby}, values_from=val)
-  trt_vals$Total     <- sprintf("%d (%.1f%%)", sum(df${var_col}==cat,na.rm=TRUE),
-                                100*mean(df${var_col}==cat,na.rm=TRUE))
-  trt_vals$Statistic <- paste0(.ind, cat)
-  trt_vals$Parameter <- "{param_name}"
-  trt_vals
-}})
-{var_col}_by_trt <- bind_rows({var_col}_rows)
+if ("{var_col}" %in% names(df)) {{
+  .ind <- {ind_r}
+  {cats_code}
+  # Use denominator = total subjects per treatment (not just those with this category)
+  n_denom <- df %>% group_by({groupby}) %>% summarise(N=n_distinct(USUBJID), .groups="drop")
+  n_denom_total <- n_distinct(df$USUBJID)
+  {var_col}_rows <- lapply(expected_cats, function(cat) {{
+    trt_vals <- df %>% group_by({groupby}) %>%
+      summarise(
+        n_cat = sum({var_col}==cat, na.rm=TRUE),
+        .groups="drop"
+      ) %>%
+      left_join(n_denom, by="{groupby}") %>%
+      mutate(val=sprintf("%d (%.1f%%)", n_cat, 100*n_cat/pmax(N,1))) %>%
+      select({groupby}, val) %>%
+      pivot_wider(names_from={groupby}, values_from=val)
+    n_cat_total <- sum(df${var_col}==cat, na.rm=TRUE)
+    trt_vals$Total     <- sprintf("%d (%.1f%%)", n_cat_total, 100*n_cat_total/max(n_denom_total,1))
+    trt_vals$Statistic <- paste0(.ind, cat)
+    trt_vals$Parameter <- "{param_name}"
+    trt_vals
+  }})
+  {var_col}_by_trt <- bind_rows({var_col}_rows)
+}}
 """
 
-    # Build parameter blocks with column guards
+    # ── Extract shell categories for race/sex from row_stubs ─────────────
+    def extract_cats(keyword):
+        """Pull indented items under a keyword section from row_stubs."""
+        cats = []
+        in_section = False
+        for r in row_stubs:
+            r_lower = r.lower().strip()
+            if keyword in r_lower:
+                in_section = True
+                continue
+            if in_section:
+                # Indented items = categories; stop if new top-level param
+                if any(k in r_lower for k in ["age","sex","race","bmi","gender"]) and keyword not in r_lower:
+                    break
+                stripped = r.strip()
+                if stripped:
+                    cats.append(stripped)
+        return cats if cats else None
+
+    # ── Build param blocks in shell order ─────────────────────────────────
     param_blocks = []
     param_names  = []
     bind_vars    = []
 
-    if has_age:
-        param_blocks.append(f'if ("AGE" %in% names(df)) {{\n{cont_block("AGE", "Age", "Age (years)")}\n}}')
-        param_names.append("Age (years)")
-        bind_vars.append('if (exists("AGE_by_trt")) AGE_by_trt else NULL')
-    if has_bmi:
-        param_blocks.append(f'if ("BMIBL" %in% names(df)) {{\n{cont_block("BMIBL", "BMI", "BMI (kg/m²)")}\n}}')
-        param_names.append("BMI (kg/m²)")
-        bind_vars.append('if (exists("BMIBL_by_trt")) BMIBL_by_trt else NULL')
-    if has_sex:
-        param_blocks.append(f'if ("SEX" %in% names(df)) {{\n{cat_block("SEX", "Sex", "Sex, n (%)")}\n}}')
-        param_names.append("Sex, n (%)")
-        bind_vars.append('if (exists("SEX_by_trt")) SEX_by_trt else NULL')
-    if has_race:
-        param_blocks.append(f'if ("RACE" %in% names(df)) {{\n{cat_block("RACE", "Race", "Race, n (%)")}\n}}')
-        param_names.append("Race, n (%)")
-        bind_vars.append('if (exists("RACE_by_trt")) RACE_by_trt else NULL')
+    param_meta = {
+        "age":  ("AGE",   "Age",  "Age (years)",   lambda: cont_block("AGE",  "Age",  "Age (years)")),
+        "sex":  ("SEX",   "Sex",  "Sex, n (%)",    lambda: cat_block("SEX",  "Sex",  "Sex, n (%)",  extract_cats("sex"))),
+        "race": ("RACE",  "Race", "Race, n (%)",   lambda: cat_block("RACE", "Race", "Race, n (%)", extract_cats("race"))),
+        "bmi":  ("BMIBL", "BMI",  "BMI (kg/m\u00b2)", lambda: cont_block("BMIBL", "BMI", "BMI (kg/m\u00b2)")),
+    }
+
+    for keyword, col in param_order:
+        if not param_flags.get(keyword, False):
+            continue
+        _, _, param_name, block_fn = param_meta[keyword]
+        var_col = col
+        param_blocks.append(block_fn())
+        param_names.append(param_name)
+        bind_vars.append(f'if (exists("{var_col}_by_trt")) {var_col}_by_trt else NULL')
 
     bind_call = (
         "tbl_data <- bind_rows(\n  " +
         ",\n  ".join(bind_vars) +
-        "\n)\ntbl_data <- tbl_data[!sapply(tbl_data, function(x) all(is.na(x)))]"
+        "\n)"
     )
 
-    # row_group calls
-    rg_lines = ""
-    for pn in param_names:
-        rg_lines += f'  tab_row_group(label="{pn}", rows=Parameter=="{pn}") %>%\n'
+    # ── N header renaming ─────────────────────────────────────────────────
+    # Builds: cols_label(Placebo = "Placebo\n(N=10)", `Drug A` = "Drug A\n(N=10)", Total="Total\n(N=20)")
+    n_header_code = f"""
+# Dynamic N counts in column headers
+trts      <- sort(unique(df$TRT01P))
+n_per_trt <- sapply(trts, function(t) sum(df$TRT01P==t & !duplicated(df$USUBJID[df$TRT01P==t])))
+n_total   <- n_distinct(df$USUBJID)
+col_labels <- setNames(
+  c(paste0(trts, "\\n(N=", n_per_trt, ")"), paste0("Total\\n(N=", n_total, ")")),
+  c(trts, "Total")
+)
+col_labels_list <- as.list(col_labels)
+"""
+
+    # ── Row order enforcement ─────────────────────────────────────────────
+    param_order_r = "c(" + ", ".join(f'"{p}"' for p in param_names) + ")"
+    row_order_code = f"""
+# Enforce shell row order
+param_order <- {param_order_r}
+tbl_data$Parameter <- factor(tbl_data$Parameter, levels=param_order)
+tbl_data <- tbl_data[order(tbl_data$Parameter), ]
+tbl_data$Parameter <- as.character(tbl_data$Parameter)
+"""
 
     code = f"""{dummy_data}
 # Apply population filter
@@ -252,32 +335,35 @@ if ("{pop_flag}" %in% names(df)) {{
 {bind_call}
 
 # Move Parameter and Statistic to front
-tbl_data <- tbl_data %>%
-  select(Parameter, Statistic, everything())
-
-# Strip any nbsp from Statistic — indentation handled by gt tab_style
+tbl_data <- tbl_data %>% select(Parameter, Statistic, everything())
 tbl_data$Statistic <- trimws(tbl_data$Statistic)
+
+{n_header_code}
+{row_order_code}
 
 # Build gt table
 tbl <- gt(tbl_data, groupname_col="Parameter") %>%
-  tab_header(title="{title}") %>%
-  {fn_lines}  cols_label(Statistic="Statistic") %>%
+  tab_header(title="{title}",
+             subtitle="{pop_label}") %>%
+  {fn_lines}  cols_label(.list=col_labels_list) %>%
+  cols_label(Statistic="") %>%
   cols_hide(columns="Parameter") %>%
   tab_style(
-    style = cell_text(weight="bold"),
-    locations = cells_row_groups()
+    style=cell_text(weight="bold"),
+    locations=cells_row_groups()
   ) %>%
   tab_style(
-    style = cell_text(weight="bold"),
-    locations = cells_column_labels()
+    style=cell_text(weight="bold"),
+    locations=cells_column_labels()
   ) %>%
   tab_style(
-    style = cell_text(indent=px(20)),
-    locations = cells_body(columns="Statistic")
+    style=cell_text(indent=px(20)),
+    locations=cells_body(columns="Statistic")
   ) %>%
   tab_options(
     table.width=pct(100),
-    row_group.background.color="#f5f5f5"
+    row_group.background.color="#f5f5f5",
+    heading.subtitle.font.size=px(13)
   )
 
 cat(as_raw_html(tbl))
