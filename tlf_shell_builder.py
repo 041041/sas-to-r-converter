@@ -1227,13 +1227,15 @@ def run_shell_pipeline(
 
     if _LANGGRAPH_AVAILABLE:
         # ── Real LangGraph execution ─────────────────────────────────────
-        graph  = _get_graph()
-        # stream() yields (node_name, output_state) after each node completes
-        state  = init_state
-        for node_name, node_output in graph.stream(init_state):
-            state = node_output   # last value is the complete state after that node
-            if on_node:
-                on_node(node_name, state)
+        # graph.stream() yields {node_name: output_state} dicts, not tuples
+        graph = _get_graph()
+        state = init_state
+        for chunk in graph.stream(init_state):
+            # chunk is {node_name: state_dict}
+            for node_name, node_output in chunk.items():
+                state = node_output
+                if on_node:
+                    on_node(node_name, state)
     else:
         # ── Fallback: manual loop (no langgraph installed) ────────────────
         state = init_state
