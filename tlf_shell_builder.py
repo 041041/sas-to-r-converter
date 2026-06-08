@@ -162,7 +162,7 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     if not has_adam:
         dummy_cols = [
             f'  USUBJID  = paste0("S-", 1:(n_per*2))',
-            f'  {groupby} = rep(c("Placebo","Drug A"), each=n_per)',
+            f'  `_trt_` = rep(c("Placebo","Drug A"), each=n_per)',
         ]
         for p in parameters:
             av  = p.get("adam_var","")
@@ -181,11 +181,12 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
         for flg in ["SAFFL","ITTFL","FASFL"]:
             dummy_cols.append(f'  {flg} = "Y"')
 
+        _cols_str  = ",\n".join(dummy_cols)
         dummy_data = f"""
 set.seed(42)
 n_per <- 10
 df <- data.frame(
-{chr(44)+chr(10)}.join(dummy_cols),
+{_cols_str},
   stringsAsFactors=FALSE
 )
 """
@@ -193,6 +194,15 @@ df <- data.frame(
         dummy_data = ""
 
     pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag}=="Y")"""
+
+    # Runtime treatment-column detection — aliased to _trt_ so all group_by calls are stable
+    trt_detect = "\n".join([
+        f'# Auto-detect treatment column (hint: {groupby})',
+        f'.trt_candidates <- c("{groupby}","TRT01P","TRT01A","TRTP","ARM","ACTARM")',
+        '.trt_col <- Filter(function(x) x %in% names(df), .trt_candidates)',
+        '.trt_col <- if (length(.trt_col)) .trt_col[1] else names(df)[2]',
+        'df[["_trt_"]] <- df[[.trt_col]]',
+    ])
 
     ind_r = 'strrep(intToUtf8(160), 6)'
 
@@ -203,16 +213,16 @@ df <- data.frame(
         stat_rows    = []
         total_rows   = []
         if "n" in stats or "mean_sd" in stats:
-            stat_rows.append(f'df %>% group_by({groupby}) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic=paste0(.ind,"n"))')
+            stat_rows.append(f'df %>% group_by(`_trt_`) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic=paste0(.ind,"n"))')
             total_rows.append(f'data.frame(val=as.character(nrow(df)), Statistic=paste0(.ind,"n"))')
         if "mean_sd" in stats:
-            stat_rows.append(f'df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f (%.1f)",mean(.cv.,na.rm=T),sd(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Mean (SD)"))')
+            stat_rows.append(f'df %>% group_by(`_trt_`) %>% summarise(val=sprintf("%.1f (%.1f)",mean(.cv.,na.rm=T),sd(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Mean (SD)"))')
             total_rows.append(f'data.frame(val=sprintf("%.1f (%.1f)",mean(df$.cv.,na.rm=T),sd(df$.cv.,na.rm=T)),Statistic=paste0(.ind,"Mean (SD)"))')
         if "median" in stats:
-            stat_rows.append(f'df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f",median(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Median"))')
+            stat_rows.append(f'df %>% group_by(`_trt_`) %>% summarise(val=sprintf("%.1f",median(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Median"))')
             total_rows.append(f'data.frame(val=sprintf("%.1f",median(df$.cv.,na.rm=T)),Statistic=paste0(.ind,"Median"))')
         if "min_max" in stats:
-            stat_rows.append(f'df %>% group_by({groupby}) %>% summarise(val=sprintf("%g, %g",min(.cv.,na.rm=T),max(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Min, Max"))')
+            stat_rows.append(f'df %>% group_by(`_trt_`) %>% summarise(val=sprintf("%g, %g",min(.cv.,na.rm=T),max(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Min, Max"))')
             total_rows.append(f'data.frame(val=sprintf("%g, %g",min(df$.cv.,na.rm=T),max(df$.cv.,na.rm=T)),Statistic=paste0(.ind,"Min, Max"))')
 
         bind_trt   = "  bind_rows(\n    " + ",\n    ".join(stat_rows)   + "\n  )"
@@ -227,7 +237,7 @@ if (!is.na(.col_nm)) {{
   df$.cv. <- as.numeric(df[[.col_nm]])
   {safe_name}_by_trt <-
 {bind_trt} %>%
-    pivot_wider(names_from={groupby}, values_from=val)
+    pivot_wider(names_from=`_trt_`, values_from=val)
   {safe_name}_total <-
 {bind_total}
   {safe_name}_by_trt$Total     <- {safe_name}_total$val
@@ -252,15 +262,15 @@ if (!is.na(.col_nm)) {{
   .ind  <- {ind_r}
   df$.cv. <- df[[.col_nm]]
   {cats_code}
-  .n_denom       <- df %>% group_by({groupby}) %>% summarise(N=n_distinct(USUBJID),.groups="drop")
+  .n_denom       <- df %>% group_by(`_trt_`) %>% summarise(N=n_distinct(USUBJID),.groups="drop")
   .n_denom_total <- n_distinct(df$USUBJID)
   {safe_name}_rows <- lapply(expected_cats, function(cat) {{
-    tv <- df %>% group_by({groupby}) %>%
+    tv <- df %>% group_by(`_trt_`) %>%
       summarise(nc=sum(.cv.==cat,na.rm=T),.groups="drop") %>%
-      left_join(.n_denom, by="{groupby}") %>%
+      left_join(.n_denom, by="_trt_") %>%
       mutate(val=sprintf("%d (%.1f%%)",nc,100*nc/pmax(N,1))) %>%
-      select({groupby},val) %>%
-      pivot_wider(names_from={groupby},values_from=val,values_fill="0 (0.0%)")
+      select(`_trt_`,val) %>%
+      pivot_wider(names_from=`_trt_`,values_from=val,values_fill="0 (0.0%)")
     nc_tot        <- sum(df$.cv.==cat,na.rm=T)
     tv$Total      <- sprintf("%d (%.1f%%)",nc_tot,100*nc_tot/max(.n_denom_total,1))
     tv$Statistic  <- paste0(.ind,cat)
@@ -307,6 +317,7 @@ if (!is.na(.col_nm)) {{
 
     code = f"""{dummy_data}
 {pop_filter}
+{trt_detect}
 
 {"".join(param_blocks)}
 
@@ -316,8 +327,8 @@ tbl_data <- tbl_data %>% select(Parameter, Statistic, everything())
 tbl_data$Statistic <- gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$","",tbl_data$Statistic)
 
 # Dynamic N headers — html() gives proper <br> line break
-trts      <- sort(unique(df${groupby}))
-n_per_trt <- sapply(trts, function(t) n_distinct(df$USUBJID[df${groupby}==t]))
+trts      <- sort(unique(df$`_trt_`))
+n_per_trt <- sapply(trts, function(t) n_distinct(df$USUBJID[df$`_trt_`==t]))
 n_total   <- n_distinct(df$USUBJID)
 col_label_names <- c(trts, "Total")
 col_label_vals  <- c(
