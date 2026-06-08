@@ -195,7 +195,7 @@ if ("{pop_flag}" %in% names(df)) {{
     else:
         pop_filter = "# No population flag — using all records"
 
-    ind_r = 'strrep(intToUtf8(160), 4)'
+    ind_r = 'strrep(intToUtf8(160), 6)'  # 6 nbsp = ~3 spaces of visual indent in gt HTML
 
     # ── Continuous block ──────────────────────────────────────────────────
     def cont_block(var_col, var_label, param_name):
@@ -336,7 +336,8 @@ tbl_data$Parameter <- as.character(tbl_data$Parameter)
 
 # Move Parameter and Statistic to front
 tbl_data <- tbl_data %>% select(Parameter, Statistic, everything())
-tbl_data$Statistic <- trimws(tbl_data$Statistic)
+# Trim only ASCII whitespace — preserve nbsp indent (\u00a0) used for sub-row indent
+tbl_data$Statistic <- gsub("^[ \t\r\n]+|[ \t\r\n]+$", "", tbl_data$Statistic)
 
 {n_header_code}
 {row_order_code}
@@ -356,14 +357,12 @@ tbl <- gt(tbl_data, groupname_col="Parameter") %>%
     style=cell_text(weight="bold"),
     locations=cells_column_labels()
   ) %>%
-  tab_style(
-    style=cell_text(indent=px(20)),
-    locations=cells_body(columns="Statistic")
-  ) %>%
+  cols_align(align="left", columns="Statistic") %>%
   tab_options(
     table.width=pct(100),
     row_group.background.color="#f5f5f5",
-    heading.subtitle.font.size=px(13)
+    heading.subtitle.font.size=px(13),
+    column_labels.font.weight="bold"
   )
 
 cat(as_raw_html(tbl))
@@ -613,10 +612,10 @@ tbl_list <- lapply(params_list, function(p) {{
     }}
     
     rows <- bind_rows(
-      make_stat(paste0(strrep(intToUtf8(160),4),"n"),         function(x) as.character(sum(!is.na(x)))),
-      make_stat(paste0(strrep(intToUtf8(160),4),"Mean (SD)"), function(x) sprintf("%.1f (%.1f)", mean(x,na.rm=TRUE), sd(x,na.rm=TRUE))),
-      make_stat(paste0(strrep(intToUtf8(160),4),"Median"),    function(x) sprintf("%.1f", median(x,na.rm=TRUE))),
-      make_stat(paste0(strrep(intToUtf8(160),4),"Min, Max"),  function(x) sprintf("%g, %g", min(x,na.rm=TRUE), max(x,na.rm=TRUE)))
+      make_stat(paste0(strrep(intToUtf8(160),6),"n"),         function(x) as.character(sum(!is.na(x)))),
+      make_stat(paste0(strrep(intToUtf8(160),6),"Mean (SD)"), function(x) sprintf("%.1f (%.1f)", mean(x,na.rm=TRUE), sd(x,na.rm=TRUE))),
+      make_stat(paste0(strrep(intToUtf8(160),6),"Median"),    function(x) sprintf("%.1f", median(x,na.rm=TRUE))),
+      make_stat(paste0(strrep(intToUtf8(160),6),"Min, Max"),  function(x) sprintf("%g, %g", min(x,na.rm=TRUE), max(x,na.rm=TRUE)))
     )
     rows$Total     <- c(
       as.character(sum(!is.na(avals))),
@@ -633,17 +632,15 @@ tbl_list <- lapply(params_list, function(p) {{
 tbl_data <- bind_rows(unlist(tbl_list, recursive=FALSE)) %>%
   select(Parameter, Visit, Statistic, everything())
 
-tbl_data$Statistic <- trimws(tbl_data$Statistic)
+# Trim only ASCII whitespace — preserve nbsp indent (\u00a0) used for sub-row indent
+tbl_data$Statistic <- gsub("^[ \t\r\n]+|[ \t\r\n]+$", "", tbl_data$Statistic)
 
 tbl <- gt(tbl_data, groupname_col="Parameter") %>%
   tab_header(title="{title}") %>%
   {fn_lines}  cols_label(Visit="Visit", Statistic="Statistic") %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
-  tab_style(
-    style=cell_text(indent=px(20)),
-    locations=cells_body(columns="Statistic")
-  ) %>%
+  cols_align(align="left", columns="Statistic") %>%
   tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
 
 cat(as_raw_html(tbl))
@@ -690,7 +687,7 @@ val_col <- if ("AVAL" %in% names(df)) "AVAL" else names(df)[3]
 chg_col <- if ("CHG"  %in% names(df)) "CHG"  else NULL
 
 make_row <- function(data, col, label) {{
-  ind <- strrep(intToUtf8(160), 4)
+  ind <- strrep(intToUtf8(160), 6)
   r <- data %>% group_by(TRT01P) %>%
     summarise(
       n_val   = as.character(sum(!is.na(.data[[col]]))),
@@ -714,7 +711,7 @@ if (!is.null(chg_col) && chg_col %in% names(df)) {{
 
 # Responder analysis if categorical column exists
 if ("AVALCAT1" %in% names(df)) {{
-  ind <- strrep(intToUtf8(160), 4)
+  ind <- strrep(intToUtf8(160), 6)
   resp <- df %>% group_by(TRT01P) %>%
     summarise(val=sprintf("%d (%.1f%%)",
       sum(AVALCAT1=="Responder",na.rm=TRUE),
@@ -724,11 +721,11 @@ if ("AVALCAT1" %in% names(df)) {{
   rows <- bind_rows(rows, resp)
 }}
 
-# Total column — use trimws to strip nbsp before matching
+# Total column — strip only ASCII whitespace (not nbsp) before matching
 tot_aval <- df[[val_col]]
 rows$Total <- NA_character_
 for (i in seq_len(nrow(rows))) {{
-  stat <- trimws(rows$Statistic[i])
+  stat <- gsub("^[ \t\r\n]+|[ \t\r\n]+$", "", rows$Statistic[i])
   if (stat=="n")              rows$Total[i] <- as.character(sum(!is.na(tot_aval)))
   else if (stat=="Mean (SD)") rows$Total[i] <- sprintf("%.2f (%.2f)", mean(tot_aval,na.rm=TRUE), sd(tot_aval,na.rm=TRUE))
   else if (stat=="Median")    rows$Total[i] <- sprintf("%.2f", median(tot_aval,na.rm=TRUE))
@@ -736,7 +733,8 @@ for (i in seq_len(nrow(rows))) {{
   else if (grepl("Responder", stat)) rows$Total[i] <- sprintf("%d (%.1f%%)", sum(df$AVALCAT1=="Responder",na.rm=TRUE), 100*mean(df$AVALCAT1=="Responder",na.rm=TRUE))
 }}
 
-rows$Statistic <- trimws(rows$Statistic)
+# Trim only ASCII whitespace — preserve nbsp indent
+rows$Statistic <- gsub("^[ \t\r\n]+|[ \t\r\n]+$", "", rows$Statistic)
 
 tbl <- gt(rows, groupname_col="Parameter") %>%
   tab_header(title="{title}") %>%
@@ -744,10 +742,7 @@ tbl <- gt(rows, groupname_col="Parameter") %>%
   cols_hide("Parameter") %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
-  tab_style(
-    style=cell_text(indent=px(20)),
-    locations=cells_body(columns="Statistic")
-  ) %>%
+  cols_align(align="left", columns="Statistic") %>%
   tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
 
 cat(as_raw_html(tbl))
@@ -1117,14 +1112,107 @@ RULES:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PIPELINE RUNNER (LangGraph-style loop without the library dependency)
+# REAL LANGGRAPH PIPELINE
+# Graph:  parse_shell → generate_code → execute → validate
+#                                          ↑              |
+#                                          └──── fix ←────┘  (on fail, up to MAX_RETRIES)
 # ══════════════════════════════════════════════════════════════════════════════
-def run_shell_pipeline(shell_text: str, adam_csv: Optional[str] = None) -> ShellTLFState:
+try:
+    from langgraph.graph import StateGraph, END
+    _LANGGRAPH_AVAILABLE = True
+except ImportError:
+    _LANGGRAPH_AVAILABLE = False
+
+
+def _should_fix_or_end(state: ShellTLFState) -> str:
     """
-    Execute the full agentic pipeline:
-    parse → generate → execute → validate → (fix → execute → validate) * N
+    Conditional edge after validate node.
+    Returns "fix" if validation failed and retries remain, else "end".
     """
-    state: ShellTLFState = {
+    if state["validation_result"] == "pass":
+        return "end"
+    if state.get("retry_count", 0) >= MAX_RETRIES:
+        return "end"
+    return "fix"
+
+
+def _build_langgraph() -> "StateGraph":
+    """
+    Build and compile the TLF state graph.
+
+    Nodes
+    ─────
+    parse_shell   : LLM extracts structured spec from raw shell text
+    generate_code : template router + optional LLM enhancement → R code
+    execute       : Rscript subprocess → stdout / PNG bytes
+    validate      : structural checks on output vs spec
+    fix           : LLM patches broken code using error + spec context
+
+    Edges
+    ─────
+    parse_shell → generate_code → execute → validate
+                                                │
+                         ┌─── "fix" ──── fix ←─┘  (validation_result != "pass"
+                         │                         AND retry_count < MAX_RETRIES)
+                         └─── "end" ──── END       (pass  OR  retries exhausted)
+    """
+    graph = StateGraph(ShellTLFState)
+
+    # Register nodes
+    graph.add_node("parse_shell",   node_parse_shell)
+    graph.add_node("generate_code", node_generate_code)
+    graph.add_node("execute",       node_execute)
+    graph.add_node("validate",      node_validate)
+    graph.add_node("fix",           node_fix)
+
+    # Linear edges
+    graph.set_entry_point("parse_shell")
+    graph.add_edge("parse_shell",   "generate_code")
+    graph.add_edge("generate_code", "execute")
+    graph.add_edge("execute",       "validate")
+
+    # Conditional edge: validate → fix → execute  OR  validate → END
+    graph.add_conditional_edges(
+        "validate",
+        _should_fix_or_end,
+        {"fix": "fix", "end": END}
+    )
+    graph.add_edge("fix", "execute")   # fix always goes back to execute
+
+    return graph.compile()
+
+
+# Compiled graph singleton (built once, reused)
+_TLF_GRAPH = None
+
+def _get_graph():
+    global _TLF_GRAPH
+    if _TLF_GRAPH is None:
+        _TLF_GRAPH = _build_langgraph()
+    return _TLF_GRAPH
+
+
+def run_shell_pipeline(
+    shell_text: str,
+    adam_csv: Optional[str] = None,
+    ai_instructions: str = "",
+    on_node: Optional[callable] = None,
+) -> ShellTLFState:
+    """
+    Execute the TLF agentic pipeline.
+
+    Uses real LangGraph when available; falls back to manual loop if
+    langgraph is not installed (e.g. first deploy before requirements update).
+
+    Parameters
+    ----------
+    shell_text      : raw mock shell text
+    adam_csv        : optional ADaM CSV string
+    ai_instructions : extra user instructions forwarded to generate_code node
+    on_node         : optional callback(node_name, state) called after each node
+                      — used by the UI to stream progress updates
+    """
+    init_state: ShellTLFState = {
         "shell_text":        shell_text,
         "adam_csv":          adam_csv,
         "parsed_spec":       {},
@@ -1136,26 +1224,34 @@ def run_shell_pipeline(shell_text: str, adam_csv: Optional[str] = None) -> Shell
         "final_r_code":      "",
         "final_output":      "",
         "detected_type":     "",
-        "ai_instructions":   "",
+        "ai_instructions":   ai_instructions,
     }
 
-    # Node 1: Parse
-    state = node_parse_shell(state)
-
-    # Node 2: Generate
-    state = node_generate_code(state)
-
-    # Node 3-4: Execute + Validate (with retry loop)
-    for attempt in range(MAX_RETRIES + 1):
-        state = node_execute(state)
-        state = node_validate(state)
-
-        if state["validation_result"] == "pass":
-            break
-
-        if attempt < MAX_RETRIES:
-            state = node_fix(state)   # Node 5 → back to execute
-        # else give up and return whatever we have
+    if _LANGGRAPH_AVAILABLE:
+        # ── Real LangGraph execution ─────────────────────────────────────
+        graph  = _get_graph()
+        # stream() yields (node_name, output_state) after each node completes
+        state  = init_state
+        for node_name, node_output in graph.stream(init_state):
+            state = node_output   # last value is the complete state after that node
+            if on_node:
+                on_node(node_name, state)
+    else:
+        # ── Fallback: manual loop (no langgraph installed) ────────────────
+        state = init_state
+        state = node_parse_shell(state)
+        if on_node: on_node("parse_shell", state)
+        state = node_generate_code(state)
+        if on_node: on_node("generate_code", state)
+        for _ in range(MAX_RETRIES + 1):
+            state = node_execute(state)
+            if on_node: on_node("execute", state)
+            state = node_validate(state)
+            if on_node: on_node("validate", state)
+            if state["validation_result"] == "pass" or state["retry_count"] >= MAX_RETRIES:
+                break
+            state = node_fix(state)
+            if on_node: on_node("fix", state)
 
     state["final_r_code"] = state["generated_code"]
     state["final_output"]  = state["execution_output"]
@@ -1377,85 +1473,79 @@ b. Note: xx""",
         if ai_instructions.strip():
             shell_for_pipeline += f"\n\nADDITIONAL REQUIREMENTS:\n{ai_instructions}"
 
-        # ── Run pipeline with live agent log ─────────────────────────────
+        # ── Run real LangGraph pipeline with streaming progress ──────────
         agent_log = []
-        progress   = st.progress(0, text="🧠 Starting agentic pipeline...")
+        progress  = st.progress(0, text="🧠 Starting agentic pipeline...")
+
+        _node_progress = {
+            "parse_shell":   (15,  "🔍 Node 1 — Parsing mock shell..."),
+            "generate_code": (35,  "⚙️ Node 2 — Generating R code..."),
+            "execute":       (60,  "▶️ Node 3 — Executing R..."),
+            "validate":      (75,  "🔍 Node 4 — Validating output..."),
+            "fix":           (85,  "🔧 Node 5 — AI fixing code..."),
+        }
+        _template_map = {
+            "demog":      "📊 Demographics template",
+            "ae_summary": "🔴 AE Summary template",
+            "ae_socpt":   "🔴 AE SOC/PT template",
+            "lab":        "🧪 Lab Values template",
+            "vitals":     "💓 Vital Signs template",
+            "efficacy":   "📈 Efficacy template",
+            "listing":    "📋 Listing template",
+            "llm":        "🤖 LLM generated",
+        }
+
+        def _on_node(node_name: str, state: ShellTLFState):
+            """Called by run_shell_pipeline after each node completes."""
+            pct, text = _node_progress.get(node_name, (50, f"⚙️ {node_name}..."))
+            # Increment pct for repeated execute/validate/fix cycles
+            retry = state.get("retry_count", 0)
+            if retry > 0:
+                pct = min(pct + retry * 5, 95)
+                text = text.replace("...", f" (retry {retry})...")
+            progress.progress(pct, text=text)
+
+            # Build agent log entry
+            if node_name == "parse_shell":
+                agent_log.append(("✅ Shell Parsed", str(state["parsed_spec"])[:300]))
+            elif node_name == "generate_code":
+                detected = state.get("detected_type", "unknown")
+                ai_note  = " + AI customised" if ai_instructions.strip() and detected != "llm" else ""
+                agent_log.append(("✅ Code Generated",
+                    f"{_template_map.get(detected, detected)}{ai_note} — {len(state['generated_code'])} chars"))
+            elif node_name == "execute":
+                if state["execution_error"]:
+                    agent_log.append((f"⚠️ Execute Failed",  state["execution_error"][:200]))
+                else:
+                    agent_log.append((f"✅ Execute OK", f"Output: {len(str(state['execution_output']))} chars"))
+            elif node_name == "validate":
+                agent_log.append((f"🔍 Validate", state["validation_result"]))
+            elif node_name == "fix":
+                agent_log.append((f"🔧 Fix Applied (retry {retry})", "Code patched by LLM"))
 
         try:
             with st.spinner(""):
-                # Step 1: Parse
-                progress.progress(15, text="🔍 Node 1/5 — Parsing mock shell...")
-                state: ShellTLFState = {
-                    "shell_text":        shell_for_pipeline,
-                    "adam_csv":          st.session_state.get("ms_adam_csv"),
-                    "parsed_spec":       {},
-                    "generated_code":    "",
-                    "execution_output":  "",
-                    "execution_error":   "",
-                    "validation_result": "",
-                    "retry_count":       0,
-                    "final_r_code":      "",
-                    "final_output":      "",
-                    "detected_type":     "",
-                    "ai_instructions":   ai_instructions.strip(),
-                }
-                state = node_parse_shell(state)
-                agent_log.append(("✅ Shell Parsed", str(state["parsed_spec"])[:300]))
+                backend = "LangGraph" if _LANGGRAPH_AVAILABLE else "fallback loop"
+                progress.progress(5, text=f"🧠 Using {backend}...")
 
-                # Step 2: Generate
-                progress.progress(35, text="⚙️ Node 2/5 — Generating R code...")
-                state = node_generate_code(state)
-                detected = state.get("detected_type", "unknown")
-                template_map = {
-                    "demog":      "📊 Demographics template",
-                    "ae_summary": "🔴 AE Summary template",
-                    "ae_socpt":   "🔴 AE SOC/PT template",
-                    "lab":        "🧪 Lab Values template",
-                    "vitals":     "💓 Vital Signs template",
-                    "efficacy":   "📈 Efficacy template",
-                    "listing":    "📋 Listing template",
-                    "llm":        "🤖 LLM generated",
-                }
-                ai_note = " + AI customised" if ai_instructions.strip() and detected != "llm" else ""
-                agent_log.append(("✅ Code Generated", f"{template_map.get(detected, detected)}{ai_note} — {len(state['generated_code'])} chars"))
-
-                # Steps 3-5: Execute → Validate → Fix loop
-                for attempt in range(MAX_RETRIES + 1):
-                    pct  = 55 + attempt * 12
-                    pct  = min(pct, 95)
-                    progress.progress(pct, text=f"🔄 Node 3/5 — Execute & Validate (attempt {attempt+1}/{MAX_RETRIES+1})...")
-
-                    state = node_execute(state)
-
-                    if state["execution_error"]:
-                        agent_log.append((f"⚠️ Execute Attempt {attempt+1} Failed", state["execution_error"][:200]))
-                    else:
-                        agent_log.append((f"✅ Execute Attempt {attempt+1} OK", "Output received"))
-
-                    state = node_validate(state)
-                    agent_log.append((f"🔍 Validate Attempt {attempt+1}", state["validation_result"]))
-
-                    if state["validation_result"] == "pass":
-                        break
-
-                    if attempt < MAX_RETRIES:
-                        progress.progress(pct + 5, text=f"🔧 Node 5/5 — AI fixing (retry {attempt+1})...")
-                        state = node_fix(state)
-                        agent_log.append((f"🔧 Fix Applied (retry {attempt+1})", "Code patched"))
-
-                state["final_r_code"] = state["generated_code"]
-                state["final_output"]  = state["execution_output"]
+                final_state = run_shell_pipeline(
+                    shell_text      = shell_for_pipeline,
+                    adam_csv        = st.session_state.get("ms_adam_csv"),
+                    ai_instructions = ai_instructions.strip(),
+                    on_node         = _on_node,
+                )
 
                 # Persist to session state
-                st.session_state["ms_r_code"]       = state["final_r_code"]
-                st.session_state["ms_output"]        = state["final_output"]
-                st.session_state["ms_error"]         = state["execution_error"] or None
-                st.session_state["ms_validation"]    = state["validation_result"]
-                st.session_state["ms_retry_count"]   = state["retry_count"]
-                st.session_state["ms_parsed_spec"]   = state["parsed_spec"]
-                st.session_state["ms_output_type"]   = state["parsed_spec"].get("output_type", "Table")
+                st.session_state["ms_r_code"]       = final_state["final_r_code"]
+                st.session_state["ms_output"]        = final_state["final_output"]
+                st.session_state["ms_error"]         = final_state["execution_error"] or None
+                st.session_state["ms_validation"]    = final_state["validation_result"]
+                st.session_state["ms_retry_count"]   = final_state["retry_count"]
+                st.session_state["ms_parsed_spec"]   = final_state["parsed_spec"]
+                st.session_state["ms_output_type"]   = final_state["parsed_spec"].get("output_type", "Table")
                 st.session_state["ms_pipeline_done"] = True
                 st.session_state["ms_agent_log"]     = agent_log
+                st.session_state["ms_backend"]       = backend
 
                 progress.progress(100, text="✅ Pipeline complete!")
 
@@ -1503,7 +1593,14 @@ b. Note: xx""",
     # ── Agent log expander ────────────────────────────────────────────────
     agent_log = st.session_state.get("ms_agent_log", [])
     if agent_log:
-        with st.expander("🤖 Agent Pipeline Log", expanded=False):
+        backend = st.session_state.get("ms_backend", "")
+        badge   = "🟢 LangGraph" if "LangGraph" in backend else "🟡 fallback loop"
+        with st.expander(f"🤖 Agent Pipeline Log  [{badge}]", expanded=False):
+            if "LangGraph" not in backend:
+                st.info(
+                    "LangGraph not installed — running sequential fallback. "
+                    "Add `langgraph` to requirements.txt to enable the real graph."
+                )
             for step, detail in agent_log:
                 col_a, col_b = st.columns([1, 3])
                 with col_a:
