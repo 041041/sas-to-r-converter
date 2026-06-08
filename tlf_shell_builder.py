@@ -299,6 +299,12 @@ if (!is.na(.col_nm)) {{
     param_order_r = "c(" + ",".join(f'"{p}"' for p in param_names) + ")"
     fn_list = ", ".join(f'"{fn}"' for fn in footnotes[:5]) if footnotes else ""
 
+    # Build R footnote vector safely
+    if footnotes:
+        fn_r_vec = "c(" + ", ".join(f'"{fn.replace(chr(34), chr(39))}"' for fn in footnotes[:5]) + ")"
+    else:
+        fn_r_vec = "character(0)"
+
     code = f"""{dummy_data}
 {pop_filter}
 
@@ -309,51 +315,50 @@ if (!is.na(.col_nm)) {{
 tbl_data <- tbl_data %>% select(Parameter, Statistic, everything())
 tbl_data$Statistic <- gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$","",tbl_data$Statistic)
 
-# Dynamic N headers — use html() for proper line break
+# Dynamic N headers — html() gives proper <br> line break
 trts      <- sort(unique(df${groupby}))
 n_per_trt <- sapply(trts, function(t) n_distinct(df$USUBJID[df${groupby}==t]))
 n_total   <- n_distinct(df$USUBJID)
-col_labels <- setNames(
-  c(lapply(seq_along(trts), function(i) html(paste0(trts[i],"<br>(N=",n_per_trt[i],")"))),
-    list(html(paste0("Total<br>(N=",n_total,")")))),
-  c(trts,"Total")
+col_label_names <- c(trts, "Total")
+col_label_vals  <- c(
+  lapply(seq_along(trts), function(i) html(paste0("<b>",trts[i],"</b><br>(N=",n_per_trt[i],")"))),
+  list(html(paste0("<b>Total</b><br>(N=",n_total,")")))
 )
+col_labels <- setNames(col_label_vals, col_label_names)
 
 # Enforce shell parameter order
 tbl_data$Parameter <- factor(tbl_data$Parameter, levels={param_order_r})
 tbl_data <- tbl_data[order(tbl_data$Parameter),]
 tbl_data$Parameter <- as.character(tbl_data$Parameter)
 
-# Build footnote lines with a. b. c. letters
-fn_letters <- letters[seq_along(list({fn_list}))]
-fn_text    <- c({fn_list})
+# footnotes vector
+fn_text <- {fn_r_vec}
 
 tbl <- gt(tbl_data, groupname_col="Parameter") %>%
-  tab_header(title="{title}", subtitle="{pop_label}") %>%
+  tab_header(
+    title = html("<b>{title}</b>"),
+    subtitle = html('<div style="text-align:left;font-size:12px;font-weight:normal;">{pop_label}</div>')
+  ) %>%
   cols_label(.list=col_labels) %>%
   cols_label(Statistic="") %>%
   cols_hide("Parameter") %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
-  tab_style(style=cell_text(weight="bold"), locations=cells_column_labels()) %>%
   tab_style(style=cell_text(indent=px(20)), locations=cells_body(columns="Statistic")) %>%
-  tab_style(
-    style=cell_text(align="left"),
-    locations=cells_title(groups="subtitle")
-  ) %>%
   cols_align(align="left", columns="Statistic") %>%
   tab_options(
     table.width=pct(100),
     row_group.background.color="#f5f5f5",
-    heading.subtitle.font.size=px(13),
     heading.align="left",
     column_labels.font.weight="bold"
   )
 
-# Add lettered footnotes
+# Add lettered footnotes a. b. c.
 if (length(fn_text) > 0) {{
   for (i in seq_along(fn_text)) {{
     tbl <- tbl %>% tab_source_note(
-      source_note=html(paste0("<sup>",letters[i],"</sup> ",fn_text[i]))
+      source_note = html(paste0(
+        '<span style="font-size:11px;"><sup>',letters[i],'</sup> ',fn_text[i],'</span>'
+      ))
     )
   }}
 }}
