@@ -349,15 +349,25 @@ tbl <- gt(tbl_data, groupname_col="Parameter") %>%
     table.width=pct(100),
     row_group.background.color="#f5f5f5",
     heading.align="left",
-    column_labels.font.weight="bold"
+    column_labels.font.weight="bold",
+    source_notes.font.size=px(11),
+    source_notes.padding=px(4)
   )
 
-# Add lettered footnotes a. b. c.
+# Add lettered footnotes  a.  b.  c.
+# Uses CSS vertical-align (not <sup>) so gt does not override font or size.
 if (length(fn_text) > 0) {{
   for (i in seq_along(fn_text)) {{
+    ltr <- letters[i]
     tbl <- tbl %>% tab_source_note(
       source_note = html(paste0(
-        '<span style="font-size:11px;font-family:Arial,sans-serif;"><sup style="font-family:Arial,sans-serif;">',letters[i],'</sup>. ',fn_text[i],'</span>'
+        '<span style="font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.4;">',
+        '<span style="font-family:Arial,Helvetica,sans-serif;font-size:8px;vertical-align:super;line-height:0;">',
+        ltr,
+        '</span>',
+        '. ',
+        fn_text[i],
+        '</span>'
       ))
     )
   }}
@@ -1737,7 +1747,7 @@ b. Note: xx""",
         height=80,
         key="ms_enhance_text"
     )
- 
+
     if st.button("🔧 Apply Enhancement", use_container_width=True, key="ms_enhance_btn"):
         if not enhance_text.strip():
             st.warning("Enter enhancement instructions first.")
