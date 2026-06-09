@@ -219,7 +219,7 @@ Return ONLY valid JSON, no markdown, no explanation. Schema:
   "columns":      ["col1", "col2", ...],
   "row_stubs":    ["row label 1", "row label 2", ...],
   "statistics":   ["n", "mean", "sd", "median", "min", "max", "pct"] (subset relevant),
-  "groupby":      "treatment variable name or empty string"
+  "groupby":      "ACTUAL ADaM column name for treatment grouping — must be one of: TRT01P, TRT01A, TRTP, ARM, ACTARM, or empty string if not a grouped table. Do NOT return generic words like treatment or group."
 }}"""
     raw = _call_llm(prompt)
     raw = re.sub(r'```json|```', '', raw).strip()
@@ -253,7 +253,14 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     title      = spec.get("title", "Summary of Demographic and Baseline Characteristics")
     pop_flag   = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes  = spec.get("footnotes", [])
-    groupby    = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+    # Sanitise groupby: LLM sometimes returns generic words like "treatment"
+    # instead of real ADaM column names. Map these to the safe runtime alias _trt_.
+    _GENERIC_GROUPBY = {"treatment","trt","group","arm","therapy","drug","intervention",""}
+    _raw_groupby = (spec.get("groupby_var") or spec.get("groupby") or "").strip()
+    if _raw_groupby.lower() in _GENERIC_GROUPBY:
+        groupby = "_trt_"   # resolved at runtime by node_execute trt-detection
+    else:
+        groupby = _raw_groupby
     parameters = spec.get("parameters", [])
 
     pop_label_map = {
@@ -1067,6 +1074,29 @@ RULES:
         except Exception:
             pass  # silently keep template code if enhancement fails
 
+    # ── Post-generation sanitiser ─────────────────────────────────────────
+    # Replace any literal generic treatment column names with `_trt_`
+    # (the runtime alias set by node_execute). Covers both template-generated
+    # and LLM-generated code so group_by() never crashes on a missing column.
+    _trt_subs = [
+        (r'group_by\(treatment\)',          'group_by(`_trt_`)'),
+        (r'group_by\(TREATMENT\)',          'group_by(`_trt_`)'),
+        (r'names_from\s*=\s*treatment\b',   'names_from=`_trt_`'),
+        (r'names_from\s*=\s*TREATMENT\b',   'names_from=`_trt_`'),
+        (r'select\(treatment,',             'select(`_trt_`,'),
+        (r'by\s*=\s*"treatment"',           'by="_trt_"'),
+        (r'df\$treatment\b',                'df[["_trt_"]]'),
+        (r'df\$TREATMENT\b',                'df[["_trt_"]]'),
+        (r'df\[\["treatment"\]\]',          'df[["_trt_"]]'),
+        (r'df\[\["TREATMENT"\]\]',          'df[["_trt_"]]'),
+        (r'unique\(df\$treatment\)',         'unique(df[["_trt_"]])'),
+        (r'pivot_wider\(names_from=treatment,', 'pivot_wider(names_from=`_trt_`,'),
+    ]
+    code = state["generated_code"]
+    for pat, repl in _trt_subs:
+        code = re.sub(pat, repl, code)
+    state["generated_code"] = code
+
     return state
 
 
@@ -1114,11 +1144,12 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             prefix_lines.append(f'df <- read.csv("{inp}", stringsAsFactors=FALSE)')
 
             # If detected trt col differs from what template uses, alias it
-            if trt_col and trt_col != "TRT01P":
-                prefix_lines.append(f'df$TRT01P <- df${trt_col}')
-            elif not trt_col:
-                # No known treatment col — create placeholder so group_by doesn't crash
-                prefix_lines.append('if (!"TRT01P" %in% names(df)) df$TRT01P <- "Total"')
+            # Alias detected treatment column to _trt_ — all generated code uses this
+            if trt_col:
+                prefix_lines.append(f'df[["_trt_"]] <- df[["{trt_col}"]]')
+            else:
+                # No known treatment col — create placeholder
+                prefix_lines.append('df[["_trt_"]] <- if ("TRT01P" %in% names(df)) df[["TRT01P"]] else "Total"')
 
         suffix_lines = []
         if output_type == "Figure":
