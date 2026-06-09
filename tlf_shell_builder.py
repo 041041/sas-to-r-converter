@@ -25,6 +25,57 @@ _groq   = Groq(api_key=_get_secret("GROQ_API_KEY"))
 
 MAX_RETRIES = 3
 
+# ── R package auto-installer ──────────────────────────────────────────────────
+_R_PACKAGES = [
+    "gt", "dplyr", "tidyr", "ggplot2", "flextable",
+    "tibble", "stringr", "scales", "officer",
+]
+
+def _ensure_r_packages() -> None:
+    """
+    Install any missing R packages into ~/R/library at session startup.
+    Runs once per Streamlit session (guarded by st.session_state).
+    Uses a fast existence-check so already-installed packages are skipped.
+    Mirrors the pattern used in graph_builder and table_builder.
+    """
+    if st.session_state.get("_r_packages_ready"):
+        return
+
+    user_lib = os.path.expanduser("~/R/library")
+    os.makedirs(user_lib, exist_ok=True)
+
+    # Build a single R script: check each package, install only if missing
+    pkg_list = ", ".join(f'"{p}"' for p in _R_PACKAGES)
+    install_script = f"""
+user_lib <- path.expand("~/R/library")
+dir.create(user_lib, recursive=TRUE, showWarnings=FALSE)
+.libPaths(c(user_lib, .libPaths()))
+pkgs <- c({pkg_list})
+missing <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]
+if (length(missing) > 0) {{
+  install.packages(
+    missing,
+    lib      = user_lib,
+    repos    = "https://cloud.r-project.org",
+    quiet    = TRUE,
+    Ncpus    = 2
+  )
+}}
+"""
+    try:
+        result = subprocess.run(
+            ["Rscript", "--vanilla", "-e", install_script],
+            capture_output=True, text=True, timeout=300
+        )
+        if result.returncode != 0:
+            # Non-fatal: log to console but don't block the UI
+            print(f"[R package install warning] {result.stderr[:400]}")
+    except Exception as e:
+        print(f"[R package install error] {e}")
+
+    st.session_state["_r_packages_ready"] = True
+
+
 # ─── LangGraph-style State ────────────────────────────────────────────────────
 class ShellTLFState(TypedDict):
     shell_text:        str            # raw mock shell pasted/uploaded
@@ -1034,14 +1085,16 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
         # Prefix: library path + preload packages silently + optional data load
         prefix_lines = [
             "user_lib <- path.expand('~/R/library')",
-            "if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))",
+            ".libPaths(c(user_lib, .libPaths()))",
             "options(warn=-1)",
-            "suppressMessages(suppressWarnings({",
-            "  library(dplyr)",
-            "  library(tidyr)",
-            "  library(gt)",
-            "  library(ggplot2)",
-            "}))",
+            # Attempt silent load; if a package is still missing after the
+            # startup installer ran, this gives a clean error message.
+            "for (.pkg in c('dplyr','tidyr','gt','ggplot2','tibble','stringr','scales')) {",
+            "  if (!requireNamespace(.pkg, quietly=TRUE)) {",
+            "    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)",
+            "  }",
+            "  suppressMessages(suppressWarnings(library(.pkg, character.only=TRUE)))",
+            "}",
         ]
 
         if state.get("adam_csv"):
@@ -1388,6 +1441,7 @@ def _show_code_diff(old_code: str, new_code: str):
 # STREAMLIT TAB RENDERER
 # ══════════════════════════════════════════════════════════════════════════════
 def render_shell_tlf_tab():
+    _ensure_r_packages()   # install gt, dplyr, tidyr, ggplot2 etc. if missing
     st.title("📋 TLF from Mock Shell")
     st.caption("Paste or upload a mock shell → AI parses spec → generates R code → executes → validates → auto-fixes")
     st.divider()
