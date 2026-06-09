@@ -1836,6 +1836,35 @@ b. Note: xx""",
     elif val:
         st.warning(f"⚠️ Validation: {val}")
 
+    # ── Pending enhancement diff — ABOVE tabs so always visible ─────────────
+    # Mirrors graph_builder.py exactly: diff is at top level not buried in a tab.
+    if st.session_state.get("ms_r_code_pending"):
+        st.warning("⚠️ Enhancement applied — review changes and confirm:")
+        st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
+        _show_code_diff(
+            st.session_state.get("ms_r_code_original", ""),
+            st.session_state["ms_r_code_pending"]
+        )
+        _dc1, _dc2, _dc3 = st.columns(3)
+        with _dc1:
+            if st.button("✅ Accept Changes", use_container_width=True, key="ms_apply"):
+                st.session_state["ms_r_code"]          = st.session_state["ms_r_code_pending"]
+                st.session_state["ms_r_code_original"] = None
+                st.session_state["ms_r_code_pending"]  = None
+                st.session_state["ms_run_now"]         = True
+                st.rerun()
+        with _dc2:
+            if st.button("❌ Reject Changes", use_container_width=True, key="ms_reject"):
+                # Revert to original and re-run
+                orig = st.session_state.get("ms_r_code_original") or st.session_state.get("ms_r_code", "")
+                st.session_state["ms_r_code"]         = orig
+                st.session_state["ms_r_code_pending"] = None
+                st.session_state["ms_run_now"]        = True
+                st.rerun()
+        with _dc3:
+            pass
+        st.divider()
+
     # ── Tabs: TLF Output | R Code ─────────────────────────────────────────
     output_type = st.session_state.get("ms_output_type", "Table")
     out_tab1, out_tab2 = st.tabs([
@@ -1880,29 +1909,6 @@ b. Note: xx""",
                     )
 
     with out_tab2:
-        # ── Pending diff review (same pattern as graph_builder) ───────────
-        if st.session_state.get("ms_r_code_pending"):
-            st.warning("⚠️ AI wants to modify your code. Review and confirm:")
-            st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
-            _show_code_diff(
-                st.session_state["ms_r_code_original"],
-                st.session_state["ms_r_code_pending"]
-            )
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                if st.button("✅ Apply Changes", use_container_width=True, key="ms_apply"):
-                    st.session_state["ms_r_code"]          = st.session_state["ms_r_code_pending"]
-                    st.session_state["ms_r_code_original"] = None
-                    st.session_state["ms_r_code_pending"]  = None
-                    st.session_state["ms_run_now"]         = True
-                    st.rerun()
-            with c2:
-                if st.button("❌ Reject", use_container_width=True, key="ms_reject"):
-                    st.session_state["ms_r_code_pending"] = None
-                    st.rerun()
-            with c3:
-                pass  # reserve for future preview
-
         # ── Editable code ─────────────────────────────────────────────────
         current_code = st.session_state.get("ms_r_code", "")
         edited = st.text_area(
@@ -2001,8 +2007,11 @@ b. Note: xx""",
                     if raw:
                         raw = re.sub(r'```[rR]?\n?', '', raw)
                         raw = re.sub(r'```', '', raw).strip()
-                        # Store original so Revert button can restore it
+                        # Store original for Revert, set pending for diff review
                         st.session_state["ms_r_code_original"] = existing_code
                         st.session_state["ms_r_code_pending"]  = raw
-                        st.session_state["ms_r_code"]          = existing_code  # keep accepted until user accepts
+                        # Also immediately apply + run so output updates right away
+                        # (user can still reject from the diff block above the tabs)
+                        st.session_state["ms_r_code"]  = raw
+                        st.session_state["ms_run_now"] = True
                         st.rerun()
