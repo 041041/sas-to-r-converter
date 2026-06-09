@@ -44,22 +44,104 @@ class ShellTLFState(TypedDict):
 # ══════════════════════════════════════════════════════════════════════════════
 # NODE 1 — Shell Parser
 # ══════════════════════════════════════════════════════════════════════════════
+class LLMRateLimitError(RuntimeError):
+    """Raised when all LLMs are rate-limited (HTTP 429). Pipeline should skip fix node."""
+    pass
+
+
+def _is_rate_limit(err: Exception) -> bool:
+    """Return True if the error is a 429 / quota / rate-limit response."""
+    s = str(err).lower()
+    return "429" in s or "rate_limit" in s or "quota" in s or "tokens per day" in s
+
+
+def _gemini_available() -> bool:
+    """True only if a non-empty GEMINI_API_KEY is configured."""
+    return bool(_get_secret("GEMINI_API_KEY"))
+
+
+def _groq_available() -> bool:
+    """True only if a non-empty GROQ_API_KEY is configured."""
+    return bool(_get_secret("GROQ_API_KEY"))
+
+
+def _call_gemini(prompt: str) -> str:
+    """Call Gemini directly. Raises on any error."""
+    return _gemini.models.generate_content(
+        model="gemini-2.0-flash", contents=prompt
+    ).text
+
+
+def _call_groq(prompt: str) -> str:
+    """Call Groq directly. Raises on any error."""
+    res = _groq.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+    return res.choices[0].message.content
+
+
 def _call_llm(prompt: str) -> str:
-    """Gemini primary, Groq fallback."""
-    try:
-        return _gemini.models.generate_content(
-            model="gemini-2.0-flash", contents=prompt
-        ).text
-    except Exception:
+    """
+    Try Gemini first, then Groq.
+
+    Switching logic:
+      - If Gemini key is missing/empty  → skip Gemini, go straight to Groq
+      - If Gemini returns auth error     → skip Gemini, go straight to Groq
+      - If Gemini is rate-limited (429)  → try Groq
+      - If Groq is rate-limited (429)
+        AND Gemini also failed with 429  → raise LLMRateLimitError (graceful skip)
+      - If Groq is rate-limited (429)
+        AND Gemini had auth/other error  → raise LLMRateLimitError (still graceful)
+      - Any other double failure         → raise RuntimeError
+
+    LLMRateLimitError is caught by node_fix so the pipeline ends gracefully
+    instead of crashing the LangGraph runner.
+    """
+    gemini_err = None
+    groq_err   = None
+
+    # ── Gemini ───────────────────────────────────────────────────────────
+    if _gemini_available():
         try:
-            res = _groq.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0
-            )
-            return res.choices[0].message.content
+            return _call_gemini(prompt)
         except Exception as e:
-            raise RuntimeError(f"Both LLMs failed: {e}")
+            gemini_err = e
+            # Auth errors (401/403) mean key is wrong — no point retrying Gemini
+            # Rate-limit on Gemini (429) — fall through to Groq
+            # Any other Gemini error     — fall through to Groq
+    else:
+        gemini_err = RuntimeError("GEMINI_API_KEY not configured")
+
+    # ── Groq fallback ────────────────────────────────────────────────────
+    if _groq_available():
+        try:
+            return _call_groq(prompt)
+        except Exception as e:
+            groq_err = e
+    else:
+        groq_err = RuntimeError("GROQ_API_KEY not configured")
+
+    # ── Both failed ───────────────────────────────────────────────────────
+    # If Groq is rate-limited, it means Groq quota is exhausted.
+    # If Gemini is also rate-limited, both quotas are gone.
+    # Either way, raise LLMRateLimitError so node_fix degrades gracefully.
+    if _is_rate_limit(groq_err):
+        raise LLMRateLimitError(
+            f"Groq rate-limited (429). Gemini status: {gemini_err}. "
+            f"Auto-fix skipped — pipeline returns best available output."
+        )
+    if _is_rate_limit(gemini_err):
+        raise LLMRateLimitError(
+            f"Gemini rate-limited (429). Groq also failed: {groq_err}. "
+            f"Auto-fix skipped — pipeline returns best available output."
+        )
+    raise RuntimeError(
+        f"Both LLMs failed.\n"
+        f"  Gemini: {gemini_err}\n"
+        f"  Groq:   {groq_err}"
+    )
 
 
 def node_parse_shell(state: ShellTLFState) -> ShellTLFState:
@@ -162,7 +244,7 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     if not has_adam:
         dummy_cols = [
             f'  USUBJID  = paste0("S-", 1:(n_per*2))',
-            f'  `_trt_` = rep(c("Placebo","Drug A"), each=n_per)',
+            f'  {groupby} = rep(c("Placebo","Drug A"), each=n_per)',
         ]
         for p in parameters:
             av  = p.get("adam_var","")
@@ -181,12 +263,11 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
         for flg in ["SAFFL","ITTFL","FASFL"]:
             dummy_cols.append(f'  {flg} = "Y"')
 
-        _cols_str  = ",\n".join(dummy_cols)
         dummy_data = f"""
 set.seed(42)
 n_per <- 10
 df <- data.frame(
-{_cols_str},
+{chr(44)+chr(10)}.join(dummy_cols),
   stringsAsFactors=FALSE
 )
 """
@@ -194,15 +275,6 @@ df <- data.frame(
         dummy_data = ""
 
     pop_filter = f"""if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag}=="Y")"""
-
-    # Runtime treatment-column detection — aliased to _trt_ so all group_by calls are stable
-    trt_detect = "\n".join([
-        f'# Auto-detect treatment column (hint: {groupby})',
-        f'.trt_candidates <- c("{groupby}","TRT01P","TRT01A","TRTP","ARM","ACTARM")',
-        '.trt_col <- Filter(function(x) x %in% names(df), .trt_candidates)',
-        '.trt_col <- if (length(.trt_col)) .trt_col[1] else names(df)[2]',
-        'df[["_trt_"]] <- df[[.trt_col]]',
-    ])
 
     ind_r = 'strrep(intToUtf8(160), 6)'
 
@@ -213,16 +285,16 @@ df <- data.frame(
         stat_rows    = []
         total_rows   = []
         if "n" in stats or "mean_sd" in stats:
-            stat_rows.append(f'df %>% group_by(`_trt_`) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic=paste0(.ind,"n"))')
+            stat_rows.append(f'df %>% group_by({groupby}) %>% summarise(val=as.character(n()), .groups="drop") %>% mutate(Statistic=paste0(.ind,"n"))')
             total_rows.append(f'data.frame(val=as.character(nrow(df)), Statistic=paste0(.ind,"n"))')
         if "mean_sd" in stats:
-            stat_rows.append(f'df %>% group_by(`_trt_`) %>% summarise(val=sprintf("%.1f (%.1f)",mean(.cv.,na.rm=T),sd(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Mean (SD)"))')
+            stat_rows.append(f'df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f (%.1f)",mean(.cv.,na.rm=T),sd(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Mean (SD)"))')
             total_rows.append(f'data.frame(val=sprintf("%.1f (%.1f)",mean(df$.cv.,na.rm=T),sd(df$.cv.,na.rm=T)),Statistic=paste0(.ind,"Mean (SD)"))')
         if "median" in stats:
-            stat_rows.append(f'df %>% group_by(`_trt_`) %>% summarise(val=sprintf("%.1f",median(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Median"))')
+            stat_rows.append(f'df %>% group_by({groupby}) %>% summarise(val=sprintf("%.1f",median(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Median"))')
             total_rows.append(f'data.frame(val=sprintf("%.1f",median(df$.cv.,na.rm=T)),Statistic=paste0(.ind,"Median"))')
         if "min_max" in stats:
-            stat_rows.append(f'df %>% group_by(`_trt_`) %>% summarise(val=sprintf("%g, %g",min(.cv.,na.rm=T),max(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Min, Max"))')
+            stat_rows.append(f'df %>% group_by({groupby}) %>% summarise(val=sprintf("%g, %g",min(.cv.,na.rm=T),max(.cv.,na.rm=T)),.groups="drop") %>% mutate(Statistic=paste0(.ind,"Min, Max"))')
             total_rows.append(f'data.frame(val=sprintf("%g, %g",min(df$.cv.,na.rm=T),max(df$.cv.,na.rm=T)),Statistic=paste0(.ind,"Min, Max"))')
 
         bind_trt   = "  bind_rows(\n    " + ",\n    ".join(stat_rows)   + "\n  )"
@@ -237,7 +309,7 @@ if (!is.na(.col_nm)) {{
   df$.cv. <- as.numeric(df[[.col_nm]])
   {safe_name}_by_trt <-
 {bind_trt} %>%
-    pivot_wider(names_from=`_trt_`, values_from=val)
+    pivot_wider(names_from={groupby}, values_from=val)
   {safe_name}_total <-
 {bind_total}
   {safe_name}_by_trt$Total     <- {safe_name}_total$val
@@ -262,15 +334,15 @@ if (!is.na(.col_nm)) {{
   .ind  <- {ind_r}
   df$.cv. <- df[[.col_nm]]
   {cats_code}
-  .n_denom       <- df %>% group_by(`_trt_`) %>% summarise(N=n_distinct(USUBJID),.groups="drop")
+  .n_denom       <- df %>% group_by({groupby}) %>% summarise(N=n_distinct(USUBJID),.groups="drop")
   .n_denom_total <- n_distinct(df$USUBJID)
   {safe_name}_rows <- lapply(expected_cats, function(cat) {{
-    tv <- df %>% group_by(`_trt_`) %>%
+    tv <- df %>% group_by({groupby}) %>%
       summarise(nc=sum(.cv.==cat,na.rm=T),.groups="drop") %>%
-      left_join(.n_denom, by="_trt_") %>%
+      left_join(.n_denom, by="{groupby}") %>%
       mutate(val=sprintf("%d (%.1f%%)",nc,100*nc/pmax(N,1))) %>%
-      select(`_trt_`,val) %>%
-      pivot_wider(names_from=`_trt_`,values_from=val,values_fill="0 (0.0%)")
+      select({groupby},val) %>%
+      pivot_wider(names_from={groupby},values_from=val,values_fill="0 (0.0%)")
     nc_tot        <- sum(df$.cv.==cat,na.rm=T)
     tv$Total      <- sprintf("%d (%.1f%%)",nc_tot,100*nc_tot/max(.n_denom_total,1))
     tv$Statistic  <- paste0(.ind,cat)
@@ -317,7 +389,6 @@ if (!is.na(.col_nm)) {{
 
     code = f"""{dummy_data}
 {pop_filter}
-{trt_detect}
 
 {"".join(param_blocks)}
 
@@ -327,8 +398,8 @@ tbl_data <- tbl_data %>% select(Parameter, Statistic, everything())
 tbl_data$Statistic <- gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$","",tbl_data$Statistic)
 
 # Dynamic N headers — html() gives proper <br> line break
-trts      <- sort(unique(df$`_trt_`))
-n_per_trt <- sapply(trts, function(t) n_distinct(df$USUBJID[df$`_trt_`==t]))
+trts      <- sort(unique(df${groupby}))
+n_per_trt <- sapply(trts, function(t) n_distinct(df$USUBJID[df${groupby}==t]))
 n_total   <- n_distinct(df$USUBJID)
 col_label_names <- c(trts, "Total")
 col_label_vals  <- c(
@@ -360,25 +431,15 @@ tbl <- gt(tbl_data, groupname_col="Parameter") %>%
     table.width=pct(100),
     row_group.background.color="#f5f5f5",
     heading.align="left",
-    column_labels.font.weight="bold",
-    source_notes.font.size=px(11),
-    source_notes.padding=px(4)
+    column_labels.font.weight="bold"
   )
 
-# Add lettered footnotes  a.  b.  c.
-# Uses CSS vertical-align (not <sup>) so gt does not override font or size.
+# Add lettered footnotes a. b. c.
 if (length(fn_text) > 0) {{
   for (i in seq_along(fn_text)) {{
-    ltr <- letters[i]
     tbl <- tbl %>% tab_source_note(
       source_note = html(paste0(
-        '<span style="font-family:Arial,Helvetica,sans-serif;font-size:11px;line-height:1.4;">',
-        '<span style="font-family:Arial,Helvetica,sans-serif;font-size:8px;vertical-align:super;line-height:0;">',
-        ltr,
-        '</span>',
-        '. ',
-        fn_text[i],
-        '</span>'
+        '<span style="font-size:11px;"><sup>',letters[i],'</sup> ',fn_text[i],'</span>'
       ))
     )
   }}
@@ -1122,7 +1183,27 @@ RULES:
 - Never produce an empty string "" as a column name.
 - Return ONLY corrected R code. No markdown. No explanation.
 """
-    raw = _call_llm(prompt)
+    try:
+        raw = _call_llm(prompt)
+    except LLMRateLimitError as e:
+        # Rate-limited: mark LLM as unavailable and exhaust retries so the
+        # graph routes to END and returns the best output we already have.
+        state["execution_error"] = (
+            str(state.get("execution_error") or "") +
+            f"\n[LLM rate-limited — auto-fix skipped: {e}]"
+        )
+        state["llm_unavailable"] = True
+        state["retry_count"]     = MAX_RETRIES   # exhausts retries → end
+        return state
+    except Exception as e:
+        # Other LLM error — log and exhaust retries gracefully
+        state["execution_error"] = (
+            str(state.get("execution_error") or "") +
+            f"\n[LLM error — auto-fix skipped: {e}]"
+        )
+        state["retry_count"] = MAX_RETRIES
+        return state
+
     raw = re.sub(r'```[rR]?\n?', '', raw)
     raw = re.sub(r'```', '', raw).strip()
     state["generated_code"] = raw
@@ -1147,10 +1228,13 @@ def _should_fix_or_end(state: ShellTLFState) -> str:
     """
     Conditional edge after validate node.
     Returns "fix" if validation failed and retries remain, else "end".
+    Also returns "end" immediately if LLM is rate-limited / unavailable.
     """
     if state["validation_result"] == "pass":
         return "end"
     if state.get("retry_count", 0) >= MAX_RETRIES:
+        return "end"
+    if state.get("llm_unavailable"):
         return "end"
     return "fix"
 
@@ -1244,6 +1328,7 @@ def run_shell_pipeline(
         "final_output":      "",
         "detected_type":     "",
         "ai_instructions":   ai_instructions,
+        "llm_unavailable":   False,
     }
 
     if _LANGGRAPH_AVAILABLE:
@@ -1542,7 +1627,14 @@ b. Note: xx""",
             elif node_name == "validate":
                 agent_log.append((f"🔍 Validate", state["validation_result"]))
             elif node_name == "fix":
-                agent_log.append((f"🔧 Fix Applied (retry {retry})", "Code patched by LLM"))
+                if state.get("llm_unavailable"):
+                    agent_log.append((
+                        f"⚠️ Fix Skipped",
+                        "LLM rate limit reached — returning best available output. "
+                        "Try again in ~30 minutes or upgrade Groq tier."
+                    ))
+                else:
+                    agent_log.append((f"🔧 Fix Applied (retry {retry})", "Code patched by LLM"))
 
         try:
             with st.spinner(""):
@@ -1750,36 +1842,82 @@ b. Note: xx""",
                 use_container_width=True
             )
 
-    # ── Custom enhancement box (same pattern as graph_builder) ────────────
-    st.divider()
-    enhance_text = st.text_area(
-        "✨ Custom Enhancement (optional)",
-        placeholder="e.g. Add p-value column, change header color to navy, add risk difference row...",
-        height=80,
-        key="ms_enhance_text"
-    )
+    # ── Custom enhancement box — mirrors graph_builder.py pattern exactly ──
+    # Only shown after a table has been generated (same guard as graph_builder)
+    if st.session_state.get("ms_pipeline_done") and st.session_state.get("ms_r_code"):
+        st.divider()
+        enhance_text = st.text_area(
+            "✨ Custom Enhancement (optional)",
+            placeholder="e.g. Add p-value column, change header color to navy, bold the Total column, add risk difference row...",
+            height=80,
+            key="ms_enhance_text",
+        )
 
-    if st.button("🔧 Apply Enhancement", use_container_width=True, key="ms_enhance_btn"):
-        if not enhance_text.strip():
-            st.warning("Enter enhancement instructions first.")
-        else:
-            existing_code = st.session_state.get("ms_r_code", "")
-            enhance_prompt = (
-                f"You are an R clinical TLF code editor. Apply ONLY the requested change.\n\n"
-                f"EXISTING CODE:\n```r\n{existing_code}\n```\n\n"
-                f"REQUEST: {enhance_text}\n\n"
-                f"RULES:\n"
-                f"- Touch ONLY what the request asks. Preserve everything else exactly.\n"
-                f"- Never add read.csv, hardcoded file paths, or ggsave.\n"
-                f"- Return ONLY complete R code. No explanations, no markdown fences.\n"
+        ecol1, ecol2 = st.columns([4, 1])
+        with ecol1:
+            apply_enhance = st.button(
+                "🔧 Apply Enhancement", type="primary",
+                use_container_width=True, key="ms_enhance_btn"
             )
-            with st.spinner("🤖 Applying enhancement..."):
-                try:
-                    raw = _call_llm(enhance_prompt)
-                    raw = re.sub(r'```[rR]?\n?', '', raw)
-                    raw = re.sub(r'```', '', raw).strip()
-                    st.session_state["ms_r_code_pending"]  = raw
-                    st.session_state["ms_r_code_original"] = existing_code
+        with ecol2:
+            if st.button("↩️ Revert", use_container_width=True, key="ms_enhance_revert"):
+                orig = st.session_state.get("ms_r_code_original", "")
+                if orig:
+                    st.session_state["ms_r_code"]         = orig
+                    st.session_state["ms_r_code_pending"] = None
+                    st.session_state["ms_r_code_original"]= ""
+                    st.session_state["ms_run_now"]        = True
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Enhancement failed: {e}")
+                else:
+                    st.info("Nothing to revert.")
+
+        if apply_enhance:
+            if not enhance_text.strip():
+                st.warning("Enter enhancement instructions first.")
+            else:
+                # Build on currently accepted code (cumulative enhancements preserved)
+                existing_code = st.session_state.get("ms_r_code", "")
+                if not existing_code.strip():
+                    st.error("No R code to enhance yet — generate a table first.")
+                    st.stop()
+
+                enhance_prompt = (
+                    f"You are an R clinical TLF code editor. "
+                    f"Apply ONLY the requested change to the existing code.\n\n"
+                    f"EXISTING CODE:\n```r\n{existing_code}\n```\n\n"
+                    f"REQUEST: {enhance_text}\n\n"
+                    f"RULES:\n"
+                    f"- Touch ONLY what the request asks. Preserve everything else exactly as in EXISTING CODE.\n"
+                    f"- MERGE new settings into existing tab_style()/tab_options() blocks — never rewrite the whole block.\n"
+                    f"- Keep all column headers, footnotes, population label, and grouping from EXISTING CODE unless request explicitly changes them.\n"
+                    f"- Never add: read.csv, hardcoded file paths, ggsave, or new library() calls not already present.\n"
+                    f"- Before outputting, verify: is every tab_options(), tab_style(), cols_label() from EXISTING CODE still present?\n"
+                    f"- Return ONLY complete R code. No explanations, no markdown fences.\n"
+                )
+
+                with st.spinner("🤖 Applying enhancement..."):
+                    raw = None
+                    try:
+                        # Groq first (fast), Gemini fallback — same order as graph_builder
+                        res = _groq.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "user", "content": enhance_prompt}],
+                            temperature=0
+                        )
+                        raw = res.choices[0].message.content
+                    except Exception:
+                        try:
+                            raw = _gemini.models.generate_content(
+                                model="gemini-2.0-flash", contents=enhance_prompt
+                            ).text
+                        except Exception:
+                            st.warning("⚠️ Enhancement failed — using base code.")
+
+                    if raw:
+                        raw = re.sub(r'```[rR]?\n?', '', raw)
+                        raw = re.sub(r'```', '', raw).strip()
+                        # Store original so Revert button can restore it
+                        st.session_state["ms_r_code_original"] = existing_code
+                        st.session_state["ms_r_code_pending"]  = raw
+                        st.session_state["ms_r_code"]          = existing_code  # keep accepted until user accepts
+                        st.rerun()
