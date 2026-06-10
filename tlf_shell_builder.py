@@ -587,7 +587,6 @@ rows      <- rows[, col_order, drop=FALSE]
 tbl <- gt(rows) %>%
   tab_header(title="{title}") %>%
   {fn_lines}  cols_label(Category="Adverse Event Category") %>%
-  tab_options(column_labels.font.weight="bold") %>%
   tab_style(
     style=cell_text(weight="bold"),
     locations=cells_body(columns="Category", rows=1)
@@ -673,7 +672,6 @@ tbl <- gt(tbl_rows) %>%
     style = cell_text(weight="bold"),
     locations = cells_body(columns="Term", rows=Level=="SOC")
   ) %>%
-  tab_options(column_labels.font.weight="bold") %>%
   tab_options(table.width=pct(100))
 
 cat(as_raw_html(tbl))
@@ -777,7 +775,6 @@ tbl <- gt(tbl_data, groupname_col="Parameter") %>%
   tab_header(title="{title}") %>%
   {fn_lines}  cols_label(Visit="Visit", Statistic="Statistic") %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
-  tab_options(column_labels.font.weight="bold") %>%
   cols_align(align="left", columns="Statistic") %>%
   tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
 
@@ -879,7 +876,6 @@ tbl <- gt(rows, groupname_col="Parameter") %>%
   {fn_lines}  cols_label(Statistic="Statistic") %>%
   cols_hide("Parameter") %>%
   tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
-  tab_options(column_labels.font.weight="bold") %>%
   cols_align(align="left", columns="Statistic") %>%
   tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
 
@@ -936,8 +932,7 @@ if ("USUBJID" %in% names(df)) df <- df %>% arrange(USUBJID)
 
 tbl <- gt(df) %>%
   tab_header(title="{title}") %>%
-  {fn_lines}  tab_options(column_labels.font.weight="bold") %>%
-  tab_options(table.width=pct(100))
+  {fn_lines}  tab_options(table.width=pct(100))
 
 cat(as_raw_html(tbl))
 """
@@ -1483,8 +1478,9 @@ def render_shell_tlf_tab():
         "ms_adam_csv":         None,
         "ms_parsed_spec":      None,
         "ms_r_code":           "",
-        "ms_preview_output":   None,
-        "ms_detected_type":    "",
+        "ms_r_code_pending":   None,
+        "ms_preview_html":     None,
+        "ms_preview_html_before": None,
         "ms_r_code_original":  None,
         "ms_output":           None,
         "ms_output_type":      "Table",
@@ -1742,7 +1738,6 @@ b. Note: xx""",
                 st.session_state["ms_retry_count"]   = final_state["retry_count"]
                 st.session_state["ms_parsed_spec"]   = final_state["parsed_spec"]
                 st.session_state["ms_output_type"]   = final_state["parsed_spec"].get("output_type", "Table")
-                st.session_state["ms_detected_type"] = final_state.get("detected_type", "")
                 st.session_state["ms_pipeline_done"] = True
                 st.session_state["ms_agent_log"]     = agent_log
                 st.session_state["ms_backend"]       = backend
@@ -1838,7 +1833,7 @@ b. Note: xx""",
     elif val:
         st.warning(f"⚠️ Validation: {val}")
 
-    # ── Pending enhancement diff — ABOVE tabs so always visible ─────────────
+    # ── Pending enhancement diff — ABOVE tabs, mirrors graph_builder.py ────
     if st.session_state.get("ms_r_code_pending"):
         st.warning("⚠️ Enhancement applied — review changes and confirm:")
         st.markdown("**Code Changes** (🟢 added | 🔴 removed):")
@@ -1852,68 +1847,58 @@ b. Note: xx""",
                 st.session_state["ms_r_code"]          = st.session_state["ms_r_code_pending"]
                 st.session_state["ms_r_code_original"] = None
                 st.session_state["ms_r_code_pending"]  = None
-                st.session_state["ms_preview_output"]  = None
+                st.session_state["ms_preview_html"]    = None
                 st.session_state["ms_run_now"]         = True
                 st.rerun()
         with _dc2:
             if st.button("👁️ Preview", use_container_width=True, key="ms_preview_btn"):
-                with st.spinner("Running preview..."):
+                with st.spinner("Generating preview..."):
                     try:
-                        spec      = st.session_state.get("ms_parsed_spec") or {}
-                        prev_state: ShellTLFState = {
-                            "shell_text":        st.session_state["ms_shell_text"],
+                        _prev_state: ShellTLFState = {
+                            "shell_text":        st.session_state.get("ms_shell_text", ""),
                             "adam_csv":          st.session_state.get("ms_adam_csv"),
-                            "parsed_spec":       spec,
+                            "parsed_spec":       st.session_state.get("ms_parsed_spec", {}),
                             "generated_code":    st.session_state["ms_r_code_pending"],
-                            "execution_output":  "",
-                            "execution_error":   "",
-                            "validation_result": "",
-                            "retry_count":       0,
-                            "final_r_code":      "",
-                            "final_output":      "",
-                            "detected_type":     st.session_state.get("ms_detected_type",""),
-                            "ai_instructions":   "",
+                            "execution_output":  "", "execution_error":   "",
+                            "validation_result": "", "retry_count":       0,
+                            "final_r_code":      "", "final_output":      "",
+                            "detected_type":     "", "ai_instructions":   "",
+                            "llm_unavailable":   False,
                         }
-                        prev_state = node_execute(prev_state)
-                        st.session_state["ms_preview_output"] = prev_state["execution_output"] or prev_state["execution_error"]
-                        st.rerun()
+                        _prev_state = node_execute(_prev_state)
+                        if _prev_state["execution_error"]:
+                            st.error(f"Preview error: {_prev_state['execution_error']}")
+                        else:
+                            st.session_state["ms_preview_html"]        = _prev_state["execution_output"]
+                            st.session_state["ms_preview_html_before"] = st.session_state.get("ms_output", "")
+                            st.rerun()
                     except Exception as e:
                         st.error(f"Preview failed: {e}")
         with _dc3:
             if st.button("❌ Reject Changes", use_container_width=True, key="ms_reject"):
-                orig = st.session_state.get("ms_r_code_original") or st.session_state.get("ms_r_code","")
+                orig = st.session_state.get("ms_r_code_original") or st.session_state.get("ms_r_code", "")
                 st.session_state["ms_r_code"]         = orig
                 st.session_state["ms_r_code_pending"] = None
-                st.session_state["ms_preview_output"] = None
+                st.session_state["ms_preview_html"]   = None
                 st.session_state["ms_run_now"]        = True
                 st.rerun()
 
-        # Side-by-side preview (tables = HTML, figures = image)
-        if st.session_state.get("ms_preview_output"):
+        # ── Side-by-side before/after HTML preview ────────────────────────
+        if st.session_state.get("ms_preview_html"):
             st.markdown("**👁️ Preview (not applied yet):**")
-            col_cur, col_new = st.columns(2)
-            current_out  = st.session_state.get("ms_output")
-            preview_out  = st.session_state.get("ms_preview_output")
-            output_type  = st.session_state.get("ms_output_type","Table")
-            with col_cur:
-                st.markdown("**Current Output:**")
-                if current_out:
-                    if output_type == "Figure" and isinstance(current_out, (bytes, bytearray)):
-                        st.image(current_out, use_container_width=True)
-                    elif isinstance(current_out, str) and current_out.strip().startswith("<"):
-                        st.components.v1.html(current_out, height=400, scrolling=True)
-                    else:
-                        st.code(str(current_out)[:500], language="")
-            with col_new:
+            _col_b, _col_a = st.columns(2)
+            with _col_b:
+                st.markdown("**Current Table:**")
+                _before = st.session_state.get("ms_preview_html_before", "")
+                if _before:
+                    st.components.v1.html(_before, height=400, scrolling=True)
+                else:
+                    st.info("No current output to compare.")
+            with _col_a:
                 st.markdown("**Preview (pending):**")
-                if preview_out:
-                    if output_type == "Figure" and isinstance(preview_out, (bytes, bytearray)):
-                        st.image(preview_out, use_container_width=True)
-                    elif isinstance(preview_out, str) and preview_out.strip().startswith("<"):
-                        st.components.v1.html(preview_out, height=400, scrolling=True)
-                    else:
-                        st.code(str(preview_out)[:500], language="")
-
+                st.components.v1.html(
+                    st.session_state["ms_preview_html"], height=400, scrolling=True
+                )
         st.divider()
 
     # ── Tabs: TLF Output | R Code ─────────────────────────────────────────
