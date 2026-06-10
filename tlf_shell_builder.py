@@ -77,6 +77,53 @@ if (length(missing) > 0) {{
 
 
 # ─── LangGraph-style State ────────────────────────────────────────────────────
+
+
+def _sanitise_r_code(code: str) -> str:
+    """
+    Strip known-invalid gt arguments and fix column aliases that the LLM
+    sometimes adds, causing R execution failures.
+    Called from node_generate_code, node_fix, and the enhancement apply path.
+    """
+    # ── treatment column alias ─────────────────────────────────────────────
+    _trt_subs = [
+        (r'group_by\(treatment\)',              'group_by(`_trt_`)'),
+        (r'group_by\(TREATMENT\)',              'group_by(`_trt_`)'),
+        (r'names_from\s*=\s*treatment',       'names_from=`_trt_`'),
+        (r'names_from\s*=\s*TREATMENT',       'names_from=`_trt_`'),
+        (r'select\(treatment,',                 'select(`_trt_`,'),
+        (r'by\s*=\s*"treatment"',               'by="_trt_"'),
+        (r'df\$treatment',                    'df[["_trt_"]]'),
+        (r'df\$TREATMENT',                    'df[["_trt_"]]'),
+        (r'df\[\["treatment"\]\]',              'df[["_trt_"]]'),
+        (r'df\[\["TREATMENT"\]\]',              'df[["_trt_"]]'),
+        (r'unique\(df\$treatment\)',             'unique(df[["_trt_"]])'),
+        (r'pivot_wider\(names_from=treatment,', 'pivot_wider(names_from=`_trt_`,'),
+    ]
+    for pat, repl in _trt_subs:
+        code = re.sub(pat, repl, code)
+
+    # ── invalid gt tab_options / tab_style arguments ───────────────────────
+    _INVALID_GT_ARGS = [
+        r',?\s*heading\.style\s*=\s*(?:list\([^)]*\)|"[^"]*")',
+        r",?\s*heading\.style\s*=\s*'[^']*'",
+        r',?\s*table\.font\.names\s*=\s*[^,)]+',
+        r',?\s*table\.border\.style\s*=\s*"[^"]*"',
+        r',?\s*row_group\.font\.weight\s*=\s*"[^"]*"',
+        r',?\s*stub\.font\.weight\s*=\s*"[^"]*"',
+        r',?\s*grand_summary_row\.[a-z_.]+\s*=\s*[^,)]+',
+        r',?\s*align\s*=\s*"[^"]*"(?=\s*\))',
+    ]
+    for bad_pat in _INVALID_GT_ARGS:
+        code = re.sub(bad_pat, '', code, flags=re.IGNORECASE)
+
+    # Remove tab_style(cells_column_labels()) — causes tidyselect error in gt>=0.10
+    code = re.sub(
+        r'tab_style\s*\(.*?locations\s*=\s*cells_column_labels\(\).*?\)\s*%>%\s*',
+        '', code, flags=re.DOTALL
+    )
+    return code
+
 class ShellTLFState(TypedDict):
     shell_text:        str            # raw mock shell pasted/uploaded
     adam_csv:          Optional[str]  # CSV string of ADaM dataset
@@ -1069,29 +1116,8 @@ RULES:
         except Exception:
             pass  # silently keep template code if enhancement fails
 
-    # ── Post-generation sanitiser ─────────────────────────────────────────
-    # Replace any literal generic treatment column names with `_trt_`
-    # (the runtime alias set by node_execute). Covers both template-generated
-    # and LLM-generated code so group_by() never crashes on a missing column.
-    _trt_subs = [
-        (r'group_by\(treatment\)',          'group_by(`_trt_`)'),
-        (r'group_by\(TREATMENT\)',          'group_by(`_trt_`)'),
-        (r'names_from\s*=\s*treatment\b',   'names_from=`_trt_`'),
-        (r'names_from\s*=\s*TREATMENT\b',   'names_from=`_trt_`'),
-        (r'select\(treatment,',             'select(`_trt_`,'),
-        (r'by\s*=\s*"treatment"',           'by="_trt_"'),
-        (r'df\$treatment\b',                'df[["_trt_"]]'),
-        (r'df\$TREATMENT\b',                'df[["_trt_"]]'),
-        (r'df\[\["treatment"\]\]',          'df[["_trt_"]]'),
-        (r'df\[\["TREATMENT"\]\]',          'df[["_trt_"]]'),
-        (r'unique\(df\$treatment\)',         'unique(df[["_trt_"]])'),
-        (r'pivot_wider\(names_from=treatment,', 'pivot_wider(names_from=`_trt_`,'),
-    ]
-    code = state["generated_code"]
-    for pat, repl in _trt_subs:
-        code = re.sub(pat, repl, code)
-    state["generated_code"] = code
-
+    # ── Post-generation sanitiser ────────────────────────────────────────
+    state["generated_code"] = _sanitise_r_code(state["generated_code"])
     return state
 
 
@@ -1285,7 +1311,7 @@ RULES:
 
     raw = re.sub(r'```[rR]?\n?', '', raw)
     raw = re.sub(r'```', '', raw).strip()
-    state["generated_code"] = raw
+    state["generated_code"] = _sanitise_r_code(raw)
     state["retry_count"]    = state.get("retry_count", 0) + 1
     return state
 
@@ -2043,11 +2069,9 @@ b. Note: xx""",
                     if raw:
                         raw = re.sub(r'```[rR]?\n?', '', raw)
                         raw = re.sub(r'```', '', raw).strip()
-                        # Store original for Revert, set pending for diff review
+                        raw = _sanitise_r_code(raw)   # strip invalid gt args
                         st.session_state["ms_r_code_original"] = existing_code
                         st.session_state["ms_r_code_pending"]  = raw
-                        # Also immediately apply + run so output updates right away
-                        # (user can still reject from the diff block above the tabs)
                         st.session_state["ms_r_code"]  = raw
                         st.session_state["ms_run_now"] = True
                         st.rerun()
