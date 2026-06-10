@@ -15,6 +15,14 @@ import streamlit as st
 from groq import Groq
 from google import genai
 
+# ─── Import execute_graph from graph_builder for Figure support ──────────────
+try:
+    from graph_builder import execute_graph as _execute_graph_fn
+    _GRAPH_BUILDER_AVAILABLE = True
+except ImportError:
+    _GRAPH_BUILDER_AVAILABLE = False
+    _execute_graph_fn = None
+
 # ─── Clients (same helper as graph_builder) ──────────────────────────────────
 def _get_secret(key):
     try:    return st.secrets[key]
@@ -1004,9 +1012,12 @@ cat(as_raw_html(tbl))
 # ══════════════════════════════════════════════════════════════════════════════
 def _detect_table_type(spec: dict) -> str:
     """
-    Returns one of: demog | ae_summary | ae_socpt | lab | vitals | efficacy | listing | llm
-    Based on title keywords and row_stubs.
+    Returns one of: demog | ae_summary | ae_socpt | lab | vitals | efficacy | listing | figure | llm
     """
+    output_type = spec.get("output_type", "Table")
+    if output_type == "Figure":
+        return "figure"
+
     title     = (spec.get("title") or '""').strip().replace("\n","").replace("\r","").replace('"', "&quot;").lower()
     row_stubs  = [r.lower() for r in spec.get("row_stubs", [])]
     all_text   = title + " " + " ".join(row_stubs)
@@ -1023,10 +1034,10 @@ def _detect_table_type(spec: dict) -> str:
         return "lab"
     if any(k in all_text for k in ["efficacy", "primary endpoint", "response rate", "responder", "change from baseline"]):
         return "efficacy"
-    if spec.get("output_type", "Table") == "Listing":
+    if output_type == "Listing":
         return "listing"
     if not spec.get("row_stubs"):
-        return "demog"   # safe default
+        return "demog"
     return "llm"
 
 
@@ -1048,14 +1059,75 @@ def node_generate_code(state: ShellTLFState) -> ShellTLFState:
         except Exception:
             adam_hint = ""
 
-    # Figures always go to LLM
+    # Figures → dedicated figure prompt using execute_graph pattern
     if output_type == "Figure":
-        table_type = "llm"
+        table_type = "figure"
     else:
         table_type = _detect_table_type(spec)
 
     # Dispatch to template
-    if table_type == "demog":
+    if table_type == "figure":
+        title     = spec.get("title", "Clinical Figure")
+        groupby   = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+        footnotes = spec.get("footnotes", [])
+        fn_caption = footnotes[0] if footnotes else ""
+
+        # Detect figure type from title
+        title_lower = title.lower()
+        if any(k in title_lower for k in ["kaplan", "km", "survival", "time to event"]):
+            fig_type = "km"
+        elif any(k in title_lower for k in ["forest", "odds ratio", "hazard ratio", "risk ratio"]):
+            fig_type = "forest"
+        elif any(k in title_lower for k in ["waterfall", "spider", "tumor"]):
+            fig_type = "waterfall"
+        elif any(k in title_lower for k in ["bar", "barplot", "frequency", "incidence"]):
+            fig_type = "bar"
+        elif any(k in title_lower for k in ["box", "boxplot", "distribution"]):
+            fig_type = "box"
+        elif any(k in title_lower for k in ["scatter", "correlation"]):
+            fig_type = "scatter"
+        elif any(k in title_lower for k in ["line", "mean over time", "profile", "trend"]):
+            fig_type = "line"
+        else:
+            fig_type = "bar"  # safe default
+
+        prompt = f"""You are an expert clinical R programmer. Generate ggplot2 code for this clinical figure.
+
+TITLE: {title}
+FIGURE TYPE: {fig_type}
+TREATMENT COLUMN: {groupby}
+FOOTNOTE: {fn_caption}
+ADaM HINT: {spec.get("dataset_hint","ADSL")}
+{adam_hint}
+
+RULES:
+1. Data is in df (already loaded as data.frame). If not provided, create realistic dummy clinical data.
+2. Use ggplot2 only. Do NOT load any libraries — already loaded.
+3. Use theme_classic() or theme_bw() for clean clinical look.
+4. Color by treatment group using scale_color_manual() or scale_fill_manual().
+5. Add title with ggtitle("{title}").
+6. Add caption for footnote if provided.
+7. The LAST line must assign to p: p <- ggplot(...) + ...
+   OR end with: p <- last_plot()
+8. Do NOT include ggsave() — handled externally.
+9. Do NOT include read.csv() — data already in df.
+10. Return ONLY R code. No markdown fences. No explanations.
+
+Generate complete ggplot2 code now:"""
+        raw = _call_llm(prompt)
+        raw = re.sub(r'```[rR]?\n?', '', raw)
+        raw = re.sub(r'```', '', raw).strip()
+        raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
+        # Ensure last line assigns to p if it doesn't already
+        lines = raw.strip().split('\n')
+        last  = lines[-1].strip()
+        if not last.startswith('p <-') and not last.startswith('p=') and 'p <-' not in raw[-200:]:
+            raw += '\np <- last_plot()'
+
+    # Dispatch to template
+    if table_type == "figure":
+        pass  # raw already set above
+    elif table_type == "demog":
         raw = _build_demog_r_code(spec, has_adam)
     elif table_type == "ae_summary":
         raw = _build_ae_summary_r_code(spec, has_adam)
@@ -1139,21 +1211,56 @@ RULES:
 # NODE 3 — Executor
 # ══════════════════════════════════════════════════════════════════════════════
 def node_execute(state: ShellTLFState) -> ShellTLFState:
-    """Run R code, capture stdout as execution_output."""
+    """Run R code, capture stdout as execution_output.
+    For Figures: uses execute_graph() from graph_builder (tested, reliable).
+    For Tables/Listings: uses subprocess with gt prefix.
+    """
     spec        = state["parsed_spec"]
     output_type = spec.get("output_type", "Table")
+    detected    = state.get("detected_type", "")
 
+    # ── FIGURE: use execute_graph from graph_builder ──────────────────────
+    if output_type == "Figure" or detected == "figure":
+        if _GRAPH_BUILDER_AVAILABLE and _execute_graph_fn:
+            try:
+                # Build DataFrame — from ADaM CSV or dummy
+                if state.get("adam_csv"):
+                    df = pd.read_csv(io.StringIO(state["adam_csv"]))
+                else:
+                    # Create minimal dummy df for execute_graph
+                    import numpy as np
+                    np.random.seed(42)
+                    n = 20
+                    df = pd.DataFrame({
+                        "USUBJID": [f"S{i}" for i in range(1, n+1)],
+                        "TRT01P":  ["Placebo"]*10 + ["Drug A"]*10,
+                        "AVAL":    list(np.round(np.random.normal(50, 10, n), 1)),
+                        "BASE":    list(np.round(np.random.normal(48, 8, n), 1)),
+                        "AVISIT":  ["Baseline", "Week 4", "Week 8", "Week 12"] * 5,
+                        "AGE":     list(np.random.randint(30, 70, n)),
+                        "SEX":     ["Male", "Female"] * 10,
+                    })
+                    df["CHG"] = df["AVAL"] - df["BASE"]
+
+                png_bytes, r_log = _execute_graph_fn(state["generated_code"], df)
+                state["execution_output"] = png_bytes
+                state["execution_error"]  = ""
+            except Exception as e:
+                state["execution_error"]  = str(e)
+                state["execution_output"] = ""
+        else:
+            state["execution_error"]  = "graph_builder.py not available — cannot execute figures"
+            state["execution_output"] = ""
+        return state
+
+    # ── TABLE / LISTING: use subprocess with gt prefix ────────────────────
     with tempfile.TemporaryDirectory() as d:
         script_path = os.path.join(d, "tlf_script.R")
-        plot_path   = os.path.join(d, "figure.png")
 
-        # Prefix: library path + preload packages silently + optional data load
         prefix_lines = [
             "user_lib <- path.expand('~/R/library')",
             ".libPaths(c(user_lib, .libPaths()))",
             "options(warn=-1)",
-            # Attempt silent load; if a package is still missing after the
-            # startup installer ran, this gives a clean error message.
             "for (.pkg in c('dplyr','tidyr','gt','ggplot2','tibble','stringr','scales')) {",
             "  if (!requireNamespace(.pkg, quietly=TRUE)) {",
             "    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)",
@@ -1166,7 +1273,6 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             inp = os.path.join(d, "adam.csv")
             with open(inp, "w") as f:
                 f.write(state["adam_csv"])
-            # Auto-detect treatment column name from actual data
             try:
                 df_cols = pd.read_csv(io.StringIO(state["adam_csv"]), nrows=0).columns.tolist()
                 trt_col = next(
@@ -1177,20 +1283,12 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
                 trt_col = None
 
             prefix_lines.append(f'df <- read.csv("{inp}", stringsAsFactors=FALSE)')
+            if trt_col and trt_col != "TRT01P":
+                prefix_lines.append(f'df$TRT01P <- df${trt_col}')
+            elif not trt_col:
+                prefix_lines.append('if (!"TRT01P" %in% names(df)) df$TRT01P <- "Total"')
 
-            # If detected trt col differs from what template uses, alias it
-            # Alias detected treatment column to _trt_ — all generated code uses this
-            if trt_col:
-                prefix_lines.append(f'df[["_trt_"]] <- df[["{trt_col}"]]')
-            else:
-                # No known treatment col — create placeholder
-                prefix_lines.append('df[["_trt_"]] <- if ("TRT01P" %in% names(df)) df[["TRT01P"]] else "Total"')
-
-        suffix_lines = []
-        if output_type == "Figure":
-            suffix_lines = [f'suppressMessages(ggsave("{plot_path}", width=10, height=6, dpi=150))']
-
-        full_script = "\n".join(prefix_lines + [state["generated_code"]] + suffix_lines)
+        full_script = "\n".join(prefix_lines + [state["generated_code"]])
 
         with open(script_path, "w") as f:
             f.write(full_script)
@@ -1206,7 +1304,6 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             return state
 
         if res.returncode != 0:
-            # Extract actual R error — skip dplyr/package warning noise
             stderr_lines = res.stderr.splitlines()
             error_lines  = [
                 l for l in stderr_lines
@@ -1218,18 +1315,8 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             state["execution_output"] = ""
             return state
 
-        # returncode == 0 — success even if stderr has dplyr noise
-        state["execution_error"] = ""
-
-        if output_type == "Figure":
-            if os.path.exists(plot_path):
-                with open(plot_path, "rb") as f:
-                    state["execution_output"] = f.read()   # bytes
-            else:
-                state["execution_error"]  = "Figure file not created.\n" + res.stderr
-                state["execution_output"] = ""
-        else:
-            state["execution_output"] = res.stdout
+        state["execution_error"]  = ""
+        state["execution_output"] = res.stdout
 
     return state
 
@@ -1721,6 +1808,7 @@ b. Note: xx""",
             "vitals":     "💓 Vital Signs template",
             "efficacy":   "📈 Efficacy template",
             "listing":    "📋 Listing template",
+            "figure":     "📊 Figure (ggplot2 via graph_builder)",
             "llm":        "🤖 LLM generated",
         }
 
