@@ -122,6 +122,20 @@ def _sanitise_r_code(code: str) -> str:
         r'tab_style\s*\(.*?locations\s*=\s*cells_column_labels\(\).*?\)\s*%>%\s*',
         '', code, flags=re.DOTALL
     )
+
+    # Collapse any newlines inside html("...") strings in tab_header()
+    # These cause R to parse `title.` as a bare symbol and fail with
+    # "object 'title.' not found".
+    def _collapse_html_str(m):
+        return m.group(0).replace("\n", " ").replace("\r", "")
+    code = re.sub(r'html\("[^"]*"\)', _collapse_html_str, code)
+    code = re.sub(r"html\('[^']*'\)", _collapse_html_str, code)
+
+    # Strip trailing dots from unquoted R identifiers that look like `title.`
+    # (artifact of a newline being interpolated just before a closing quote)
+    code = re.sub(r'\btitle\.\b', 'title', code)
+    code = re.sub(r'\bsubtitle\.\b', 'subtitle', code)
+
     return code
 
 class ShellTLFState(TypedDict):
@@ -297,7 +311,7 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     3. R code uses actual groupby var — no literal TRT01P
     4. dummy data generated from spec parameters — not hardcoded 4 vars
     """
-    title      = spec.get("title", "Summary of Demographic and Baseline Characteristics")
+    title     = (spec.get("title") or '"Summary of Demographic and Baseline Characteristics"').strip().replace("\n","").replace("\r","").replace('"', "&quot;")
     pop_flag   = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes  = spec.get("footnotes", [])
     # Sanitise groupby: LLM sometimes returns generic words like "treatment"
@@ -559,7 +573,7 @@ cat(as_raw_html(tbl))
 # TEMPLATE: AE Summary (incidence by treatment)
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_ae_summary_r_code(spec: dict, has_adam: bool) -> str:
-    title     = spec.get("title", "Summary of Adverse Events")
+    title     = (spec.get("title") or '"Summary of Adverse Events"').strip().replace("\n","").replace("\r","").replace('"', "&quot;")
     pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes = spec.get("footnotes", [])
 
@@ -648,7 +662,7 @@ cat(as_raw_html(tbl))
 # TEMPLATE: AE by SOC and PT (nested)
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_ae_socpt_r_code(spec: dict, has_adam: bool) -> str:
-    title     = spec.get("title", "Adverse Events by System Organ Class and Preferred Term")
+    title     = (spec.get("title") or '"Adverse Events by System Organ Class and Preferred Term"').strip().replace("\n","").replace("\r","").replace('"', "&quot;")
     pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes = spec.get("footnotes", [])
 
@@ -729,7 +743,7 @@ cat(as_raw_html(tbl))
 # TEMPLATE: Lab Values / Vital Signs Summary
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_lab_r_code(spec: dict, has_adam: bool) -> str:
-    title     = spec.get("title", "Summary of Laboratory Values")
+    title     = (spec.get("title") or '"Summary of Laboratory Values"').strip().replace("\n","").replace("\r","").replace('"', "&quot;")
     pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes = spec.get("footnotes", [])
     is_vitals = any(k in spec.get("title","").lower() for k in ["vital","weight","height","pulse","blood pressure"])
@@ -833,7 +847,7 @@ cat(as_raw_html(tbl))
 # TEMPLATE: Efficacy / Primary Endpoint
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_efficacy_r_code(spec: dict, has_adam: bool) -> str:
-    title     = spec.get("title", "Summary of Efficacy")
+    title     = (spec.get("title") or '"Summary of Efficacy"').strip().replace("\n","").replace("\r","").replace('"', "&quot;")
     pop_flag  = spec.get("pop_flag", "ITTFL") or "ITTFL"
     footnotes = spec.get("footnotes", [])
 
@@ -934,7 +948,7 @@ cat(as_raw_html(tbl))
 # TEMPLATE: Generic Clinical Listing
 # ══════════════════════════════════════════════════════════════════════════════
 def _build_listing_r_code(spec: dict, has_adam: bool) -> str:
-    title     = spec.get("title", "Clinical Listing")
+    title     = (spec.get("title") or '"Clinical Listing"').strip().replace("\n","").replace("\r","").replace('"', "&quot;")
     pop_flag  = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes = spec.get("footnotes", [])
     columns   = spec.get("columns", [])
@@ -993,7 +1007,7 @@ def _detect_table_type(spec: dict) -> str:
     Returns one of: demog | ae_summary | ae_socpt | lab | vitals | efficacy | listing | llm
     Based on title keywords and row_stubs.
     """
-    title      = spec.get("title", "").lower()
+    title     = (spec.get("title") or '""').strip().replace("\n","").replace("\r","").replace('"', "&quot;").lower()
     row_stubs  = [r.lower() for r in spec.get("row_stubs", [])]
     all_text   = title + " " + " ".join(row_stubs)
 
