@@ -1885,12 +1885,12 @@ b. Note: xx""",
         _dc1, _dc2, _dc3 = st.columns(3)
         with _dc1:
             if st.button("✅ Accept Changes", use_container_width=True, key="ms_apply"):
-                st.session_state["ms_r_code"]          = st.session_state["ms_r_code_pending"]
-                st.session_state["ms_r_code_original"] = None
-                st.session_state["ms_r_code_pending"]  = None
-                st.session_state["ms_preview_html"]         = None
+                st.session_state["ms_r_code"]                = st.session_state["ms_r_code_pending"]
+                st.session_state["ms_r_code_original"]       = None
+                st.session_state["ms_r_code_pending"]        = None
+                st.session_state["ms_preview_html"]          = None
                 st.session_state["ms_output_before_enhance"] = None
-                st.session_state["ms_run_now"]               = True
+                # Output already updated inline when enhancement ran — no re-execute needed
                 st.rerun()
         with _dc2:
             if st.button("👁️ Preview", use_container_width=True, key="ms_preview_btn"):
@@ -1923,12 +1923,16 @@ b. Note: xx""",
                         st.error(f"Preview failed: {e}")
         with _dc3:
             if st.button("❌ Reject Changes", use_container_width=True, key="ms_reject"):
-                orig = st.session_state.get("ms_r_code_original") or st.session_state.get("ms_r_code", "")
-                st.session_state["ms_r_code"]         = orig
-                st.session_state["ms_r_code_pending"] = None
-                st.session_state["ms_preview_html"]         = None
+                orig_code   = st.session_state.get("ms_r_code_original") or st.session_state.get("ms_r_code", "")
+                orig_output = st.session_state.get("ms_output_before_enhance", "")
+                st.session_state["ms_r_code"]                = orig_code
+                st.session_state["ms_r_code_pending"]        = None
+                st.session_state["ms_preview_html"]          = None
                 st.session_state["ms_output_before_enhance"] = None
-                st.session_state["ms_run_now"]               = True
+                # Restore original output directly — no re-execution needed
+                if orig_output:
+                    st.session_state["ms_output"] = orig_output
+                    st.session_state["ms_error"]  = None
                 st.rerun()
 
         # ── Side-by-side before/after HTML preview ────────────────────────
@@ -2091,12 +2095,40 @@ b. Note: xx""",
                     if raw:
                         raw = re.sub(r'```[rR]?\n?', '', raw)
                         raw = re.sub(r'```', '', raw).strip()
-                        raw = _sanitise_r_code(raw)   # strip invalid gt args
-                        # ── Snapshot BEFORE applying — used as left tab in Preview ──
-                        # Must be captured NOW before ms_run_now overwrites ms_output
-                        st.session_state["ms_output_before_enhance"] = st.session_state.get("ms_output", "")
-                        st.session_state["ms_r_code_original"] = existing_code
-                        st.session_state["ms_r_code_pending"]  = raw
-                        st.session_state["ms_r_code"]  = raw
-                        st.session_state["ms_run_now"] = True
+                        raw = _sanitise_r_code(raw)
+
+                        # ── Snapshot BEFORE running — must happen here, inline, ──
+                        # before any execution overwrites ms_output.
+                        # Do NOT use ms_run_now (it fires before this code runs
+                        # on the next render, wiping ms_output first).
+                        before_output = st.session_state.get("ms_output", "")
+
+                        # Execute enhanced code inline right now
+                        _enh_state: ShellTLFState = {
+                            "shell_text":        st.session_state.get("ms_shell_text", ""),
+                            "adam_csv":          st.session_state.get("ms_adam_csv"),
+                            "parsed_spec":       st.session_state.get("ms_parsed_spec", {}),
+                            "generated_code":    raw,
+                            "execution_output":  "", "execution_error":   "",
+                            "validation_result": "", "retry_count":       0,
+                            "final_r_code":      "", "final_output":      "",
+                            "detected_type":     "", "ai_instructions":   "",
+                            "llm_unavailable":   False,
+                        }
+                        with st.spinner("⚙️ Running enhanced R..."):
+                            _enh_state = node_execute(_enh_state)
+
+                        # Store snapshot (original) and new output separately
+                        st.session_state["ms_output_before_enhance"] = before_output
+                        st.session_state["ms_r_code_original"]       = existing_code
+                        st.session_state["ms_r_code_pending"]        = raw
+                        st.session_state["ms_r_code"]                = raw
+                        # Update live output with enhanced result
+                        if not _enh_state["execution_error"]:
+                            st.session_state["ms_output"] = (
+                                _enh_state["final_output"] or _enh_state["execution_output"]
+                            )
+                            st.session_state["ms_error"] = None
+                        else:
+                            st.session_state["ms_error"] = _enh_state["execution_error"]
                         st.rerun()
