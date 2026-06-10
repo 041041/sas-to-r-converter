@@ -1519,8 +1519,9 @@ def render_shell_tlf_tab():
         "ms_parsed_spec":      None,
         "ms_r_code":           "",
         "ms_r_code_pending":   None,
-        "ms_preview_html":     None,
-        "ms_preview_html_before": None,
+        "ms_preview_html":           None,
+        "ms_preview_html_before":    None,
+        "ms_output_before_enhance":  None,
         "ms_r_code_original":  None,
         "ms_output":           None,
         "ms_output_type":      "Table",
@@ -1887,8 +1888,9 @@ b. Note: xx""",
                 st.session_state["ms_r_code"]          = st.session_state["ms_r_code_pending"]
                 st.session_state["ms_r_code_original"] = None
                 st.session_state["ms_r_code_pending"]  = None
-                st.session_state["ms_preview_html"]    = None
-                st.session_state["ms_run_now"]         = True
+                st.session_state["ms_preview_html"]         = None
+                st.session_state["ms_output_before_enhance"] = None
+                st.session_state["ms_run_now"]               = True
                 st.rerun()
         with _dc2:
             if st.button("👁️ Preview", use_container_width=True, key="ms_preview_btn"):
@@ -1909,8 +1911,13 @@ b. Note: xx""",
                         if _prev_state["execution_error"]:
                             st.error(f"Preview error: {_prev_state['execution_error']}")
                         else:
-                            st.session_state["ms_preview_html"]        = _prev_state["execution_output"]
-                            st.session_state["ms_preview_html_before"] = st.session_state.get("ms_output", "")
+                            st.session_state["ms_preview_html"] = _prev_state["execution_output"]
+                            # Left tab = original output captured BEFORE enhancement ran
+                            # (ms_output_before_enhance set when Apply Enhancement was clicked)
+                            st.session_state["ms_preview_html_before"] = (
+                                st.session_state.get("ms_output_before_enhance") or
+                                st.session_state.get("ms_output", "")
+                            )
                             st.rerun()
                     except Exception as e:
                         st.error(f"Preview failed: {e}")
@@ -1919,8 +1926,9 @@ b. Note: xx""",
                 orig = st.session_state.get("ms_r_code_original") or st.session_state.get("ms_r_code", "")
                 st.session_state["ms_r_code"]         = orig
                 st.session_state["ms_r_code_pending"] = None
-                st.session_state["ms_preview_html"]   = None
-                st.session_state["ms_run_now"]        = True
+                st.session_state["ms_preview_html"]         = None
+                st.session_state["ms_output_before_enhance"] = None
+                st.session_state["ms_run_now"]               = True
                 st.rerun()
 
         # ── Side-by-side before/after HTML preview ────────────────────────
@@ -1928,14 +1936,14 @@ b. Note: xx""",
             st.markdown("**👁️ Preview (not applied yet):**")
             _col_b, _col_a = st.columns(2)
             with _col_b:
-                st.markdown("**Current Table:**")
+                st.markdown("**⬅️ Before (original):**")
                 _before = st.session_state.get("ms_preview_html_before", "")
                 if _before:
                     st.components.v1.html(_before, height=400, scrolling=True)
                 else:
-                    st.info("No current output to compare.")
+                    st.info("No original output to compare.")
             with _col_a:
-                st.markdown("**Preview (pending):**")
+                st.markdown("**➡️ After (enhanced):**")
                 st.components.v1.html(
                     st.session_state["ms_preview_html"], height=400, scrolling=True
                 )
@@ -2084,6 +2092,9 @@ b. Note: xx""",
                         raw = re.sub(r'```[rR]?\n?', '', raw)
                         raw = re.sub(r'```', '', raw).strip()
                         raw = _sanitise_r_code(raw)   # strip invalid gt args
+                        # ── Snapshot BEFORE applying — used as left tab in Preview ──
+                        # Must be captured NOW before ms_run_now overwrites ms_output
+                        st.session_state["ms_output_before_enhance"] = st.session_state.get("ms_output", "")
                         st.session_state["ms_r_code_original"] = existing_code
                         st.session_state["ms_r_code_pending"]  = raw
                         st.session_state["ms_r_code"]  = raw
