@@ -1763,7 +1763,7 @@ ADaM HINT: {spec.get("dataset_hint","ADSL")}
 
 RULES:
 1. Data is in df (already loaded as data.frame). If not provided, create realistic dummy clinical data.
-2. Use ggplot2 only. Do NOT load any libraries — already loaded.
+2. Use ggplot2 only. Do NOT add library() calls — they are prepended automatically.
 3. Use theme_classic() or theme_bw() for clean clinical look.
 4. Color by treatment group using scale_color_manual() or scale_fill_manual().
 5. Add title with ggtitle("{title}").
@@ -1813,7 +1813,7 @@ SPEC:
 RULES:
 1. Use gt package for Tables, ggplot2 for Figures.
 2. If ADaM data is provided, read from df (already loaded). If not, create realistic dummy data.
-3. Do NOT load any libraries — dplyr, tidyr, gt, ggplot2 are already loaded.
+3. Do NOT add library() calls — dplyr, tidyr, gt, ggplot2 are prepended automatically.
 4. TABLE STRUCTURE: Treatment groups are ALWAYS columns. Statistics are ALWAYS rows.
 5. Use bind_rows() + pivot_wider(names_from=TRT01P) — never mutate(col=c(...)) on grouped data.
 6. ALL data.frame column names must be non-empty strings.
@@ -1884,6 +1884,24 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
 
     # ── FIGURE: use execute_graph from graph_builder ──────────────────────
     if output_type == "Figure" or detected == "figure":
+        # Library prefix — execute_graph does NOT inject these itself
+        _fig_lib_prefix = (
+            "user_lib <- path.expand('~/R/library')\n"
+            ".libPaths(c(user_lib, .libPaths()))\n"
+            "options(warn=-1)\n"
+            "for (.pkg in c('ggplot2','dplyr','tidyr','scales','stringr')) {\n"
+            "  if (!requireNamespace(.pkg, quietly=TRUE))\n"
+            "    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)\n"
+            "}\n"
+            "suppressPackageStartupMessages({\n"
+            "  library(ggplot2)\n"
+            "  library(dplyr)\n"
+            "  library(tidyr)\n"
+            "  library(scales)\n"
+            "})\n"
+        )
+        fig_code = _fig_lib_prefix + state["generated_code"]
+
         if _GRAPH_BUILDER_AVAILABLE and _execute_graph_fn:
             try:
                 # Build DataFrame — from ADaM CSV or dummy
@@ -1905,7 +1923,7 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
                     })
                     df["CHG"] = df["AVAL"] - df["BASE"]
 
-                png_bytes, r_log = _execute_graph_fn(state["generated_code"], df)
+                png_bytes, r_log = _execute_graph_fn(fig_code, df)
                 state["execution_output"] = png_bytes
                 state["execution_error"]  = ""
             except Exception as e:
