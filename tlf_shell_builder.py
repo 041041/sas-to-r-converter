@@ -708,15 +708,17 @@ tbl <- gt(tbl_data, groupname_col="Parameter") %>%
     column_labels.font.weight="bold"
   )
 
-# Add lettered footnotes a. b. c.
+# Add lettered footnotes a. b. c.  (plain letter + period, no superscript)
 if (length(fn_text) > 0) {{
   for (i in seq_along(fn_text)) {{
     tbl <- tbl %>% tab_source_note(
-      source_note = html(paste0(
-        '<span style="font-size:11px;"><sup>',letters[i],'</sup> ',fn_text[i],'</span>'
-      ))
+      source_note = html(paste0(letters[i], ". ", fn_text[i]))
     )
   }}
+  tbl <- tbl %>% tab_style(
+    style = cell_text(size = px(11), font = "Arial, sans-serif"),
+    locations = cells_source_notes()
+  )
 }}
 
 cat(as_raw_html(tbl))
