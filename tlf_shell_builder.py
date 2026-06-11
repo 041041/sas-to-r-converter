@@ -1383,22 +1383,24 @@ def _build_sectioned_r_code(spec: dict, has_adam: bool) -> str:
     # Dummy data from sections
     dummy = "" if has_adam else f"""
 set.seed(42)
-n_per <- 12
-arms  <- c("Arm A","Arm B")
+n_per  <- 12
+arms   <- c("Arm A","Arm B")
 phases <- c("EPOCH1","EPOCH2")
 reasons <- c("ADVERSE EVENT","DEATH","PROTOCOL VIOLATION","OTHER","COMPLETED")
+
+# Each subject appears in ONE epoch only — realistic
 df <- do.call(rbind, lapply(arms, function(arm) {{
   do.call(rbind, lapply(phases, function(ph) {{
     data.frame(
-      USUBJID  = paste0(arm,"_",ph,"_",1:n_per),
-      ARM      = arm,
-      DSPHASE  = ph,
-      EPOCH    = ph,
-      DSDECOD  = sample(reasons, n_per, replace=TRUE, prob=c(0.2,0.2,0.2,0.2,0.2)),
-      DSCAT    = "DISPOSITION EVENT",
-      RANDFL   = "Y",
-      ENRLFL   = "Y",
-      SAFFL    = "Y",
+      USUBJID = paste0(arm,"_",ph,"_",sprintf("%03d",1:n_per)),
+      ARM     = arm,
+      DSPHASE = ph,
+      EPOCH   = ph,
+      DSDECOD = sample(reasons, n_per, replace=TRUE, prob=c(0.17,0.17,0.17,0.16,0.33)),
+      DSCAT   = "DISPOSITION EVENT",
+      RANDFL  = "Y",
+      ENRLFL  = "Y",
+      SAFFL   = "Y",
       stringsAsFactors=FALSE
     )
   }}))
@@ -1435,7 +1437,7 @@ df <- do.call(rbind, lapply(arms, function(arm) {{
             else:
                 # Build filter condition for the row
                 fval_upper = fval.upper()
-                if adam_var in ["RANDFL","ENRLFL","SAFFL","RANDFL"]:
+                if adam_var in ["RANDFL","ENRLFL","SAFFL"]:
                     # Flag variable — count subjects with flag=Y
                     row_filter = f'sec_df[!is.na(sec_df${adam_var}) & sec_df${adam_var}=="Y", ]'
                 elif fval_upper == "DISCONTINUED":
@@ -1446,14 +1448,15 @@ df <- do.call(rbind, lapply(arms, function(arm) {{
                 else:
                     row_filter = 'sec_df'
 
+                # Bold = top-level rows (indent==0) that are not sub-reasons
+                is_bold_row = "TRUE" if indent == 0 else "FALSE"
+
                 if stat_type == "n":
                     fmt_trt   = 'as.character(length(unique(rd$USUBJID)))'
-                    fmt_total = f'as.character(length(unique(({row_filter})$USUBJID)))'
-                    tot_pct   = ""
+                    tot_line  = f'  rd_all <- {row_filter}\n  d_row$Total <- as.character(length(unique(rd_all$USUBJID)))'
                 else:
                     fmt_trt   = 'sprintf("%d (%.1f%%)", length(unique(rd$USUBJID)), 100*length(unique(rd$USUBJID))/max(n_trt[[tr]],1))'
-                    fmt_total = f'sprintf("%d (%.1f%%)", length(unique(rd_all$USUBJID)), 100*length(unique(rd_all$USUBJID))/max(n_all,1))'
-                    tot_pct   = f'\n  rd_all <- {row_filter}'
+                    tot_line  = f'  rd_all <- {row_filter}\n  d_row$Total <- sprintf("%d (%.1f%%)", length(unique(rd_all$USUBJID)), 100*length(unique(rd_all$USUBJID))/max(n_all,1))'
 
                 row_lines.append(f"""
   # --- {rlabel} ---
@@ -1462,9 +1465,9 @@ df <- do.call(rbind, lapply(arms, function(arm) {{
     rd <- {row_filter}
     rd <- rd[rd${groupby}==tr, ]
     d_row[[tr]] <- {fmt_trt}
-  }}{tot_pct}
-  d_row$Total   <- {fmt_total}
-  d_row$is_bold <- FALSE
+  }}
+{tot_line}
+  d_row$is_bold <- {is_bold_row}
   d_row$indent  <- {indent}L
   all_rows <- rbind(all_rows, d_row)""")
 
