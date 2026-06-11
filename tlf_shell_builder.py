@@ -421,15 +421,18 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     title     = (spec.get("title") or '"Summary of Demographic and Baseline Characteristics"').strip().replace("\n","").replace("\r","").replace('"', "&quot;")
     pop_flag   = spec.get("pop_flag", "SAFFL") or "SAFFL"
     footnotes  = spec.get("footnotes", [])
-    # Sanitise groupby: LLM sometimes returns generic words like "treatment"
-    # instead of real ADaM column names. Map these to the safe runtime alias _trt_.
+    # Resolve groupby to the actual column that will exist in df at R runtime.
+    # node_execute prefix GUARANTEES df$TRT01P exists when adam_csv is present
+    # (it either reads it directly or aliases from TRT01A/ARM/etc.).
+    # When has_adam=False the dummy data uses whatever groupby the spec gives us,
+    # falling back to "_trt_" for generic/empty values so the dummy path still works.
     _GENERIC_GROUPBY = {"treatment","trt","group","arm","therapy","drug","intervention",""}
     _raw_groupby = (spec.get("groupby_var") or spec.get("groupby") or "").strip()
-    if _raw_groupby.lower() in _GENERIC_GROUPBY:
-        # When real ADaM data is provided the prefix in node_execute has already
-        # aliased the treatment column to TRT01P, so use that directly to avoid
-        # backtick-quoted `_trt_` ever hitting a missing-column tidyselect error.
-        groupby = "TRT01P" if has_adam else "_trt_"
+    if has_adam:
+        # With real data, always use TRT01P — node_execute guarantees it exists.
+        groupby = "TRT01P"
+    elif _raw_groupby.lower() in _GENERIC_GROUPBY:
+        groupby = "_trt_"   # dummy data path — materialised in the dummy df block
     else:
         groupby = _raw_groupby
     parameters = spec.get("parameters", [])
@@ -619,11 +622,23 @@ if (!is.na(.col_nm)) {{
     code = f"""{dummy_data}
 {pop_filter}
 
+# Ensure TRT01P exists (node_execute prefix already handles this, belt-and-suspenders)
+if (!"TRT01P" %in% names(df)) {{
+  .tc <- Filter(function(x) x %in% names(df), c("TRT01A","TRTP","ARM","ACTARM"))
+  df[["TRT01P"]] <- if (length(.tc)) df[[.tc[1]]] else "Total"
+}}
+
 {"".join(param_blocks)}
 
 {bind_call}
 
-tbl_data <- tbl_data %>% select(Parameter, Statistic, everything())
+# Guard: only select columns that actually exist
+.sel_cols <- intersect(c("Parameter","Statistic"), names(tbl_data))
+if (length(.sel_cols) == 2) {{
+  tbl_data <- tbl_data %>% select(Parameter, Statistic, everything())
+}} else {{
+  stop(paste("tbl_data missing required columns. Got:", paste(names(tbl_data), collapse=", ")))
+}}
 tbl_data$Statistic <- gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$","",tbl_data$Statistic)
 
 # Dynamic N headers — html() gives proper <br> line break
@@ -1367,7 +1382,8 @@ def _build_sectioned_r_code(spec: dict, has_adam: bool) -> str:
     title     = (spec.get("title") or "Table").strip().replace('"',"'")
     pop_flag  = spec.get("pop_flag","SAFFL") or "SAFFL"
     footnotes = spec.get("footnotes",[])
-    groupby   = spec.get("groupby_var") or spec.get("groupby") or "ARM"
+    # node_execute guarantees TRT01P exists when adam_csv is present
+    groupby   = "TRT01P" if has_adam else (spec.get("groupby_var") or spec.get("groupby") or "ARM")
     sections  = spec.get("sections",[])
     dataset   = spec.get("dataset_hint","ADDS").upper()
 
