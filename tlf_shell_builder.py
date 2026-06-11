@@ -541,7 +541,7 @@ if (!is.na(.col_nm)) {{
   df$.cv. <- as.numeric(df[[.col_nm]])
   {safe_name}_by_trt <-
 {bind_trt} %>%
-    pivot_wider(names_from={groupby}, values_from=val)
+    pivot_wider(id_cols=Statistic, names_from={groupby}, values_from=val)
   {safe_name}_total <-
 {bind_total}
   {safe_name}_by_trt$Total     <- {safe_name}_total$val
