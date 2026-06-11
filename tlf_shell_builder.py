@@ -609,6 +609,33 @@ if (!is.na(.col_nm)) {{
         else:
             param_blocks.append(make_cat_block(adam_var, label, cats, safe_name))
 
+    # ── If all parameters were skipped (missing adam_var), fall back to defaults ──
+    if not bind_vars:
+        parameters = [
+            {"label":"Age (years)",  "type":"continuous",  "adam_var":"AGE",
+             "statistics":["n","mean_sd","median","min_max"],"categories":[]},
+            {"label":"Sex, n (%)",   "type":"categorical", "adam_var":"SEX",
+             "statistics":["n_pct"],"categories":["Male","Female"]},
+            {"label":"Race, n (%)",  "type":"categorical", "adam_var":"RACE",
+             "statistics":["n_pct"],"categories":[]},
+            {"label":"BMI (kg/m²)", "type":"continuous",  "adam_var":"BMIBL",
+             "statistics":["n","mean_sd","median","min_max"],"categories":[]},
+        ]
+        param_blocks, param_names, bind_vars = [], [], []
+        for i, param in enumerate(parameters):
+            label    = param.get("label","")
+            ptype    = param.get("type","continuous")
+            adam_var = param.get("adam_var","")
+            stats    = param.get("statistics",["n","mean_sd","median","min_max"])
+            cats     = param.get("categories",[])
+            safe_name = re.sub(r'[^A-Za-z0-9]','_', f"p{i}_{adam_var}")
+            param_names.append(label)
+            bind_vars.append(f'if (exists("{safe_name}_by_trt")) {safe_name}_by_trt else NULL')
+            if ptype == "continuous":
+                param_blocks.append(make_cont_block(adam_var, label, stats, safe_name))
+            else:
+                param_blocks.append(make_cat_block(adam_var, label, cats, safe_name))
+
     bind_call = "tbl_data <- bind_rows(\n  " + ",\n  ".join(bind_vars) + "\n)"
     param_order_r = "c(" + ",".join(f'"{p}"' for p in param_names) + ")"
     fn_list = ", ".join(f'"{fn}"' for fn in footnotes[:5]) if footnotes else ""
