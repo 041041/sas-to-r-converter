@@ -1422,7 +1422,6 @@ df <- do.call(rbind, lapply(arms, function(arm) {{
             adam_var  = row.get("adam_var","") or ""
             fval      = row.get("filter_val","") or ""
             stat_type = row.get("stat_type","n_pct")
-            ind_spaces = indent * 4  # spaces for indentation
 
             if rtype == "header":
                 row_lines.append(f"""
@@ -1434,33 +1433,39 @@ df <- do.call(rbind, lapply(arms, function(arm) {{
   h_row$indent  <- 0
   all_rows <- rbind(all_rows, h_row)""")
             else:
-                # Build filter condition
-                if fval and adam_var:
-                    row_filter = f'sec_df[sec_df${adam_var}=="{fval}",]'
-                elif adam_var and adam_var in ["RANDFL","ENRLFL","SAFFL"]:
-                    row_filter = f'sec_df[!is.na(sec_df${adam_var}) & sec_df${adam_var}=="Y",]'
+                # Build filter condition for the row
+                fval_upper = fval.upper()
+                if adam_var in ["RANDFL","ENRLFL","SAFFL","RANDFL"]:
+                    # Flag variable — count subjects with flag=Y
+                    row_filter = f'sec_df[!is.na(sec_df${adam_var}) & sec_df${adam_var}=="Y", ]'
+                elif fval_upper == "DISCONTINUED":
+                    # Discontinued = all who did NOT complete
+                    row_filter = f'sec_df[!is.na(sec_df${adam_var}) & toupper(sec_df${adam_var}) != "COMPLETED", ]'
+                elif fval:
+                    row_filter = f'sec_df[!is.na(sec_df${adam_var}) & toupper(sec_df${adam_var})=="{fval_upper}", ]'
                 else:
                     row_filter = 'sec_df'
 
                 if stat_type == "n":
-                    fmt = 'as.character(length(unique(rd$USUBJID)))'
-                    fmt_total = 'as.character(length(unique({row_filter}$USUBJID)))'
+                    fmt_trt   = 'as.character(length(unique(rd$USUBJID)))'
+                    fmt_total = f'as.character(length(unique(({row_filter})$USUBJID)))'
+                    tot_pct   = ""
                 else:
-                    fmt = 'sprintf("%d (%.1f%%)", length(unique(rd$USUBJID)), 100*length(unique(rd$USUBJID))/max(n_trt[[tr]],1))'
-                    fmt_total = 'sprintf("%d (%.1f%%)", length(unique({row_filter}$USUBJID)), 100*length(unique({row_filter}$USUBJID))/max(n_all,1))'
+                    fmt_trt   = 'sprintf("%d (%.1f%%)", length(unique(rd$USUBJID)), 100*length(unique(rd$USUBJID))/max(n_trt[[tr]],1))'
+                    fmt_total = f'sprintf("%d (%.1f%%)", length(unique(rd_all$USUBJID)), 100*length(unique(rd_all$USUBJID))/max(n_all,1))'
+                    tot_pct   = f'\n  rd_all <- {row_filter}'
 
                 row_lines.append(f"""
   # --- {rlabel} ---
-  d_row <- data.frame(Category=paste0(strrep(" ",{ind_spaces}),"{rlabel}"), stringsAsFactors=FALSE)
+  d_row <- data.frame(Category="{rlabel}", stringsAsFactors=FALSE)
   for (tr in trts) {{
     rd <- {row_filter}
-    rd <- rd[rd${groupby}==tr,]
-    d_row[[tr]] <- {fmt}
-  }}
-  rd_all <- {row_filter}
-  d_row$Total   <- sprintf("%d (%.1f%%)", length(unique(rd_all$USUBJID)), 100*length(unique(rd_all$USUBJID))/max(n_all,1))
+    rd <- rd[rd${groupby}==tr, ]
+    d_row[[tr]] <- {fmt_trt}
+  }}{tot_pct}
+  d_row$Total   <- {fmt_total}
   d_row$is_bold <- FALSE
-  d_row$indent  <- {indent}
+  d_row$indent  <- {indent}L
   all_rows <- rbind(all_rows, d_row)""")
 
         filter_cond = f'sec_df <- df[df${filter_var}=="{filter_val}",]' if filter_val else 'sec_df <- df'
@@ -1526,17 +1531,25 @@ tbl <- gt(all_rows) %>%
   ) %>%
   tab_style(
     style     = cell_text(indent=px(20)),
-    locations = cells_body(columns="Category", rows=indent==1)
+    locations = cells_body(columns="Category", rows=indent==1L)
   ) %>%
   tab_style(
     style     = cell_text(indent=px(40)),
-    locations = cells_body(columns="Category", rows=indent==2)
+    locations = cells_body(columns="Category", rows=indent==2L)
   ) %>%
   tab_style(
-    style     = cell_text(weight="bold"),
-    locations = cells_column_labels()
+    style     = cell_text(color="#666666"),
+    locations = cells_body(columns="Category", rows=indent>=1L)
   ) %>%
-  tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
+  cols_align(align="left",  columns="Category") %>%
+  cols_align(align="right", columns=c(trts,"Total")) %>%
+  tab_options(
+    table.width=pct(100),
+    heading.align="left",
+    column_labels.font.weight="bold",
+    source_notes.font.size=px(11),
+    source_notes.padding=px(4)
+  )
 
 # Footnotes
 fn_text <- {fn_r_vec}
