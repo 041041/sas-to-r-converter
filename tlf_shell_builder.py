@@ -426,7 +426,10 @@ def _build_demog_r_code(spec: dict, has_adam: bool) -> str:
     _GENERIC_GROUPBY = {"treatment","trt","group","arm","therapy","drug","intervention",""}
     _raw_groupby = (spec.get("groupby_var") or spec.get("groupby") or "").strip()
     if _raw_groupby.lower() in _GENERIC_GROUPBY:
-        groupby = "_trt_"   # resolved at runtime by node_execute trt-detection
+        # When real ADaM data is provided the prefix in node_execute has already
+        # aliased the treatment column to TRT01P, so use that directly to avoid
+        # backtick-quoted `_trt_` ever hitting a missing-column tidyselect error.
+        groupby = "TRT01P" if has_adam else "_trt_"
     else:
         groupby = _raw_groupby
     parameters = spec.get("parameters", [])
@@ -1872,8 +1875,21 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
                 prefix_lines.append(f'df$TRT01P <- df${trt_col}')
             elif not trt_col:
                 prefix_lines.append('if (!"TRT01P" %in% names(df)) df$TRT01P <- "Total"')
+            # Always materialise the _trt_ placeholder so template code using
+            # backtick-quoted `_trt_` never fails with a tidyselect "unknown column" error.
+            # Use the best trt column available (already aliased to TRT01P above).
+            prefix_lines.append(
+                'df[["_trt_"]] <- df[[ if ("TRT01P" %in% names(df)) "TRT01P" else names(df)[1] ]]'
+            )
 
         full_script = "\n".join(prefix_lines + [state["generated_code"]])
+
+        # When real ADaM data is present the treatment column is materialised as
+        # both TRT01P and `_trt_` (see prefix_lines above), but backtick names
+        # can still confuse tidyselect inside pivot_wider/group_by.  Replace every
+        # remaining occurrence of the placeholder with the plain column name.
+        if state.get("adam_csv"):
+            full_script = full_script.replace('`_trt_`', 'TRT01P').replace('"_trt_"', '"TRT01P"')
 
         with open(script_path, "w") as f:
             f.write(full_script)
