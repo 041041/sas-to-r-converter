@@ -1025,7 +1025,7 @@ def _build_disposition_r_code(spec: dict, has_adam: bool) -> str:
 
     DISCON_KW = ["adverse event","death","protocol violation","other",
                  "lack of efficacy","withdrawal","sponsor decision",
-                 "lost to follow","non-compliance","completed"]
+                 "lost to follow","non-compliance"]
 
     # Parse phase sections from row_stubs
     epochs = []
@@ -1047,7 +1047,9 @@ def _build_disposition_r_code(spec: dict, has_adam: bool) -> str:
 
     if not epochs:
         epochs = [{"label": "Overall Disposition", "val": "", "reasons":
-                   [s.strip() for s in row_stubs if any(k in s.lower() for k in DISCON_KW)]}]
+                   [s.strip() for s in row_stubs
+                    if any(k in s.lower() for k in DISCON_KW)
+                    and "completed" not in s.lower()]}]
 
     all_reasons = []
     for e in epochs:
@@ -1100,7 +1102,8 @@ df <- data.frame(
     for idx, ep in enumerate(epochs):
         lbl     = ep["label"]
         val     = ep["val"]
-        reasons = ep["reasons"] if ep["reasons"] else all_reasons
+        reasons = [r for r in (ep["reasons"] if ep["reasons"] else all_reasons)
+                   if "completed" not in r.lower()]
         reas_r  = ", ".join(f'"{r}"' for r in reasons)
         sid     = f"ep{idx}"
         ep_filt = f'df_ep <- df %>% filter(DSPHASE == "{val}")' if val else "df_ep <- df"
@@ -1219,7 +1222,7 @@ tbl_data$Parameter <- as.character(tbl_data$Parameter)
 .n_per <- sapply(.trts, function(t) n_distinct(df$USUBJID[df[["_trt_"]]==t]))
 .n_tot <- n_distinct(df$USUBJID)
 .col_labs <- setNames(
-  c(mapply(function(t,n) html(paste0("<b>",t,"</b><br>(N=",n,")")), .trts, .n_per),
+  c(lapply(seq_along(.trts), function(i) html(paste0("<b>",.trts[i],"</b><br>(N=",.n_per[i],")"))),
     list(html(paste0("<b>Total</b><br>(N=",.n_tot,")")))),
   c(.trts,"Total")
 )
