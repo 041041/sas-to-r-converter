@@ -652,10 +652,13 @@ col_label_vals  <- c(
 )
 col_labels <- setNames(col_label_vals, col_label_names)
 
-# Enforce shell parameter order
-tbl_data$Parameter <- factor(tbl_data$Parameter, levels={param_order_r})
-tbl_data <- tbl_data[order(tbl_data$Parameter),]
-tbl_data$Parameter <- as.character(tbl_data$Parameter)
+# Enforce shell parameter order (guard: skip if levels vector is empty)
+.param_levels <- {param_order_r}
+if (length(.param_levels) > 0) {{
+  tbl_data$Parameter <- factor(tbl_data$Parameter, levels=.param_levels)
+  tbl_data <- tbl_data[order(tbl_data$Parameter),]
+  tbl_data$Parameter <- as.character(tbl_data$Parameter)
+}}
 
 # footnotes vector
 fn_text <- {fn_r_vec}
