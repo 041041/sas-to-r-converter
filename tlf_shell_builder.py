@@ -39,12 +39,14 @@ _R_PACKAGES = [
     "tibble", "stringr", "scales", "officer",
 ]
 
+# Critical packages that must be verified — others are nice-to-have
+_R_PACKAGES_CRITICAL = ["dplyr", "tidyr", "ggplot2", "gt"]
+
 def _ensure_r_packages() -> None:
     """
     Install any missing R packages into ~/R/library at session startup.
     Runs once per Streamlit session (guarded by st.session_state).
-    Uses a fast existence-check so already-installed packages are skipped.
-    Mirrors the pattern used in graph_builder and table_builder.
+    Critical packages (dplyr, tidyr, ggplot2, gt) are verified after install.
     """
     if st.session_state.get("_r_packages_ready"):
         return
@@ -52,22 +54,32 @@ def _ensure_r_packages() -> None:
     user_lib = os.path.expanduser("~/R/library")
     os.makedirs(user_lib, exist_ok=True)
 
-    # Build a single R script: check each package, install only if missing
-    pkg_list = ", ".join(f'"{p}"' for p in _R_PACKAGES)
+    pkg_list      = ", ".join(f'"{p}"' for p in _R_PACKAGES)
+    critical_list = ", ".join(f'"{p}"' for p in _R_PACKAGES_CRITICAL)
+
     install_script = f"""
 user_lib <- path.expand("~/R/library")
 dir.create(user_lib, recursive=TRUE, showWarnings=FALSE)
 .libPaths(c(user_lib, .libPaths()))
-pkgs <- c({pkg_list})
+
+# Install missing packages
+pkgs    <- c({pkg_list})
 missing <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]
 if (length(missing) > 0) {{
   install.packages(
     missing,
-    lib      = user_lib,
-    repos    = "https://cloud.r-project.org",
-    quiet    = TRUE,
-    Ncpus    = 2
+    lib   = user_lib,
+    repos = "https://cloud.r-project.org",
+    quiet = TRUE,
+    Ncpus = 2
   )
+}}
+
+# Verify critical packages can be loaded
+critical <- c({critical_list})
+failed   <- critical[!sapply(critical, requireNamespace, quietly=TRUE)]
+if (length(failed) > 0) {{
+  cat("CRITICAL_LOAD_FAILURE:", paste(failed, collapse=","), "\\n")
 }}
 """
     try:
@@ -76,8 +88,13 @@ if (length(missing) > 0) {{
             capture_output=True, text=True, timeout=300
         )
         if result.returncode != 0:
-            # Non-fatal: log to console but don't block the UI
             print(f"[R package install warning] {result.stderr[:400]}")
+        # Surface critical failures to Streamlit UI
+        if "CRITICAL_LOAD_FAILURE:" in result.stdout:
+            failed_pkgs = result.stdout.split("CRITICAL_LOAD_FAILURE:")[1].split("\n")[0].strip()
+            st.warning(f"⚠️ R packages failed to load: {failed_pkgs}. Tables/figures may not render correctly.")
+    except Exception as e:
+        print(f"[R package install error] {e}")
     except Exception as e:
         print(f"[R package install error] {e}")
 
@@ -1907,12 +1924,23 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             "user_lib <- path.expand('~/R/library')",
             ".libPaths(c(user_lib, .libPaths()))",
             "options(warn=-1)",
-            "for (.pkg in c('dplyr','tidyr','gt','ggplot2','tibble','stringr','scales')) {",
+            # Install any missing packages
+            "for (.pkg in c('dplyr','tidyr','gt','ggplot2','tibble','stringr','scales','flextable')) {",
             "  if (!requireNamespace(.pkg, quietly=TRUE)) {",
             "    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)",
             "  }",
-            "  suppressMessages(suppressWarnings(library(.pkg, character.only=TRUE)))",
             "}",
+            # Explicit library() calls AFTER install loop — errors are now visible
+            # suppressMessages only, NOT suppressWarnings, so load failures surface
+            "suppressMessages({",
+            "  library(dplyr)",
+            "  library(tidyr)",
+            "  library(ggplot2)",   # must be loaded before any ggplot() call
+            "  library(gt)",
+            "  library(tibble)",
+            "  library(stringr)",
+            "  library(scales)",
+            "})",
         ]
 
         if state.get("adam_csv"):
