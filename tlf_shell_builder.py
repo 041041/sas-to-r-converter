@@ -352,6 +352,42 @@ CRITICAL PARSING RULES:
     spec.setdefault("pop_flag", spec.get("pop_flag") or "SAFFL")
     spec.setdefault("dataset_hint", "")
 
+    # ── Auto-detect has_sections if LLM missed it ─────────────────────────
+    # Look for epoch/phase/period/visit section headers in the raw shell text
+    shell_lower = state['shell_text'].lower()
+    _section_kws = ["epoch1","epoch2","epoch3","phase 1","phase 2","period 1","period 2",
+                    "disposition phase","visit 1","baseline visit","screening"]
+    if not spec.get("has_sections") and any(kw in shell_lower for kw in _section_kws):
+        spec["has_sections"] = True
+        # If sections list is empty, build minimal sections from shell text
+        if not spec.get("sections"):
+            import re as _re2
+            # Extract lines that look like section headers
+            epoch_lines = [
+                l.strip() for l in state['shell_text'].splitlines()
+                if any(kw in l.lower() for kw in ["epoch","phase :","period :","disposition phase"])
+                and len(l.strip()) > 3
+            ]
+            if epoch_lines:
+                spec["sections"] = []
+                for el in epoch_lines[:4]:
+                    m = _re2.search(r'(EPOCH\d+|Phase\s*\d+|Period\s*\d+)', el, _re2.IGNORECASE)
+                    fval = m.group(1).upper() if m else el.split()[-1].upper()
+                    spec["sections"].append({
+                        "label":      el.strip(),
+                        "filter_var": "DSPHASE",
+                        "filter_val": fval,
+                        "rows": [
+                            {"label":"Participants Started /Assigned to Treatment","type":"data","indent":0,"adam_var":"RANDFL","filter_val":"","stat_type":"n"},
+                            {"label":"Discontinued","type":"data","indent":0,"adam_var":"DSDECOD","filter_val":"DISCONTINUED","stat_type":"n_pct"},
+                            {"label":"Adverse Event","type":"data","indent":1,"adam_var":"DSDECOD","filter_val":"ADVERSE EVENT","stat_type":"n_pct"},
+                            {"label":"Death","type":"data","indent":1,"adam_var":"DSDECOD","filter_val":"DEATH","stat_type":"n_pct"},
+                            {"label":"Protocol Violation","type":"data","indent":1,"adam_var":"DSDECOD","filter_val":"PROTOCOL VIOLATION","stat_type":"n_pct"},
+                            {"label":"Other","type":"data","indent":1,"adam_var":"DSDECOD","filter_val":"OTHER","stat_type":"n_pct"},
+                            {"label":"Completed","type":"data","indent":0,"adam_var":"DSDECOD","filter_val":"COMPLETED","stat_type":"n_pct"},
+                        ]
+                    })
+
     # Legacy row_stubs from sections
     if spec.get("has_sections") and spec.get("sections"):
         spec["row_stubs"] = [
