@@ -266,43 +266,106 @@ def _call_llm(prompt: str) -> str:
 
 def node_parse_shell(state: ShellTLFState) -> ShellTLFState:
     """
-    Extract structured spec from the mock shell text.
-    Returns parsed_spec dict with keys:
-      title, footnotes, population, columns, row_stubs, dataset_hint,
-      output_type (Table/Listing/Figure), tlf_number
+    Extract full structured spec from mock shell.
+    Handles: epochs/phases, nested rows, categories, treatment groups,
+    population flags, dataset hints, statistics.
     """
-    prompt = f"""You are a clinical programmer. Parse this mock shell and extract a JSON spec.
+    prompt = f"""You are an expert clinical SAS/R programmer. Parse this mock shell PRECISELY.
 
 MOCK SHELL:
 {state['shell_text']}
 
-Return ONLY valid JSON, no markdown, no explanation. Schema:
+Return ONLY valid JSON. No markdown. No explanation. Use this EXACT schema:
+
 {{
-  "tlf_number":   "e.g. Table 14.1.1 or empty string",
-  "title":        "full title text",
-  "footnotes":    ["list of footnote strings"],
-  "population":   "e.g. Safety Population or empty string",
-  "pop_flag":     "e.g. SAFFL or ITTFL or empty string",
-  "output_type":  "Table" | "Listing" | "Figure",
-  "dataset_hint": "e.g. ADSL, ADAE, ADVS or empty string",
-  "columns":      ["col1", "col2", ...],
-  "row_stubs":    ["row label 1", "row label 2", ...],
-  "statistics":   ["n", "mean", "sd", "median", "min", "max", "pct"] (subset relevant),
-  "groupby":      "ACTUAL ADaM column name for treatment grouping — must be one of: TRT01P, TRT01A, TRTP, ARM, ACTARM, or empty string if not a grouped table. Do NOT return generic words like treatment or group."
-}}"""
+  "tlf_number":       "e.g. Table 14.1.1 or empty string",
+  "title":            "full title text exactly as shown",
+  "output_type":      "Table" or "Listing" or "Figure",
+  "population":       "e.g. Safety Population",
+  "pop_flag":         "ADaM column: SAFFL ITTFL FASFL PKFL RANDFL ENRLFL — infer from population text",
+  "dataset_hint":     "primary ADaM dataset: ADSL ADAE ADVS ADLB ADDS ADEFF etc — infer from context",
+  "footnotes":        ["exact footnote text 1", "exact footnote text 2"],
+  "treatment_groups": ["Arm A", "Arm B"] — extract from column headers,
+  "groupby_var":      "ADaM column for treatment: ARM TRT01P TRT01A TRTP ACTARM — infer from dataset and context",
+  "has_sections":     true or false — true if table has EPOCH/PHASE/VISIT sections as row group headers,
+  "sections":         [
+    {{
+      "label":      "Disposition Phase :EPOCH1" — exact section header text,
+      "filter_var": "ADaM column for this section e.g. DSPHASE EPOCH VISIT AVISIT",
+      "filter_val": "value to filter on e.g. EPOCH1 Baseline",
+      "rows": [
+        {{
+          "label":      "Participants Started /Assigned to Treatment",
+          "type":       "header" or "data" or "subrow",
+          "indent":     0 or 1 or 2 — indentation level from shell,
+          "adam_var":   "ADaM variable or flag e.g. RANDFL DSDECOD DSSCAT",
+          "filter_val": "value if this row filters a variable e.g. COMPLETED ADVERSE EVENT",
+          "stat_type":  "n" or "n_pct" or "pct" — statistic shown
+        }}
+      ]
+    }}
+  ],
+  "parameters":       [] — for non-sectioned tables, list parameters here instead,
+  "statistics_global": ["n_pct"] — stat types used across the whole table
+}}
+
+CRITICAL PARSING RULES:
+1. sections: If the shell has repeated blocks separated by phase/epoch/visit headers
+   (e.g. "Disposition Phase :EPOCH1", "Disposition Phase :EPOCH2"), extract EACH as a section.
+2. rows.indent: Count leading spaces/tabs in shell to determine indent level (0=top, 1=sub, 2=sub-sub).
+3. rows.adam_var: Map row labels to ADaM variables:
+   - "Participants Started/Assigned" → RANDFL or ENRLFL
+   - "Discontinued" → DSDECOD (where DSDECOD != COMPLETED)
+   - "Adverse Event" → DSDECOD = ADVERSE EVENT
+   - "Death" → DSDECOD = DEATH
+   - "Protocol Violation" → DSDECOD = PROTOCOL VIOLATION
+   - "Completed" → DSDECOD = COMPLETED
+   - "Other" → DSDECOD = OTHER
+4. groupby_var: For ADDS dataset → ARM. For ADSL → TRT01P. For ADAE → TRT01A.
+5. pop_flag: "Safety" → SAFFL. "Randomized" → RANDFL. "Enrolled" → ENRLFL. "ITT" → ITTFL.
+6. If no sections, put row structure in parameters[] instead.
+7. has_sections = true whenever you see repeated block structure with phase/epoch/visit headers."""
+
     raw = _call_llm(prompt)
     raw = re.sub(r'```json|```', '', raw).strip()
     import json
     try:
         spec = json.loads(raw)
     except Exception:
-        # Fallback minimal spec
         spec = {
-            "tlf_number": "", "title": "Table", "footnotes": [],
-            "population": "", "pop_flag": "", "output_type": "Table",
-            "dataset_hint": "", "columns": [], "row_stubs": [],
-            "statistics": ["n", "pct"], "groupby": ""
+            "tlf_number":"","title":"Table","footnotes":[],
+            "population":"","pop_flag":"SAFFL","output_type":"Table",
+            "dataset_hint":"","columns":[],"row_stubs":[],
+            "statistics":["n","pct"],"groupby":"",
+            "has_sections":False,"sections":[],"parameters":[],
+            "treatment_groups":[],"groupby_var":"",
+            "statistics_global":["n_pct"]
         }
+
+    # Backfill legacy keys for backward compat
+    spec.setdefault("has_sections", False)
+    spec.setdefault("sections", [])
+    spec.setdefault("parameters", [])
+    spec.setdefault("treatment_groups", [])
+    spec.setdefault("groupby_var", spec.get("groupby","") or "")
+    spec.setdefault("statistics_global", ["n_pct"])
+    spec.setdefault("pop_flag", spec.get("pop_flag") or "SAFFL")
+    spec.setdefault("dataset_hint", "")
+
+    # Legacy row_stubs from sections
+    if spec.get("has_sections") and spec.get("sections"):
+        spec["row_stubs"] = [
+            row.get("label","")
+            for sec in spec["sections"]
+            for row in sec.get("rows",[])
+        ]
+    elif not spec.get("row_stubs"):
+        spec["row_stubs"] = [p.get("label","") for p in spec.get("parameters",[])]
+
+    spec["groupby"] = spec.get("groupby_var","") or spec.get("groupby","") or "ARM"
+    spec["columns"] = spec.get("treatment_groups",[])
+    spec["statistics"] = spec.get("statistics_global",["n_pct"])
+
     state["parsed_spec"] = spec
     return state
 
@@ -1014,7 +1077,7 @@ cat(as_raw_html(tbl))
 def _build_disposition_r_code(spec: dict, has_adam: bool) -> str:
     """
     Disposition table — hierarchical by EPOCH/phase with n (%) per treatment arm.
-    ADaM: ADDS/ADDS with DSCAT, DSDECOD, DSPHASE, ARM/TRT01P, RANDFL/ENRLFL.
+    Uses structured sections from parser when available, falls back to row_stubs parsing.
     """
     import re as _re
 
@@ -1023,11 +1086,15 @@ def _build_disposition_r_code(spec: dict, has_adam: bool) -> str:
     footnotes = spec.get("footnotes", [])
     row_stubs = spec.get("row_stubs", [])
 
+    # ── Use structured sections from new parser if available ─────────────
+    if spec.get("has_sections") and spec.get("sections"):
+        return _build_sectioned_r_code(spec, has_adam)
+
     DISCON_KW = ["adverse event","death","protocol violation","other",
                  "lack of efficacy","withdrawal","sponsor decision",
                  "lost to follow","non-compliance"]
 
-    # Parse phase sections from row_stubs
+    # Parse phase sections from row_stubs (legacy path)
     epochs = []
     cur_label, cur_val, cur_reasons = None, None, []
     for stub in row_stubs:
@@ -1252,36 +1319,259 @@ cat(as_raw_html(tbl))
 
 
 
+def _build_sectioned_r_code(spec: dict, has_adam: bool) -> str:
+    """
+    Generates R code for tables with EPOCH/PHASE/VISIT sections.
+    Each section filters on a variable+value and shows the same row structure.
+    Handles: Disposition, Subject Accountability, etc.
+    """
+    title     = (spec.get("title") or "Table").strip().replace('"',"'")
+    pop_flag  = spec.get("pop_flag","SAFFL") or "SAFFL"
+    footnotes = spec.get("footnotes",[])
+    groupby   = spec.get("groupby_var") or spec.get("groupby") or "ARM"
+    sections  = spec.get("sections",[])
+    dataset   = spec.get("dataset_hint","ADDS").upper()
+
+    pop_label_map = {
+        "SAFFL":"Safety Population","ITTFL":"ITT Population",
+        "RANDFL":"Randomized Population","ENRLFL":"Enrolled Population",
+        "FASFL":"Full Analysis Set",
+    }
+    pop_label = pop_label_map.get(pop_flag, spec.get("population","Analysis Population"))
+
+    # Build footnotes
+    fn_r_vec = "character(0)"
+    if footnotes:
+        fn_r_vec = "c(" + ", ".join(f'"{fn.replace(chr(34),chr(39))}"' for fn in footnotes[:5]) + ")"
+
+    # Dummy data from sections
+    dummy = "" if has_adam else f"""
+set.seed(42)
+n_per <- 12
+arms  <- c("Arm A","Arm B")
+phases <- c("EPOCH1","EPOCH2")
+reasons <- c("ADVERSE EVENT","DEATH","PROTOCOL VIOLATION","OTHER","COMPLETED")
+df <- do.call(rbind, lapply(arms, function(arm) {{
+  do.call(rbind, lapply(phases, function(ph) {{
+    data.frame(
+      USUBJID  = paste0(arm,"_",ph,"_",1:n_per),
+      ARM      = arm,
+      DSPHASE  = ph,
+      EPOCH    = ph,
+      DSDECOD  = sample(reasons, n_per, replace=TRUE, prob=c(0.2,0.2,0.2,0.2,0.2)),
+      DSCAT    = "DISPOSITION EVENT",
+      RANDFL   = "Y",
+      ENRLFL   = "Y",
+      SAFFL    = "Y",
+      stringsAsFactors=FALSE
+    )
+  }}))
+}}))
+"""
+    pop_filter = f'if ("{pop_flag}" %in% names(df)) df <- df[df${pop_flag}=="Y",]'
+
+    # Build section R blocks
+    section_blocks = []
+    for sec in sections:
+        sec_label  = sec.get("label","Section").replace('"',"'")
+        filter_var = sec.get("filter_var","DSPHASE") or "DSPHASE"
+        filter_val = sec.get("filter_val","") or ""
+        rows       = sec.get("rows",[])
+
+        row_lines = []
+        for row in rows:
+            rlabel    = row.get("label","").replace('"',"'")
+            rtype     = row.get("type","data")
+            indent    = row.get("indent",0)
+            adam_var  = row.get("adam_var","") or ""
+            fval      = row.get("filter_val","") or ""
+            stat_type = row.get("stat_type","n_pct")
+            ind_spaces = indent * 4  # spaces for indentation
+
+            if rtype == "header":
+                row_lines.append(f"""
+  # --- header row: {rlabel} ---
+  h_row <- data.frame(Category="{rlabel}", stringsAsFactors=FALSE)
+  for (tr in trts) h_row[[tr]] <- ""
+  h_row$Total <- ""
+  h_row$is_bold <- TRUE
+  h_row$indent  <- 0
+  all_rows <- rbind(all_rows, h_row)""")
+            else:
+                # Build filter condition
+                if fval and adam_var:
+                    row_filter = f'sec_df[sec_df${adam_var}=="{fval}",]'
+                elif adam_var and adam_var in ["RANDFL","ENRLFL","SAFFL"]:
+                    row_filter = f'sec_df[!is.na(sec_df${adam_var}) & sec_df${adam_var}=="Y",]'
+                else:
+                    row_filter = 'sec_df'
+
+                if stat_type == "n":
+                    fmt = 'as.character(length(unique(rd$USUBJID)))'
+                    fmt_total = 'as.character(length(unique({row_filter}$USUBJID)))'
+                else:
+                    fmt = 'sprintf("%d (%.1f%%)", length(unique(rd$USUBJID)), 100*length(unique(rd$USUBJID))/max(n_trt[[tr]],1))'
+                    fmt_total = 'sprintf("%d (%.1f%%)", length(unique({row_filter}$USUBJID)), 100*length(unique({row_filter}$USUBJID))/max(n_all,1))'
+
+                row_lines.append(f"""
+  # --- {rlabel} ---
+  d_row <- data.frame(Category=paste0(strrep(" ",{ind_spaces}),"{rlabel}"), stringsAsFactors=FALSE)
+  for (tr in trts) {{
+    rd <- {row_filter}
+    rd <- rd[rd${groupby}==tr,]
+    d_row[[tr]] <- {fmt}
+  }}
+  rd_all <- {row_filter}
+  d_row$Total   <- sprintf("%d (%.1f%%)", length(unique(rd_all$USUBJID)), 100*length(unique(rd_all$USUBJID))/max(n_all,1))
+  d_row$is_bold <- FALSE
+  d_row$indent  <- {indent}
+  all_rows <- rbind(all_rows, d_row)""")
+
+        filter_cond = f'sec_df <- df[df${filter_var}=="{filter_val}",]' if filter_val else 'sec_df <- df'
+
+        section_blocks.append(f"""
+# ══ Section: {sec_label} ══
+{filter_cond}
+n_trt <- setNames(
+  sapply(trts, function(t) length(unique(sec_df$USUBJID[sec_df${groupby}==t]))),
+  trts
+)
+n_all <- length(unique(sec_df$USUBJID))
+sec_header <- data.frame(Category="{sec_label}", stringsAsFactors=FALSE)
+for (tr in trts) sec_header[[tr]] <- ""
+sec_header$Total   <- ""
+sec_header$is_bold <- TRUE
+sec_header$indent  <- -1
+all_rows <- rbind(all_rows, sec_header)
+{"".join(row_lines)}
+""")
+
+    return f"""{dummy}
+{pop_filter}
+
+# Treatment groups and denominators
+trts  <- sort(unique(df${groupby}))
+n_per_trt <- setNames(
+  sapply(trts, function(t) length(unique(df$USUBJID[df${groupby}==t]))),
+  trts
+)
+n_all_total <- length(unique(df$USUBJID))
+
+# Column headers with N
+col_label_names <- c(trts,"Total")
+col_label_vals  <- c(
+  lapply(seq_along(trts), function(i)
+    html(paste0("<b>",trts[i],"</b><br>(N=",n_per_trt[[trts[i]]],")"))),
+  list(html(paste0("<b>Total</b><br>(N=",n_all_total,")")))
+)
+col_labels <- setNames(col_label_vals, col_label_names)
+
+# Build all rows
+all_rows <- data.frame(Category=character(), stringsAsFactors=FALSE)
+for (tr in trts) all_rows[[tr]] <- character()
+all_rows$Total   <- character()
+all_rows$is_bold <- logical()
+all_rows$indent  <- integer()
+
+{"".join(section_blocks)}
+
+# Build gt table
+tbl <- gt(all_rows) %>%
+  tab_header(
+    title    = html("<b>{title}</b>"),
+    subtitle = html('<div style="text-align:left;font-size:12px;">{pop_label}</div>')
+  ) %>%
+  cols_label(.list=col_labels) %>%
+  cols_label(Category="") %>%
+  cols_hide(c("is_bold","indent")) %>%
+  tab_style(
+    style     = cell_text(weight="bold"),
+    locations = cells_body(columns="Category", rows=is_bold==TRUE)
+  ) %>%
+  tab_style(
+    style     = cell_text(indent=px(20)),
+    locations = cells_body(columns="Category", rows=indent==1)
+  ) %>%
+  tab_style(
+    style     = cell_text(indent=px(40)),
+    locations = cells_body(columns="Category", rows=indent==2)
+  ) %>%
+  tab_style(
+    style     = cell_text(weight="bold"),
+    locations = cells_column_labels()
+  ) %>%
+  tab_options(table.width=pct(100), row_group.background.color="#f5f5f5")
+
+# Footnotes
+fn_text <- {fn_r_vec}
+if (length(fn_text)>0) {{
+  for (i in seq_along(fn_text)) {{
+    tbl <- tbl %>% tab_source_note(
+      source_note=html(paste0('<sup>',letters[i],'</sup> ',fn_text[i]))
+    )
+  }}
+}}
+
+cat(as_raw_html(tbl))
+"""
+
+
 def _detect_table_type(spec: dict) -> str:
     """
-    Returns one of: demog | ae_summary | ae_socpt | lab | vitals | efficacy | listing | figure | llm
+    Returns one of: demog | ae_summary | ae_socpt | lab | vitals |
+                    efficacy | listing | figure | disposition | llm
     """
     output_type = spec.get("output_type", "Table")
     if output_type == "Figure":
         return "figure"
 
-    title     = (spec.get("title") or '""').strip().replace("\n","").replace("\r","").replace('"', "&quot;").lower()
-    row_stubs  = [r.lower() for r in spec.get("row_stubs", [])]
-    all_text   = title + " " + " ".join(row_stubs)
-
-    if any(k in all_text for k in ["discontinu","disposition","dscat","dsdecod","epoch","disposition phase","participants started"]):
+    # Sectioned tables (epoch/phase/visit blocks) — detected from parser
+    if spec.get("has_sections") and spec.get("sections"):
         return "disposition"
-    if any(k in all_text for k in ["demographic", "baseline characteristic", "age", "sex, n", "race"]):
+
+    title     = (spec.get("title") or "").lower().strip()
+    row_stubs = [r.lower() for r in spec.get("row_stubs", [])]
+    dataset   = (spec.get("dataset_hint") or "").upper()
+    all_text  = title + " " + " ".join(row_stubs)
+
+    # Title-based detection — title is primary signal
+    if any(k in title for k in ["discontinu","disposition","accountability"]):
+        return "disposition"
+    if any(k in title for k in ["demographic","baseline characteristic"]):
         return "demog"
-    if any(k in all_text for k in ["system organ class", "preferred term", "soc", "pt", "by body system"]):
+    if any(k in title for k in ["system organ class","preferred term","by soc","by body system"]):
         return "ae_socpt"
-    if any(k in all_text for k in ["adverse event", "teae", "ae summary", "incidence of ae"]):
+    if any(k in title for k in ["adverse event","teae","treatment-emergent"]):
         return "ae_summary"
-    if any(k in all_text for k in ["vital sign", "blood pressure", "pulse", "weight", "height", "temperature"]):
+    if any(k in title for k in ["vital sign","blood pressure","pulse"]):
         return "vitals"
-    if any(k in all_text for k in ["laborator", "lab value", "haematol", "hematol", "chemistry", "alt", "ast", "creatinine"]):
+    if any(k in title for k in ["laborator","lab value","chemistry","haematol","hematol"]):
         return "lab"
-    if any(k in all_text for k in ["efficacy", "primary endpoint", "response rate", "responder", "change from baseline"]):
+    if any(k in title for k in ["efficacy","primary endpoint","response rate","change from baseline"]):
         return "efficacy"
-    if output_type == "Listing":
+    if output_type == "Listing" or any(k in title for k in ["listing","patient data","subject data"]):
         return "listing"
-    if not spec.get("row_stubs"):
+
+    # Dataset-based detection
+    if dataset == "ADDS":
+        return "disposition"
+    if dataset == "ADSL":
         return "demog"
+    if dataset == "ADAE":
+        return "ae_summary"
+    if dataset == "ADLB":
+        return "lab"
+    if dataset == "ADVS":
+        return "vitals"
+
+    # Row stubs — only if title gave no signal
+    stub_text = " ".join(row_stubs)
+    if any(k in stub_text for k in ["epoch","dsphase","disposition phase","participants started"]):
+        return "disposition"
+    if any(k in stub_text for k in ["mean (sd)","median","min, max"]) and \
+       any(k in stub_text for k in ["age","bmi","weight"]):
+        return "demog"
+
     return "llm"
 
 
