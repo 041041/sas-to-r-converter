@@ -646,7 +646,12 @@ if (!is.na(.col_nm)) {{
     else:
         fn_r_vec = "character(0)"
 
-    code = f"""{dummy_data}
+    code = f"""suppressPackageStartupMessages({{
+  library(dplyr)
+  library(tidyr)
+  library(gt)
+}})
+{dummy_data}
 {pop_filter}
 
 # Ensure TRT01P exists (node_execute prefix already handles this, belt-and-suspenders)
@@ -1339,7 +1344,12 @@ for (.rsn in c({reas_r})) {{
     )
     param_order_r = ", ".join(f'"{e["label"]}"' for e in epochs)
 
-    code = f"""{dummy_data}
+    code = f"""suppressPackageStartupMessages({{
+  library(dplyr)
+  library(tidyr)
+  library(gt)
+}})
+{dummy_data}
 {pop_filter_r}
 
 # Auto-detect treatment column
