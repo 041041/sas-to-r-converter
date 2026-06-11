@@ -157,7 +157,7 @@ class ShellTLFState(TypedDict):
     retry_count:       int
     final_r_code:      str
     final_output:      str            # rendered HTML table or message
-    detected_type:     str            # demog|ae_summary|ae_socpt|lab|vitals|efficacy|listing|llm
+    detected_type:     str            # demog|disposition|ae_summary|ae_socpt|lab|vitals|efficacy|listing|llm
     ai_instructions:   str            # extra user instructions for LLM enhancement
 
 
@@ -1010,6 +1010,245 @@ cat(as_raw_html(tbl))
 # ══════════════════════════════════════════════════════════════════════════════
 # TEMPLATE ROUTER — detect table type and dispatch
 # ══════════════════════════════════════════════════════════════════════════════
+
+def _build_disposition_r_code(spec: dict, has_adam: bool) -> str:
+    """
+    Disposition table — hierarchical by EPOCH/phase with n (%) per treatment arm.
+    ADaM: ADDS/ADDS with DSCAT, DSDECOD, DSPHASE, ARM/TRT01P, RANDFL/ENRLFL.
+    """
+    import re as _re
+
+    title     = (spec.get("title") or "Disposition of Participants").strip().replace("\n","").replace("\r","").replace('"',"&quot;")
+    pop_flag  = (spec.get("pop_flag") or "RANDFL").strip()
+    footnotes = spec.get("footnotes", [])
+    row_stubs = spec.get("row_stubs", [])
+
+    DISCON_KW = ["adverse event","death","protocol violation","other",
+                 "lack of efficacy","withdrawal","sponsor decision",
+                 "lost to follow","non-compliance","completed"]
+
+    # Parse phase sections from row_stubs
+    epochs = []
+    cur_label, cur_val, cur_reasons = None, None, []
+    for stub in row_stubs:
+        s  = stub.strip()
+        sl = s.lower()
+        if "epoch" in sl or ("phase" in sl and ":" in s) or "period" in sl:
+            if cur_label:
+                epochs.append({"label": cur_label, "val": cur_val, "reasons": cur_reasons})
+            m = _re.search(r'[:\-]\s*(\S+)\s*$', s)
+            cur_val     = m.group(1).strip() if m else s.split()[-1]
+            cur_label   = s
+            cur_reasons = []
+        elif cur_label and any(k in sl for k in DISCON_KW) and "started" not in sl and "assigned" not in sl:
+            cur_reasons.append(s)
+    if cur_label:
+        epochs.append({"label": cur_label, "val": cur_val, "reasons": cur_reasons})
+
+    if not epochs:
+        epochs = [{"label": "Overall Disposition", "val": "", "reasons":
+                   [s.strip() for s in row_stubs if any(k in s.lower() for k in DISCON_KW)]}]
+
+    all_reasons = []
+    for e in epochs:
+        for r in e["reasons"]:
+            if r not in all_reasons:
+                all_reasons.append(r)
+    if not all_reasons:
+        all_reasons = ["Adverse Event","Death","Protocol Violation","Other"]
+
+    # Footnote R code
+    fn_r = ""
+    if footnotes:
+        fn_items = ", ".join(f'"{f}"' for f in footnotes[:5])
+        fn_r = f"""
+fn_text <- c({fn_items})
+if (length(fn_text) > 0) {{
+  for (i in seq_along(fn_text)) {{
+    ltr <- letters[i]
+    tbl <- tbl %>% tab_source_note(
+      source_note = html(paste0(
+        '<span style="font-family:Arial,Helvetica,sans-serif;font-size:11px;">',
+        '<span style="font-size:8px;vertical-align:super;line-height:0;">',
+        ltr, '</span>. ', fn_text[i], '</span>'
+      ))
+    )
+  }}
+}}"""
+
+    pop_filter_r = f'if ("{pop_flag}" %in% names(df)) df <- df %>% filter({pop_flag} == "Y")' if pop_flag else ""
+
+    # Dummy data
+    ep_vals_r  = ", ".join(f'"{e["val"]}"' for e in epochs if e["val"]) or '"EPOCH1","EPOCH2"'
+    reasons_r  = ", ".join(f'"{r}"' for r in all_reasons[:6])
+    dummy_data = "" if has_adam else f"""
+set.seed(42)
+n_subj <- 24
+df <- data.frame(
+  USUBJID = paste0("SUBJ", sprintf("%03d", 1:n_subj)),
+  ARM     = rep(c("Arm A","Arm B"), each = n_subj/2),
+  DSCAT   = "DISPOSITION EVENT",
+  DSDECOD = sample(c({reasons_r},"COMPLETED"), n_subj, replace=TRUE),
+  DSPHASE = sample(c({ep_vals_r}), n_subj, replace=TRUE),
+  RANDFL  = "Y", ENRLFL = "Y", SAFFL = "Y",
+  stringsAsFactors = FALSE
+)
+"""
+
+    # Per-epoch R blocks
+    ep_blocks = []
+    for idx, ep in enumerate(epochs):
+        lbl     = ep["label"]
+        val     = ep["val"]
+        reasons = ep["reasons"] if ep["reasons"] else all_reasons
+        reas_r  = ", ".join(f'"{r}"' for r in reasons)
+        sid     = f"ep{idx}"
+        ep_filt = f'df_ep <- df %>% filter(DSPHASE == "{val}")' if val else "df_ep <- df"
+
+        blk = f"""
+# ── {lbl} ──
+{ep_filt}
+.denom_trt  <- df_ep %>% group_by(`_trt_`) %>% summarise(N=n_distinct(USUBJID),.groups="drop")
+.denom_tot  <- n_distinct(df_ep$USUBJID)
+{sid}_rows  <- list()
+
+# Started
+.sf <- if ("RANDFL" %in% names(df_ep)) "RANDFL" else if ("ENRLFL" %in% names(df_ep)) "ENRLFL" else NA
+.ns_trt <- df_ep %>%
+  filter(if(!is.na(.sf)) .data[[.sf]]=="Y" else TRUE) %>%
+  group_by(`_trt_`) %>% summarise(n=n_distinct(USUBJID),.groups="drop")
+.ns_tot <- df_ep %>%
+  filter(if(!is.na(.sf)) .data[[.sf]]=="Y" else TRUE) %>%
+  summarise(n=n_distinct(USUBJID)) %>% pull(n)
+.r <- .denom_trt %>% left_join(.ns_trt,by="_trt_") %>%
+  mutate(n=coalesce(n,0L),val=as.character(n)) %>%
+  select(`_trt_`,val) %>%
+  pivot_wider(names_from=`_trt_`,values_from=val,values_fill="0")
+.r$Total <- as.character(.ns_tot)
+.r$Statistic <- paste0(.iB,"Participants Started /Assigned to Treatment")
+.r$Parameter <- "{lbl}"
+{sid}_rows[["started"]] <- .r
+
+# Discontinued (header)
+.disc <- df_ep %>% filter(toupper(DSDECOD)!="COMPLETED")
+.nd_trt <- .disc %>% group_by(`_trt_`) %>% summarise(n=n_distinct(USUBJID),.groups="drop")
+.nd_tot <- n_distinct(.disc$USUBJID)
+.r <- .denom_trt %>% left_join(.nd_trt,by="_trt_") %>%
+  mutate(n=coalesce(n,0L),
+         val=sprintf("%d (%.1f%%)",n,100*n/pmax(N,1))) %>%
+  select(`_trt_`,val) %>%
+  pivot_wider(names_from=`_trt_`,values_from=val,values_fill="0 (0.0%)")
+.r$Total <- sprintf("%d (%.1f%%)",.nd_tot,100*.nd_tot/max(.denom_tot,1))
+.r$Statistic <- paste0(.iB,"Discontinued")
+.r$Parameter <- "{lbl}"
+{sid}_rows[["discon"]] <- .r
+
+# Discontinuation reasons
+for (.rsn in c({reas_r})) {{
+  .rn_trt <- df_ep %>% filter(toupper(DSDECOD)==toupper(.rsn)) %>%
+    group_by(`_trt_`) %>% summarise(n=n_distinct(USUBJID),.groups="drop")
+  .rn_tot <- df_ep %>% filter(toupper(DSDECOD)==toupper(.rsn)) %>%
+    summarise(n=n_distinct(USUBJID)) %>% pull(n)
+  .r <- .denom_trt %>% left_join(.rn_trt,by="_trt_") %>%
+    mutate(n=coalesce(n,0L),
+           val=sprintf("%d (%.1f%%)",n,100*n/pmax(N,1))) %>%
+    select(`_trt_`,val) %>%
+    pivot_wider(names_from=`_trt_`,values_from=val,values_fill="0 (0.0%)")
+  .r$Total <- sprintf("%d (%.1f%%)",.rn_tot,100*.rn_tot/max(.denom_tot,1))
+  .r$Statistic <- paste0(.iR,.rsn)
+  .r$Parameter <- "{lbl}"
+  {sid}_rows[[paste0("r_",.rsn)]] <- .r
+}}
+
+# Completed
+.comp <- df_ep %>% filter(toupper(DSDECOD)=="COMPLETED")
+.nc_trt <- .comp %>% group_by(`_trt_`) %>% summarise(n=n_distinct(USUBJID),.groups="drop")
+.nc_tot <- n_distinct(.comp$USUBJID)
+.r <- .denom_trt %>% left_join(.nc_trt,by="_trt_") %>%
+  mutate(n=coalesce(n,0L),
+         val=sprintf("%d (%.1f%%)",n,100*n/pmax(N,1))) %>%
+  select(`_trt_`,val) %>%
+  pivot_wider(names_from=`_trt_`,values_from=val,values_fill="0 (0.0%)")
+.r$Total <- sprintf("%d (%.1f%%)",.nc_tot,100*.nc_tot/max(.denom_tot,1))
+.r$Statistic <- paste0(.iB,"Completed")
+.r$Parameter <- "{lbl}"
+{sid}_rows[["completed"]] <- .r
+
+{sid}_tbl <- bind_rows({sid}_rows)
+"""
+        ep_blocks.append(blk)
+
+    bind_parts = "\n".join(
+        f'  if (exists("ep{i}_tbl")) ep{i}_tbl else NULL,' for i in range(len(epochs))
+    )
+    param_order_r = ", ".join(f'"{e["label"]}"' for e in epochs)
+
+    code = f"""{dummy_data}
+{pop_filter_r}
+
+# Auto-detect treatment column
+.trt_cands <- c("ARM","TRT01P","TRT01A","TRTP","ACTARM")
+.trt_col   <- Filter(function(x) x %in% names(df), .trt_cands)
+.trt_col   <- if (length(.trt_col)) .trt_col[1] else names(df)[2]
+df[["_trt_"]] <- df[[.trt_col]]
+
+# Filter to disposition events
+if ("DSCAT" %in% names(df)) df <- df %>% filter(DSCAT == "DISPOSITION EVENT")
+
+# Indent helpers
+.iB <- strrep(intToUtf8(160), 2)   # 2 nbsp — bold rows
+.iR <- strrep(intToUtf8(160), 6)   # 6 nbsp — reason sub-rows
+
+{"".join(ep_blocks)}
+
+# Combine epochs
+tbl_data <- bind_rows(
+{bind_parts}
+  NULL
+)
+tbl_data <- tbl_data %>% select(Parameter, Statistic, everything())
+tbl_data$Statistic <- gsub("^[ \\t\\r\\n]+|[ \\t\\r\\n]+$","",tbl_data$Statistic)
+
+param_order <- c({param_order_r})
+tbl_data$Parameter <- factor(tbl_data$Parameter, levels=param_order)
+tbl_data <- tbl_data[order(tbl_data$Parameter),]
+tbl_data$Parameter <- as.character(tbl_data$Parameter)
+
+# N-counts in column headers
+.trts <- sort(unique(df[["_trt_"]]))
+.n_per <- sapply(.trts, function(t) n_distinct(df$USUBJID[df[["_trt_"]]==t]))
+.n_tot <- n_distinct(df$USUBJID)
+.col_labs <- setNames(
+  c(mapply(function(t,n) html(paste0("<b>",t,"</b><br>(N=",n,")")), .trts, .n_per),
+    list(html(paste0("<b>Total</b><br>(N=",.n_tot,")")))),
+  c(.trts,"Total")
+)
+
+tbl <- gt(tbl_data, groupname_col="Parameter") %>%
+  tab_header(
+    title    = html("<b>{title}</b>"),
+    subtitle = html('<div style="text-align:left;font-size:12px;">Number (%) of Participants</div>')
+  ) %>%
+  cols_label(.list=.col_labs) %>%
+  cols_label(Statistic="") %>%
+  cols_hide("Parameter") %>%
+  tab_style(style=cell_text(weight="bold"), locations=cells_row_groups()) %>%
+  cols_align(align="left", columns="Statistic") %>%
+  tab_options(
+    table.width=pct(100),
+    row_group.background.color="#f0f0f0",
+    heading.align="left",
+    column_labels.font.weight="bold",
+    source_notes.font.size=px(11),
+    source_notes.padding=px(4)
+  )
+{fn_r}
+cat(as_raw_html(tbl))
+"""
+    return code
+
+
+
 def _detect_table_type(spec: dict) -> str:
     """
     Returns one of: demog | ae_summary | ae_socpt | lab | vitals | efficacy | listing | figure | llm
@@ -1022,6 +1261,8 @@ def _detect_table_type(spec: dict) -> str:
     row_stubs  = [r.lower() for r in spec.get("row_stubs", [])]
     all_text   = title + " " + " ".join(row_stubs)
 
+    if any(k in all_text for k in ["discontinu","disposition","dscat","dsdecod","epoch","disposition phase","participants started"]):
+        return "disposition"
     if any(k in all_text for k in ["demographic", "baseline characteristic", "age", "sex, n", "race"]):
         return "demog"
     if any(k in all_text for k in ["system organ class", "preferred term", "soc", "pt", "by body system"]):
@@ -1135,6 +1376,8 @@ Generate complete ggplot2 code now:"""
         raw = _build_ae_socpt_r_code(spec, has_adam)
     elif table_type in ("lab", "vitals"):
         raw = _build_lab_r_code(spec, has_adam)
+    elif table_type == "disposition":
+        raw = _build_disposition_r_code(spec, has_adam)
     elif table_type == "efficacy":
         raw = _build_efficacy_r_code(spec, has_adam)
     elif table_type == "listing":
