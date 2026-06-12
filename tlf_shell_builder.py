@@ -1777,71 +1777,70 @@ def node_generate_code(state: ShellTLFState) -> ShellTLFState:
         needs_line      = fig_type == "line" or any(k in shell_lower for k in ["connect","line","trend"])
         error_type      = "SE" if needs_se else ("SD" if needs_sd else ("CI" if needs_ci else "SE" if fig_type=="line" else ""))
 
-        # ── Build visit order injection code ─────────────────────────────
+        # ── Build visit order injection — runs BEFORE LLM code ───────────
         visit_inject = ""
         if visit_order:
+            levels_r = "c(" + ", ".join(f'"{v}"' for v in visit_order) + ")"
             visit_inject = f"""
-# Enforce clinical visit order from shell
-visit_levels <- {visit_order_r}
-for (.vc in c("VISIT","AVISIT","AVISITN","VISIT_N")) {{
-  if (.vc %in% names(df) && is.character(df[[.vc]])) {{
-    df[[.vc]] <- factor(df[[.vc]], levels=visit_levels)
-    break
+# Enforce clinical visit order from shell spec
+.visit_levels <- {levels_r}
+for (.vc in c("VISIT","AVISIT","Visit","visit")) {{
+  if (.vc %in% names(df)) {{
+    df[[.vc]] <- factor(df[[.vc]], levels=.visit_levels)
   }}
-}}"""
+}}
+"""
 
-        # ── Build error bar injection code ────────────────────────────────
+        # ── Build error bar summary — runs BEFORE LLM code ───────────────
         error_inject = ""
         if error_type:
             error_inject = f"""
 # Pre-compute summary stats for error bars ({error_type})
-.x_col <- if ("VISIT" %in% names(df)) "VISIT" else if ("AVISIT" %in% names(df)) "AVISIT" else names(df)[2]
-.y_col <- if ("AVAL" %in% names(df)) "AVAL" else if ("CHG" %in% names(df)) "CHG" else if ("MEAN" %in% names(df)) "MEAN" else names(df)[3]
-.g_col <- if ("{groupby}" %in% names(df)) "{groupby}" else names(df)[1]
-df_sum <- df %>%
-  group_by(across(all_of(c(.x_col, .g_col)))) %>%
+.x_col  <- if ("VISIT"  %in% names(df)) "VISIT"  else if ("AVISIT" %in% names(df)) "AVISIT" else names(df)[2]
+.y_col  <- if ("CHG"    %in% names(df)) "CHG"    else if ("AVAL"   %in% names(df)) "AVAL"   else if ("MEAN" %in% names(df)) "MEAN" else names(df)[3]
+.g_col  <- if ("{groupby}" %in% names(df)) "{groupby}" else names(df)[1]
+df_sum  <- df %>%
+  group_by(.data[[.x_col]], .data[[.g_col]]) %>%
   summarise(
     MEAN   = mean(.data[[.y_col]], na.rm=TRUE),
     SE     = sd(.data[[.y_col]], na.rm=TRUE) / sqrt(sum(!is.na(.data[[.y_col]]))),
-    SD     = sd(.data[[.y_col]], na.rm=TRUE),
-    N      = sum(!is.na(.data[[.y_col]])),
     .groups= "drop"
   ) %>%
-  mutate(
-    LOWER = MEAN - SE,
-    UPPER = MEAN + SE
-  )
-names(df_sum)[1] <- .x_col
-names(df_sum)[2] <- .g_col"""
+  rename(VISIT=1, {groupby}=2) %>%
+  mutate(LOWER=MEAN-SE, UPPER=MEAN+SE)
+# Apply visit factor to df_sum too
+if (is.factor(df[[.x_col]])) df_sum$VISIT <- factor(df_sum$VISIT, levels=levels(df[[.x_col]]))
+"""
 
         prompt = f"""You are an expert clinical R programmer. Generate ggplot2 code for this clinical figure.
 
 TITLE: {title}
 FIGURE TYPE: {fig_type}
 TREATMENT COLUMN: {groupby}
-FOOTNOTE: {fn_caption}
-{adam_hint}
 
-REQUIREMENTS FROM SHELL:
+REQUIREMENTS DETECTED FROM SHELL:
 - needs_line_geom:  {needs_line}
 - needs_error_bars: {bool(error_type)} ({error_type})
 - needs_ref_zero:   {needs_ref_zero}
 - visit_order:      {visit_order if visit_order else 'auto-detect'}
 
-RULES:
-1. Data is in df (already loaded). Summary stats in df_sum (if error bars needed).
-2. Do NOT add library() calls — prepended automatically.
-3. Use theme_classic() for clean clinical look.
-4. Color/group by {groupby}.
-5. VISIT ORDER: If visit column exists, it is already factored in correct order — do NOT re-sort alphabetically.
-6. LINE GRAPH: Must include geom_line(aes(group={groupby}), linewidth=1) + geom_point(size=2).
-7. ERROR BARS: If {bool(error_type)}, add geom_errorbar(aes(ymin=LOWER, ymax=UPPER), width=0.2) using df_sum.
-8. REFERENCE LINE: If {needs_ref_zero}, add geom_hline(yintercept=0, linetype="dashed", color="gray50").
-9. Use df_sum for the main geom_line/geom_point (not raw df) when error bars are needed.
-10. Add labs(title="{title}", x="Visit", y="Mean Change from Baseline", color="Treatment").
-11. Last line MUST be: p <- <your ggplot object>
-12. Do NOT include ggsave() or read.csv().
-13. Return ONLY R code. No markdown. No explanations.
+PRE-COMPUTED DATA AVAILABLE:
+- df      = raw data (already loaded, VISIT already factored in correct order)
+- df_sum  = summary with columns: VISIT, {groupby}, MEAN, SE, LOWER, UPPER {"(already computed)" if error_type else "(not computed — use df directly)"}
+
+MANDATORY RULES — all must be in output:
+1. Do NOT add library() or ggsave() or read.csv().
+2. Use theme_classic() + theme(legend.position="top right") for clinical look.
+3. MUST use df_sum as data source (not df) when error bars are needed.
+4. MUST include geom_line(data=df_sum, aes(x=VISIT, y=MEAN, group={groupby}, color={groupby}), linewidth=1)
+5. MUST include geom_point(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}), size=2)
+6. {"MUST include geom_errorbar(data=df_sum, aes(x=VISIT, ymin=LOWER, ymax=UPPER, color="+groupby+"), width=0.2)" if error_type else "No error bars needed."}
+7. {"MUST include geom_hline(yintercept=0, linetype='dashed', color='gray40', linewidth=0.8)" if needs_ref_zero else "No reference line needed."}
+8. MUST include labs(title="{title}", x="Visit", y="Mean Change from Baseline", color="Treatment")
+9. MUST include theme(legend.position=c(0.85, 0.95)) for top-right legend.
+10. DO NOT sort visits — VISIT is already a factor in correct order.
+11. Last line MUST assign plot to p: p <- ggplot(...) + ...
+12. Return ONLY R code. No markdown. No explanations.
 
 Generate complete ggplot2 code now:"""
 
@@ -1849,9 +1848,18 @@ Generate complete ggplot2 code now:"""
         raw = re.sub(r'```[rR]?\n?', '', raw)
         raw = re.sub(r'```', '', raw).strip()
         raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
+        raw = re.sub(r'^\s*library\s*\([^)]+\)\s*$', '', raw, flags=re.MULTILINE).strip()
 
-        # Prepend visit ordering and error bar pre-computation
+        # Prepend visit ordering + error bar summary BEFORE LLM code
         raw = visit_inject + "\n" + error_inject + "\n" + raw
+
+        # Guarantee geom_line is present for line figures
+        if needs_line and "geom_line" not in raw:
+            raw += f'\np <- p + geom_line(data=df_sum, aes(x=VISIT, y=MEAN, group={groupby}, color={groupby}), linewidth=1)'
+
+        # Guarantee reference line
+        if needs_ref_zero and "geom_hline" not in raw:
+            raw += '\np <- p + geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8)'
 
         # Ensure last line assigns to p
         lines = [l for l in raw.strip().split('\n') if l.strip()]
@@ -1860,12 +1868,12 @@ Generate complete ggplot2 code now:"""
 
         # Store requirements for validator
         state["_fig_requirements"] = {
-            "needs_line":      needs_line,
+            "needs_line":       needs_line,
             "needs_error_bars": bool(error_type),
-            "needs_ref_zero":  needs_ref_zero,
-            "visit_order":     visit_order,
-            "fig_type":        fig_type,
-            "title":           title,
+            "needs_ref_zero":   needs_ref_zero,
+            "visit_order":      visit_order,
+            "fig_type":         fig_type,
+            "title":            title,
         }
 
     # Dispatch to template
