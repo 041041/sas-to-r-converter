@@ -131,10 +131,20 @@ def execute_graph(r_code, df):
 
         full_script = "\n".join([
             "user_lib <- path.expand('~/R/library')",
-            "if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))",
-            # Prevent survminer from loading — it breaks with newer ggplot2
-            "if ('survminer' %in% loadedNamespaces()) unloadNamespace('survminer')",
-            "options(warn = -1)",
+            "dir.create(user_lib, recursive=TRUE, showWarnings=FALSE)",
+            ".libPaths(c(user_lib, .libPaths()))",
+            "options(warn=-1)",
+            "for (.pkg in c('ggplot2','dplyr','scales','tidyr')) {",
+            "  if (!requireNamespace(.pkg, quietly=TRUE)) {",
+            "    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)",
+            "  }",
+            "}",
+            "suppressMessages(suppressWarnings({",
+            "  library(ggplot2)",
+            "  library(dplyr)",
+            "  library(scales)",
+            "  library(tidyr)",
+            "}))",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
             r_code_clean,
             f'suppressMessages(ggsave("{plot_path}", width=10, height=6, dpi=150))',
@@ -566,12 +576,19 @@ def generate_clinical_code(chart_type, selections):
 
     base_libs = """
 user_lib <- path.expand("~/R/library")
-if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))
-suppressPackageStartupMessages({
+dir.create(user_lib, recursive=TRUE, showWarnings=FALSE)
+.libPaths(c(user_lib, .libPaths()))
+for (.pkg in c('ggplot2','dplyr','scales','tidyr')) {
+  if (!requireNamespace(.pkg, quietly=TRUE)) {
+    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)
+  }
+}
+suppressMessages(suppressWarnings({
   library(ggplot2)
   library(dplyr)
   library(scales)
-})
+  library(tidyr)
+}))
 """
 
     if chart_type == "Kaplan-Meier Survival Curve":
@@ -785,10 +802,20 @@ def execute_clinical_graph(r_code, df):
 
         full_script = "\n".join([
             "user_lib <- path.expand('~/R/library')",
-            "if (dir.exists(user_lib)) .libPaths(c(user_lib, .libPaths()))",
-            # Prevent survminer from loading — it breaks with newer ggplot2
-            "if ('survminer' %in% loadedNamespaces()) unloadNamespace('survminer')",
-            "options(warn = -1)",
+            "dir.create(user_lib, recursive=TRUE, showWarnings=FALSE)",
+            ".libPaths(c(user_lib, .libPaths()))",
+            "options(warn=-1)",
+            "for (.pkg in c('ggplot2','dplyr','scales','tidyr')) {",
+            "  if (!requireNamespace(.pkg, quietly=TRUE)) {",
+            "    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)",
+            "  }",
+            "}",
+            "suppressMessages(suppressWarnings({",
+            "  library(ggplot2)",
+            "  library(dplyr)",
+            "  library(scales)",
+            "  library(tidyr)",
+            "}))",
             f'df <- read.csv("{inp_path}", stringsAsFactors=FALSE)',
             r_code_clean,
             f'suppressMessages(ggsave("{plot_path}", width=10, height=6, dpi=150))',
