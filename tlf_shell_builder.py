@@ -783,7 +783,7 @@ df <- data.frame(
 # Denominators — named vector so [[t]] lookup works with spaces in names
 trts  <- sort(unique(df$TRT01P))
 n_trt <- setNames(
-  sapply(trts, function(t) length(unique(df$USUBJID[df$TRT01P == t]))),
+  sapply(trts, function(t) length(unique(df$USUBJID[df$TRT01P==t]))),
   trts
 )
 n_all <- length(unique(df$USUBJID))
@@ -1882,56 +1882,93 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
     output_type = spec.get("output_type", "Table")
     detected    = state.get("detected_type", "")
 
-    # ── FIGURE: use execute_graph from graph_builder ──────────────────────
+    # ── FIGURE: self-contained subprocess — guaranteed ggplot2 loading ───
     if output_type == "Figure" or detected == "figure":
-        # Library prefix — execute_graph does NOT inject these itself
-        _fig_lib_prefix = (
-            "user_lib <- path.expand('~/R/library')\n"
-            ".libPaths(c(user_lib, .libPaths()))\n"
-            "options(warn=-1)\n"
-            "for (.pkg in c('ggplot2','dplyr','tidyr','scales','stringr')) {\n"
-            "  if (!requireNamespace(.pkg, quietly=TRUE))\n"
-            "    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)\n"
-            "}\n"
-            "suppressPackageStartupMessages({\n"
-            "  library(ggplot2)\n"
-            "  library(dplyr)\n"
-            "  library(tidyr)\n"
-            "  library(scales)\n"
-            "})\n"
-        )
-        fig_code = _fig_lib_prefix + state["generated_code"]
+        with tempfile.TemporaryDirectory() as d:
+            script_path = os.path.join(d, "figure_script.R")
+            plot_path   = os.path.join(d, "figure.png")
+            inp_path    = os.path.join(d, "data.csv")
 
-        if _GRAPH_BUILDER_AVAILABLE and _execute_graph_fn:
+            # Build / save data
+            if state.get("adam_csv"):
+                df = pd.read_csv(io.StringIO(state["adam_csv"]))
+            else:
+                import numpy as np
+                np.random.seed(42)
+                n = 20
+                visits = ["Baseline","Week 4","Week 8","Week 12"]
+                df = pd.DataFrame({
+                    "USUBJID": [f"S{i}" for i in range(1, n+1)],
+                    "TRT01P":  ["Placebo"]*10 + ["Drug A"]*10,
+                    "AVAL":    list(np.round(np.random.normal(50, 10, n), 1)),
+                    "BASE":    list(np.round(np.random.normal(48, 8,  n), 1)),
+                    "VISIT":   (visits * 5)[:n],
+                    "AVISIT":  (visits * 5)[:n],
+                    "MEAN":    list(np.round(np.random.normal(50, 8,  n), 1)),
+                    "AGE":     list(np.random.randint(30, 70, n)),
+                    "SEX":     ["Male","Female"] * 10,
+                })
+                df["CHG"] = df["AVAL"] - df["BASE"]
+            df.to_csv(inp_path, index=False)
+
+            # Strip ggsave / library() from generated code
+            r_code = state["generated_code"]
+            r_code = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', r_code, flags=re.DOTALL)
+            r_code = re.sub(r'^\s*library\s*\([^)]+\)\s*$', '', r_code, flags=re.MULTILINE)
+            r_code = r_code.strip()
+            # Ensure last line assigns to p
+            lines = [l for l in r_code.split('\n') if l.strip()]
+            if lines and not any(lines[-1].strip().startswith(x) for x in ['p <-','p=']):
+                r_code += '\nif (!exists("p")) p <- last_plot()'
+
+            full_script = f"""
+user_lib <- path.expand('~/R/library')
+dir.create(user_lib, recursive=TRUE, showWarnings=FALSE)
+.libPaths(c(user_lib, .libPaths()))
+options(warn=-1)
+for (.pkg in c('ggplot2','dplyr','tidyr','scales','stringr')) {{
+  if (!requireNamespace(.pkg, quietly=TRUE)) {{
+    install.packages(.pkg, lib=user_lib, repos='https://cloud.r-project.org', quiet=TRUE)
+  }}
+}}
+suppressMessages(suppressWarnings({{
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+  library(scales)
+}})
+)
+df <- read.csv("{inp_path}", stringsAsFactors=FALSE)
+
+{r_code}
+
+suppressMessages(ggsave("{plot_path}", plot=p, width=10, height=6, dpi=150))
+"""
+            with open(script_path, "w") as f:
+                f.write(full_script)
+
             try:
-                # Build DataFrame — from ADaM CSV or dummy
-                if state.get("adam_csv"):
-                    df = pd.read_csv(io.StringIO(state["adam_csv"]))
-                else:
-                    # Create minimal dummy df for execute_graph
-                    import numpy as np
-                    np.random.seed(42)
-                    n = 20
-                    df = pd.DataFrame({
-                        "USUBJID": [f"S{i}" for i in range(1, n+1)],
-                        "TRT01P":  ["Placebo"]*10 + ["Drug A"]*10,
-                        "AVAL":    list(np.round(np.random.normal(50, 10, n), 1)),
-                        "BASE":    list(np.round(np.random.normal(48, 8, n), 1)),
-                        "AVISIT":  ["Baseline", "Week 4", "Week 8", "Week 12"] * 5,
-                        "AGE":     list(np.random.randint(30, 70, n)),
-                        "SEX":     ["Male", "Female"] * 10,
-                    })
-                    df["CHG"] = df["AVAL"] - df["BASE"]
-
-                png_bytes, r_log = _execute_graph_fn(fig_code, df)
-                state["execution_output"] = png_bytes
-                state["execution_error"]  = ""
-            except Exception as e:
-                state["execution_error"]  = str(e)
+                res = subprocess.run(
+                    ["Rscript", script_path],
+                    capture_output=True, text=True, timeout=60
+                )
+            except subprocess.TimeoutExpired:
+                state["execution_error"]  = "Figure script timed out (>60s)"
                 state["execution_output"] = ""
-        else:
-            state["execution_error"]  = "graph_builder.py not available — cannot execute figures"
-            state["execution_output"] = ""
+                return state
+
+            if res.returncode != 0:
+                state["execution_error"]  = res.stderr
+                state["execution_output"] = ""
+                return state
+
+            if os.path.exists(plot_path):
+                with open(plot_path, "rb") as f:
+                    state["execution_output"] = f.read()
+                state["execution_error"] = ""
+            else:
+                state["execution_error"]  = "Figure file not created.\n" + res.stderr
+                state["execution_output"] = ""
         return state
 
     # ── TABLE / LISTING: use subprocess with gt prefix ────────────────────
@@ -2306,23 +2343,26 @@ def render_shell_tlf_tab():
 
     # ── Session state init (all keys prefixed ms_) ────────────────────────
     _defaults = {
-        "ms_shell_text":       "",
-        "ms_adam_csv":         None,
-        "ms_parsed_spec":      None,
-        "ms_r_code":           "",
-        "ms_r_code_pending":   None,
+        "ms_shell_text":             "",
+        "ms_adam_csv":               None,
+        "ms_parsed_spec":            None,
+        "ms_r_code":                 "",
+        "ms_r_code_pending":         None,
+        "ms_r_code_original":        None,
         "ms_preview_html":           None,
         "ms_preview_html_before":    None,
         "ms_output_before_enhance":  None,
-        "ms_r_code_original":  None,
-        "ms_output":           None,
-        "ms_output_type":      "Table",
-        "ms_error":            None,
-        "ms_validation":       "",
-        "ms_retry_count":      0,
-        "ms_pipeline_done":    False,
-        "ms_run_now":          False,
-        "ms_agent_log":        [],
+        "ms_output":                 None,
+        "ms_output_type":            "Table",
+        "ms_error":                  None,
+        "ms_validation":             "",
+        "ms_retry_count":            0,
+        "ms_pipeline_done":          False,
+        "ms_run_now":                False,
+        "ms_agent_log":              [],
+        "ms_backend":                "LangGraph",
+        "ms_ai_instructions":        "",
+        "ms_enhance_text":           "",
     }
     for k, v in _defaults.items():
         if k not in st.session_state:
