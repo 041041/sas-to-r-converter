@@ -164,18 +164,20 @@ def _sanitise_r_code(code: str) -> str:
     return code
 
 class ShellTLFState(TypedDict):
-    shell_text:        str            # raw mock shell pasted/uploaded
-    adam_csv:          Optional[str]  # CSV string of ADaM dataset
-    parsed_spec:       dict           # extracted by parse_shell node
-    generated_code:    str            # R code from generate_code node
-    execution_output:  str            # stdout / table HTML
-    execution_error:   str            # stderr if failed
-    validation_result: str            # "pass" | "fail: <reason>"
-    retry_count:       int
-    final_r_code:      str
-    final_output:      str            # rendered HTML table or message
-    detected_type:     str            # demog|disposition|ae_summary|ae_socpt|lab|vitals|efficacy|listing|llm
-    ai_instructions:   str            # extra user instructions for LLM enhancement
+    shell_text:         str            # raw mock shell pasted/uploaded
+    adam_csv:           Optional[str]  # CSV string of ADaM dataset
+    parsed_spec:        dict           # extracted by parse_shell node
+    generated_code:     str            # R code from generate_code node
+    execution_output:   str            # stdout / table HTML
+    execution_error:    str            # stderr if failed
+    validation_result:  str            # "pass" | "fail: <reason>"
+    retry_count:        int
+    final_r_code:       str
+    final_output:       str            # rendered HTML table or message
+    detected_type:      str            # demog|disposition|ae_summary|ae_socpt|lab|vitals|efficacy|listing|figure|llm
+    ai_instructions:    str            # extra user instructions for LLM enhancement
+    llm_unavailable:    bool           # True when LLM rate-limited — skip fix retries
+    _fig_requirements:  dict           # figure validation requirements extracted from shell
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1728,29 +1730,89 @@ def node_generate_code(state: ShellTLFState) -> ShellTLFState:
 
     # Dispatch to template
     if table_type == "figure":
-        title     = spec.get("title", "Clinical Figure")
-        groupby   = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
-        footnotes = spec.get("footnotes", [])
+        title      = spec.get("title", "Clinical Figure")
+        groupby    = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+        footnotes  = spec.get("footnotes", [])
         fn_caption = footnotes[0] if footnotes else ""
+        shell_text = state.get("shell_text", "")
 
-        # Detect figure type from title
+        # ── Detect figure type from title ─────────────────────────────────
         title_lower = title.lower()
-        if any(k in title_lower for k in ["kaplan", "km", "survival", "time to event"]):
+        shell_lower = shell_text.lower()
+        combined    = title_lower + " " + shell_lower
+
+        if any(k in combined for k in ["kaplan","km","survival","time to event"]):
             fig_type = "km"
-        elif any(k in title_lower for k in ["forest", "odds ratio", "hazard ratio", "risk ratio"]):
+        elif any(k in combined for k in ["forest","odds ratio","hazard ratio","risk ratio"]):
             fig_type = "forest"
-        elif any(k in title_lower for k in ["waterfall", "spider", "tumor"]):
+        elif any(k in combined for k in ["waterfall","spider","tumor"]):
             fig_type = "waterfall"
-        elif any(k in title_lower for k in ["bar", "barplot", "frequency", "incidence"]):
+        elif any(k in combined for k in ["bar","barplot","frequency","incidence"]):
             fig_type = "bar"
-        elif any(k in title_lower for k in ["box", "boxplot", "distribution"]):
+        elif any(k in combined for k in ["box","boxplot","distribution"]):
             fig_type = "box"
-        elif any(k in title_lower for k in ["scatter", "correlation"]):
+        elif any(k in combined for k in ["scatter","correlation"]):
             fig_type = "scatter"
-        elif any(k in title_lower for k in ["line", "mean over time", "profile", "trend"]):
+        elif any(k in combined for k in ["line","mean over time","profile","trend","change from baseline"]):
             fig_type = "line"
         else:
-            fig_type = "bar"  # safe default
+            fig_type = "line"  # clinical default
+
+        # ── Extract visit order from shell ────────────────────────────────
+        import re as _re2
+        visit_matches = _re2.findall(
+            r'(?:Baseline|Screening|Day\s*\d+|Week\s*\d+|Month\s*\d+|Cycle\s*\d+|End of (?:Study|Treatment))',
+            shell_text, _re2.IGNORECASE
+        )
+        # Deduplicate preserving order
+        seen = set()
+        visit_order = [v for v in visit_matches if not (v.lower() in seen or seen.add(v.lower()))]
+        visit_order_r = "c(" + ", ".join(f'"{v}"' for v in visit_order) + ")" if visit_order else 'NULL'
+
+        # ── Detect requirements from shell ────────────────────────────────
+        needs_se        = any(k in shell_lower for k in ["± se","±se","mean ± se","se error","standard error","error bar"])
+        needs_sd        = any(k in shell_lower for k in ["± sd","±sd","mean ± sd","sd error"])
+        needs_ci        = any(k in shell_lower for k in ["95% ci","confidence interval","ci"])
+        needs_ref_zero  = any(k in shell_lower for k in ["y=0","reference line","ref line","horizontal line at 0","dashed line at 0"])
+        needs_line      = fig_type == "line" or any(k in shell_lower for k in ["connect","line","trend"])
+        error_type      = "SE" if needs_se else ("SD" if needs_sd else ("CI" if needs_ci else "SE" if fig_type=="line" else ""))
+
+        # ── Build visit order injection code ─────────────────────────────
+        visit_inject = ""
+        if visit_order:
+            visit_inject = f"""
+# Enforce clinical visit order from shell
+visit_levels <- {visit_order_r}
+for (.vc in c("VISIT","AVISIT","AVISITN","VISIT_N")) {{
+  if (.vc %in% names(df) && is.character(df[[.vc]])) {{
+    df[[.vc]] <- factor(df[[.vc]], levels=visit_levels)
+    break
+  }}
+}}"""
+
+        # ── Build error bar injection code ────────────────────────────────
+        error_inject = ""
+        if error_type:
+            error_inject = f"""
+# Pre-compute summary stats for error bars ({error_type})
+.x_col <- if ("VISIT" %in% names(df)) "VISIT" else if ("AVISIT" %in% names(df)) "AVISIT" else names(df)[2]
+.y_col <- if ("AVAL" %in% names(df)) "AVAL" else if ("CHG" %in% names(df)) "CHG" else if ("MEAN" %in% names(df)) "MEAN" else names(df)[3]
+.g_col <- if ("{groupby}" %in% names(df)) "{groupby}" else names(df)[1]
+df_sum <- df %>%
+  group_by(across(all_of(c(.x_col, .g_col)))) %>%
+  summarise(
+    MEAN   = mean(.data[[.y_col]], na.rm=TRUE),
+    SE     = sd(.data[[.y_col]], na.rm=TRUE) / sqrt(sum(!is.na(.data[[.y_col]]))),
+    SD     = sd(.data[[.y_col]], na.rm=TRUE),
+    N      = sum(!is.na(.data[[.y_col]])),
+    .groups= "drop"
+  ) %>%
+  mutate(
+    LOWER = MEAN - SE,
+    UPPER = MEAN + SE
+  )
+names(df_sum)[1] <- .x_col
+names(df_sum)[2] <- .g_col"""
 
         prompt = f"""You are an expert clinical R programmer. Generate ggplot2 code for this clinical figure.
 
@@ -1758,32 +1820,53 @@ TITLE: {title}
 FIGURE TYPE: {fig_type}
 TREATMENT COLUMN: {groupby}
 FOOTNOTE: {fn_caption}
-ADaM HINT: {spec.get("dataset_hint","ADSL")}
 {adam_hint}
 
+REQUIREMENTS FROM SHELL:
+- needs_line_geom:  {needs_line}
+- needs_error_bars: {bool(error_type)} ({error_type})
+- needs_ref_zero:   {needs_ref_zero}
+- visit_order:      {visit_order if visit_order else 'auto-detect'}
+
 RULES:
-1. Data is in df (already loaded as data.frame). If not provided, create realistic dummy clinical data.
-2. Use ggplot2 only. Do NOT add library() calls — they are prepended automatically.
-3. Use theme_classic() or theme_bw() for clean clinical look.
-4. Color by treatment group using scale_color_manual() or scale_fill_manual().
-5. Add title with ggtitle("{title}").
-6. Add caption for footnote if provided.
-7. The LAST line must assign to p: p <- ggplot(...) + ...
-   OR end with: p <- last_plot()
-8. Do NOT include ggsave() — handled externally.
-9. Do NOT include read.csv() — data already in df.
-10. Return ONLY R code. No markdown fences. No explanations.
+1. Data is in df (already loaded). Summary stats in df_sum (if error bars needed).
+2. Do NOT add library() calls — prepended automatically.
+3. Use theme_classic() for clean clinical look.
+4. Color/group by {groupby}.
+5. VISIT ORDER: If visit column exists, it is already factored in correct order — do NOT re-sort alphabetically.
+6. LINE GRAPH: Must include geom_line(aes(group={groupby}), linewidth=1) + geom_point(size=2).
+7. ERROR BARS: If {bool(error_type)}, add geom_errorbar(aes(ymin=LOWER, ymax=UPPER), width=0.2) using df_sum.
+8. REFERENCE LINE: If {needs_ref_zero}, add geom_hline(yintercept=0, linetype="dashed", color="gray50").
+9. Use df_sum for the main geom_line/geom_point (not raw df) when error bars are needed.
+10. Add labs(title="{title}", x="Visit", y="Mean Change from Baseline", color="Treatment").
+11. Last line MUST be: p <- <your ggplot object>
+12. Do NOT include ggsave() or read.csv().
+13. Return ONLY R code. No markdown. No explanations.
 
 Generate complete ggplot2 code now:"""
+
         raw = _call_llm(prompt)
         raw = re.sub(r'```[rR]?\n?', '', raw)
         raw = re.sub(r'```', '', raw).strip()
         raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
-        # Ensure last line assigns to p if it doesn't already
-        lines = raw.strip().split('\n')
-        last  = lines[-1].strip()
-        if not last.startswith('p <-') and not last.startswith('p=') and 'p <-' not in raw[-200:]:
+
+        # Prepend visit ordering and error bar pre-computation
+        raw = visit_inject + "\n" + error_inject + "\n" + raw
+
+        # Ensure last line assigns to p
+        lines = [l for l in raw.strip().split('\n') if l.strip()]
+        if lines and not any(lines[-1].strip().startswith(x) for x in ['p <-','p=']):
             raw += '\np <- last_plot()'
+
+        # Store requirements for validator
+        state["_fig_requirements"] = {
+            "needs_line":      needs_line,
+            "needs_error_bars": bool(error_type),
+            "needs_ref_zero":  needs_ref_zero,
+            "visit_order":     visit_order,
+            "fig_type":        fig_type,
+            "title":           title,
+        }
 
     # Dispatch to template
     if table_type == "figure":
@@ -2068,8 +2151,9 @@ suppressMessages(ggsave("{plot_path}", plot=p, width=10, height=6, dpi=150))
 # ══════════════════════════════════════════════════════════════════════════════
 def node_validate(state: ShellTLFState) -> ShellTLFState:
     """
-    Check output against spec. Simple rule-based + LLM sanity check.
-    Sets validation_result = "pass" or "fail: <reason>"
+    Validates output against spec.
+    For Figures: inspects generated R code for required elements.
+    For Tables: checks structural output.
     """
     if state.get("execution_error") and not state.get("execution_output"):
         state["validation_result"] = f"fail: R execution error — {state['execution_error'][:300]}"
@@ -2082,19 +2166,53 @@ def node_validate(state: ShellTLFState) -> ShellTLFState:
 
     spec        = state["parsed_spec"]
     output_type = spec.get("output_type", "Table")
+    code        = state.get("generated_code", "")
 
-    if output_type == "Figure":
-        # If we got bytes it's a PNG — assume pass
-        state["validation_result"] = "pass"
+    # ── FIGURE validation — inspect R code for required elements ─────────
+    if output_type == "Figure" or state.get("detected_type") == "figure":
+        reqs   = state.get("_fig_requirements", {})
+        issues = []
+
+        # 1. Title present
+        if reqs.get("title") and reqs["title"] not in ["Clinical Figure",""] :
+            title_safe = reqs["title"].replace('"',"").replace("'","")[:30]
+            if title_safe.lower() not in code.lower() and "ggtitle" not in code and 'title=' not in code:
+                issues.append("title missing from plot code")
+
+        # 2. geom_line required for line figures
+        if reqs.get("needs_line") and "geom_line" not in code:
+            issues.append("geom_line() missing — visits not connected with lines")
+
+        # 3. Error bars required
+        if reqs.get("needs_error_bars") and "geom_errorbar" not in code and "geom_ribbon" not in code:
+            issues.append("error bars (geom_errorbar) missing")
+
+        # 4. Reference line at Y=0
+        if reqs.get("needs_ref_zero") and "geom_hline" not in code:
+            issues.append("reference line at Y=0 (geom_hline) missing")
+
+        # 5. Visit order — check alphabetical sort is not used
+        visit_order = reqs.get("visit_order", [])
+        if visit_order and "sort(" in code and "VISIT" in code:
+            issues.append("VISIT appears to be sorted alphabetically — must use factor with clinical order")
+
+        # 6. Treatment group coloring
+        groupby = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+        if groupby not in code and "color" not in code.lower() and "fill" not in code.lower():
+            issues.append(f"treatment grouping ({groupby}) missing from aesthetics")
+
+        if issues:
+            state["validation_result"] = "fail: figure missing — " + "; ".join(issues)
+        else:
+            state["validation_result"] = "pass"
         return state
 
-    # For Table/Listing — quick structural checks
-    issues = []
+    # ── TABLE / LISTING validation ────────────────────────────────────────
+    issues    = []
     output_str = output if isinstance(output, str) else ""
 
-    # Check at least some columns mentioned appear in output
     cols = spec.get("columns", [])
-    for col in cols[:3]:  # check first 3 columns only
+    for col in cols[:3]:
         if col and col.lower() not in output_str.lower():
             issues.append(f"column '{col}' not found in output")
 
@@ -2110,51 +2228,135 @@ def node_validate(state: ShellTLFState) -> ShellTLFState:
 # NODE 5 — Fix
 # ══════════════════════════════════════════════════════════════════════════════
 def node_fix(state: ShellTLFState) -> ShellTLFState:
-    """LLM reads error + code and patches it."""
-    prompt = f"""You are an R clinical programmer fixing broken TLF code.
+    """
+    Fix broken/incomplete R code.
+    For figures: applies targeted rule-based patches first (no LLM needed),
+    then falls back to LLM for remaining issues.
+    For tables: LLM-based fix.
+    """
+    code        = state.get("generated_code", "")
+    val_result  = state.get("validation_result", "")
+    spec        = state.get("parsed_spec", {})
+    output_type = spec.get("output_type", "Table")
+    reqs        = state.get("_fig_requirements", {})
+
+    # ── FIGURE: targeted rule-based patches ──────────────────────────────
+    if output_type == "Figure" or state.get("detected_type") == "figure":
+        patched = False
+
+        # Fix 1: geom_line missing
+        if "geom_line() missing" in val_result and "geom_line" not in code:
+            groupby = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+            # Insert geom_line after geom_point or after ggplot line
+            if "geom_point" in code:
+                code = code.replace(
+                    "geom_point(",
+                    f"geom_line(aes(group={groupby}), linewidth=1) +\n  geom_point("
+                )
+            else:
+                code = code.replace(
+                    "p <- ggplot(",
+                    f"p <- ggplot("
+                )
+                code += f'\np <- p + geom_line(aes(group={groupby}), linewidth=1)'
+            patched = True
+
+        # Fix 2: error bars missing
+        if "geom_errorbar" in val_result and "geom_errorbar" not in code:
+            if "df_sum" in code:
+                # df_sum already computed — just add errorbar geom
+                code += '\np <- p + geom_errorbar(aes(ymin=LOWER, ymax=UPPER), width=0.2, alpha=0.7)'
+            patched = True
+
+        # Fix 3: reference line missing
+        if "geom_hline" in val_result and "geom_hline" not in code:
+            code += '\np <- p + geom_hline(yintercept=0, linetype="dashed", color="gray50", linewidth=0.8)'
+            patched = True
+
+        # Fix 4: visit alphabetical sort — add factor ordering
+        if "sorted alphabetically" in val_result or ("sort(" in code and "VISIT" in code):
+            visit_order = reqs.get("visit_order", [])
+            if visit_order:
+                levels_r = "c(" + ", ".join(f'"{v}"' for v in visit_order) + ")"
+                visit_fix = f"""
+# Fix: convert VISIT to ordered factor
+for (.vc in c("VISIT","AVISIT")) {{
+  if (.vc %in% names(df_sum)) df_sum[[.vc]] <- factor(df_sum[[.vc]], levels={levels_r})
+  if (.vc %in% names(df))     df[[.vc]]     <- factor(df[[.vc]],     levels={levels_r})
+}}
+"""
+                code = visit_fix + code
+                patched = True
+
+        if patched:
+            state["generated_code"] = code
+            state["retry_count"]    = state.get("retry_count", 0) + 1
+            return state
+
+        # LLM fallback for figures — targeted prompt
+        prompt = f"""You are an R ggplot2 expert fixing a clinical figure.
+
+CURRENT CODE:
+{code}
+
+VALIDATION FAILURES:
+{val_result}
+
+FIGURE REQUIREMENTS:
+{reqs}
+
+FIX RULES:
+- geom_line missing → add geom_line(aes(group=TRT01P), linewidth=1)
+- Visit alphabetical → add factor(VISIT, levels=c("Baseline","Week 2","Week 4",...)) BEFORE ggplot call
+- Error bars missing → add geom_errorbar(aes(ymin=LOWER, ymax=UPPER), width=0.2)
+- Reference line missing → add geom_hline(yintercept=0, linetype="dashed", color="gray50")
+- Do NOT add library() or ggsave() calls
+- Last line must be: p <- <plot object>
+- Return ONLY complete corrected R code. No markdown. No explanations.
+"""
+
+    else:
+        # ── TABLE: LLM-based fix ──────────────────────────────────────────
+        prompt = f"""You are an R clinical programmer fixing broken TLF code.
 
 ORIGINAL CODE:
-{state['generated_code']}
+{code}
 
 ERROR / VALIDATION FAILURE:
-{state.get('execution_error') or state.get('validation_result', '')}
+{state.get('execution_error') or val_result}
 
 SPEC:
-{state['parsed_spec']}
+{spec}
 
 RULES:
 - Fix ONLY what caused the error. Preserve all other logic.
-- Do NOT add library(), read.csv, or ggsave — these are handled externally.
-- Do NOT use mutate(col = c("a","b","c","d")) on grouped data — use bind_rows() pattern instead.
+- Do NOT add library(), read.csv, or ggsave — handled externally.
+- Do NOT use mutate(col = c("a","b","c","d")) on grouped data — use bind_rows() pattern.
 - Do NOT use column_labels() — use cols_label() for renaming gt columns.
 - ALL column names in data.frame must be non-empty strings.
-- Never produce an empty string "" as a column name.
 - Return ONLY corrected R code. No markdown. No explanation.
 """
+
     try:
         raw = _call_llm(prompt)
     except LLMRateLimitError as e:
-        # Rate-limited: mark LLM as unavailable and exhaust retries so the
-        # graph routes to END and returns the best output we already have.
         state["execution_error"] = (
             str(state.get("execution_error") or "") +
             f"\n[LLM rate-limited — auto-fix skipped: {e}]"
         )
         state["llm_unavailable"] = True
-        state["retry_count"]     = MAX_RETRIES   # exhausts retries → end
-        return state
-    except Exception as e:
-        # Other LLM error — log and exhaust retries gracefully
-        state["execution_error"] = (
-            str(state.get("execution_error") or "") +
-            f"\n[LLM error — auto-fix skipped: {e}]"
-        )
-        state["retry_count"] = MAX_RETRIES
+        state["retry_count"]     = MAX_RETRIES
         return state
 
     raw = re.sub(r'```[rR]?\n?', '', raw)
     raw = re.sub(r'```', '', raw).strip()
-    state["generated_code"] = _sanitise_r_code(raw)
+    if output_type == "Figure":
+        raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
+        lines = [l for l in raw.split('\n') if l.strip()]
+        if lines and not lines[-1].strip().startswith('p <-'):
+            raw += '\np <- last_plot()'
+
+    state["generated_code"] = raw
     state["retry_count"]    = state.get("retry_count", 0) + 1
     return state
 
