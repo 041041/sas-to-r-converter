@@ -1850,14 +1850,31 @@ Generate complete ggplot2 code now:"""
         raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
         raw = re.sub(r'^\s*library\s*\([^)]+\)\s*$', '', raw, flags=re.MULTILINE).strip()
 
+        # ── Strip wrong geom types for line figures ───────────────────────
+        if fig_type == "line":
+            # Remove geom_bar / geom_col / geom_area — wrong for line plots
+            raw = re.sub(r'\+?\s*geom_bar\s*\([^)]*\)', '', raw, flags=re.DOTALL)
+            raw = re.sub(r'\+?\s*geom_col\s*\([^)]*\)', '', raw, flags=re.DOTALL)
+            raw = re.sub(r'\+?\s*geom_area\s*\([^)]*\)', '', raw, flags=re.DOTALL)
+            raw = raw.strip()
+
         # Prepend visit ordering + error bar summary BEFORE LLM code
         raw = visit_inject + "\n" + error_inject + "\n" + raw
 
-        # Guarantee geom_line is present for line figures
+        # ── Force-inject required geoms if LLM missed them ────────────────
+        # 1. geom_line — must be present for line figures
         if needs_line and "geom_line" not in raw:
             raw += f'\np <- p + geom_line(data=df_sum, aes(x=VISIT, y=MEAN, group={groupby}, color={groupby}), linewidth=1)'
 
-        # Guarantee reference line
+        # 2. geom_point
+        if needs_line and "geom_point" not in raw:
+            raw += f'\np <- p + geom_point(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}), size=2.5)'
+
+        # 3. geom_errorbar
+        if bool(error_type) and "geom_errorbar" not in raw and "df_sum" in raw:
+            raw += f'\np <- p + geom_errorbar(data=df_sum, aes(x=VISIT, ymin=LOWER, ymax=UPPER, color={groupby}), width=0.2)'
+
+        # 4. geom_hline reference line
         if needs_ref_zero and "geom_hline" not in raw:
             raw += '\np <- p + geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8)'
 
