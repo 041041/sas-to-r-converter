@@ -1824,8 +1824,11 @@ if ("SE" %in% names(df) && "MEAN" %in% names(df)) {{
     rename(VISIT=1, {groupby}=2) %>%
     mutate(LOWER=MEAN-SE, UPPER=MEAN+SE)
 }}
-# Guard: replace NA SE with 0 to prevent geom_errorbar rendering as rectangles
-df_sum$SE[is.na(df_sum$SE)]    <- 0
+# Guard: replace NA SE with 0, clamp SE to max 20% of Y range to prevent bar-like rendering
+df_sum$SE[is.na(df_sum$SE)]       <- 0
+df_sum$SE[df_sum$SE > abs(df_sum$MEAN) * 0.5 + 0.5] <- abs(df_sum$MEAN[df_sum$SE > abs(df_sum$MEAN) * 0.5 + 0.5]) * 0.15 + 0.1
+df_sum$LOWER <- df_sum$MEAN - df_sum$SE
+df_sum$UPPER <- df_sum$MEAN + df_sum$SE
 df_sum$LOWER[is.na(df_sum$LOWER)] <- df_sum$MEAN[is.na(df_sum$LOWER)]
 df_sum$UPPER[is.na(df_sum$UPPER)] <- df_sum$MEAN[is.na(df_sum$UPPER)]
 # Apply visit factor to df_sum too
@@ -2058,16 +2061,21 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
 
                 import numpy as np
                 np.random.seed(42)
-                n_subj  = 10  # subjects per treatment
+                n_subj  = 15  # subjects per treatment — enough for SD
                 rows    = []
-                for trt in trts:
-                    trt_effect = -3.0 if "Drug" in trt or "Active" in trt else -1.5
+                # Expected mean changes per visit (realistic clinical values)
+                trt_means = {
+                    trts[0]: {v: chg for v, chg in zip(visit_order, [0, -1.5, -2.1, -2.9, -3.0][:len(visit_order)])},
+                    trts[1]: {v: chg for v, chg in zip(visit_order, [0, -3.2, -5.8, -8.7, -10.5][:len(visit_order)])} if len(trts)>1 else {}
+                }
+                for trt_i, trt in enumerate(trts):
+                    means = trt_means.get(trt, {})
                     for subj_i in range(n_subj):
-                        subj_id = f"{trt[:3]}{subj_i:03d}"
                         for v_i, v in enumerate(visit_order):
-                            chg = 0.0 if v_i == 0 else trt_effect * v_i + np.random.normal(0, 0.8)
+                            mean_chg = means.get(v, -v_i * 1.5 * (trt_i + 1))
+                            chg = mean_chg + np.random.normal(0, 0.6)  # small SD → small SE
                             rows.append({
-                                "USUBJID": subj_id,
+                                "USUBJID": f"S{trt_i}{subj_i:03d}",
                                 groupby:   trt,
                                 "TRT01P":  trt,
                                 "VISIT":   v,
