@@ -585,16 +585,26 @@ if (!is.na(.col_nm)) {{
   .ind  <- {ind_r}
   df$.cv. <- df[[.col_nm]]
   {cats_code}
+  # Match expected category labels (e.g. "Male") against actual coded
+  # values in the data (e.g. "M") — handles single-letter codes vs full
+  # words in either direction, plus exact (case-insensitive) matches.
+  .match_cat <- function(cv, cat) {{
+    cv  <- toupper(trimws(as.character(cv)))
+    cat <- toupper(trimws(as.character(cat)))
+    cv == cat |
+      (nchar(cv)==1  & nchar(cat) > 1 & substr(cat,1,1)==cv) |
+      (nchar(cat)==1 & nchar(cv)  > 1 & substr(cv,1,1)==cat)
+  }}
   .n_denom       <- df %>% group_by({groupby}) %>% summarise(N=n_distinct(USUBJID),.groups="drop")
   .n_denom_total <- n_distinct(df$USUBJID)
   {safe_name}_rows <- lapply(expected_cats, function(cat) {{
     tv <- df %>% group_by({groupby}) %>%
-      summarise(nc=sum(.cv.==cat,na.rm=T),.groups="drop") %>%
+      summarise(nc=sum(.match_cat(.cv.,cat),na.rm=T),.groups="drop") %>%
       left_join(.n_denom, by="{groupby}") %>%
       mutate(val=sprintf("%d (%.1f%%)",nc,100*nc/pmax(N,1))) %>%
       select({groupby},val) %>%
       pivot_wider(names_from={groupby},values_from=val,values_fill="0 (0.0%)")
-    nc_tot        <- sum(df$.cv.==cat,na.rm=T)
+    nc_tot        <- sum(.match_cat(df$.cv.,cat),na.rm=T)
     tv$Total      <- sprintf("%d (%.1f%%)",nc_tot,100*nc_tot/max(.n_denom_total,1))
     tv$Statistic  <- paste0(.ind,cat)
     tv$Parameter  <- "{param_name}"
@@ -3137,20 +3147,14 @@ b. Note: xx""",
                 with st.spinner("🤖 Applying enhancement..."):
                     raw = None
                     try:
-                        # Groq first (fast), Gemini fallback — same order as graph_builder
-                        res = _groq.chat.completions.create(
-                            model="llama-3.3-70b-versatile",
-                            messages=[{"role": "user", "content": enhance_prompt}],
-                            temperature=0
-                        )
-                        raw = res.choices[0].message.content
-                    except Exception:
-                        try:
-                            raw = _gemini.models.generate_content(
-                                model="gemini-2.0-flash", contents=enhance_prompt
-                            ).text
-                        except Exception:
-                            st.warning("⚠️ Enhancement failed — using base code.")
+                        # _call_llm tries Gemini then Groq, raising a typed
+                        # exception only if BOTH fail — so we can show the
+                        # real reason instead of a generic "failed" message.
+                        raw = _call_llm(enhance_prompt)
+                    except LLMRateLimitError as e:
+                        st.warning(f"⚠️ Enhancement skipped — LLM rate limit reached. {e}")
+                    except Exception as e:
+                        st.error(f"⚠️ Enhancement failed: {e}")
 
                     if raw:
                         raw = re.sub(r'```[rR]?\n?', '', raw)
