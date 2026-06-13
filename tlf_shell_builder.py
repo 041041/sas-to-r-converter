@@ -1908,6 +1908,9 @@ Generate complete ggplot2 code now:"""
             if needs_ref_zero and "geom_hline" not in raw:
                 raw += '\np <- p + geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8)'
 
+        # Always define df_sum — error_inject only sets it for line figures
+        visit_inject = visit_inject + "\nif (!exists('df_sum')) df_sum <- df\n"
+
         # Prepend visit ordering + error bar summary BEFORE everything
         raw = visit_inject + "\n" + error_inject + "\n" + raw.strip()
 
