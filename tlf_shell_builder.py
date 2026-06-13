@@ -1901,9 +1901,9 @@ Generate complete ggplot2 code now:"""
 
             # Completely replace raw with Python-built skeleton — no LLM ggplot code
             raw = f"""p <- ggplot(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}, group={groupby})) +
-{hline_geom}
+  geom_hline(yintercept=0, linetype="dashed", color="gray50", linewidth=0.7) +
   geom_line(linewidth=1.1) +
-  geom_point(size=2.5) +
+  geom_point(size=2.5, show.legend=FALSE) +
 {errorbar_geom}
   {color_line} +
   {labs_line} +
