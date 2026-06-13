@@ -1792,20 +1792,16 @@ for (.vc in c("VISIT","AVISIT","Visit","visit")) {{
 """
 
         # ── Build error bar summary — runs BEFORE LLM code ───────────────
+        # error_inject: only for line figures with a time/visit axis
         error_inject = ""
-        if error_type:
+        if error_type and fig_type == "line":
             error_inject = f"""
 # Pre-compute summary stats for error bars ({error_type})
-.x_col <- if ("VISIT"   %in% names(df)) "VISIT"   else if ("AVISIT" %in% names(df)) "AVISIT" else names(df)[2]
-.y_col <- if ("CHG"     %in% names(df)) "CHG"     else if ("AVAL"   %in% names(df)) "AVAL"   else if ("MEAN" %in% names(df)) "MEAN" else names(df)[3]
+.x_col <- if ("VISIT" %in% names(df)) "VISIT" else if ("AVISIT" %in% names(df)) "AVISIT" else NULL
+.y_col <- if ("CHG"   %in% names(df)) "CHG"   else if ("AVAL"   %in% names(df)) "AVAL"   else if ("MEAN" %in% names(df)) "MEAN" else names(df)[3]
 .g_col <- if ("{groupby}" %in% names(df)) "{groupby}" else if ("TRT01P" %in% names(df)) "TRT01P" else if ("ARM" %in% names(df)) "ARM" else names(df)[1]
 
-# Use pre-computed SE column if available (uploaded summary data)
-if ("SE" %in% names(df) && "MEAN" %in% names(df)) {{
-  df_sum <- df %>%
-    group_by(.data[[.x_col]], .data[[.g_col]]) %>%
-    summarise(MEAN=mean(MEAN,na.rm=TRUE), SE=mean(SE,na.rm=TRUE), .groups="drop")
-}} else {{
+if (!is.null(.x_col) && .x_col != .g_col) {{
   df_sum <- df %>%
     group_by(.data[[.x_col]], .data[[.g_col]]) %>%
     summarise(
@@ -1816,19 +1812,16 @@ if ("SE" %in% names(df) && "MEAN" %in% names(df)) {{
              else 0,
       .groups="drop"
     )
-}}
-# Rename to standard names using actual column names detected above
-names(df_sum)[names(df_sum)==.x_col] <- "VISIT"
-names(df_sum)[names(df_sum)==.g_col] <- "{groupby}"
-df_sum$LOWER <- df_sum$MEAN - df_sum$SE
-df_sum$UPPER <- df_sum$MEAN + df_sum$SE
-# Guard: clamp SE to prevent bar-like rendering
-df_sum$SE[is.na(df_sum$SE)] <- 0
-df_sum$LOWER[is.na(df_sum$LOWER)] <- df_sum$MEAN[is.na(df_sum$LOWER)]
-df_sum$UPPER[is.na(df_sum$UPPER)] <- df_sum$MEAN[is.na(df_sum$UPPER)]
-# Apply visit factor ordering
-if (.x_col %in% names(df) && is.factor(df[[.x_col]])) {{
-  df_sum$VISIT <- factor(df_sum$VISIT, levels=levels(df[[.x_col]]))
+  names(df_sum)[names(df_sum)==.x_col] <- "VISIT"
+  names(df_sum)[names(df_sum)==.g_col] <- "{groupby}"
+  df_sum$LOWER <- df_sum$MEAN - df_sum$SE
+  df_sum$UPPER <- df_sum$MEAN + df_sum$SE
+  df_sum$SE[is.na(df_sum$SE)] <- 0
+  df_sum$LOWER[is.na(df_sum$LOWER)] <- df_sum$MEAN[is.na(df_sum$LOWER)]
+  df_sum$UPPER[is.na(df_sum$UPPER)] <- df_sum$MEAN[is.na(df_sum$UPPER)]
+  if (is.factor(df[[.x_col]])) df_sum$VISIT <- factor(df_sum$VISIT, levels=levels(df[[.x_col]]))
+}} else {{
+  df_sum <- df
 }}
 """
 
