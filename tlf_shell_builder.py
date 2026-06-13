@@ -1894,18 +1894,18 @@ Generate complete ggplot2 code now:"""
 
             errorbar_geom = ""
             if bool(error_type):
-                errorbar_geom = f'  geom_errorbar(data=df_sum, aes(x=VISIT, ymin=LOWER, ymax=UPPER, color={groupby}), width=0.15, linewidth=0.6) +'
+                errorbar_geom = f'  geom_errorbar(aes(ymin=LOWER, ymax=UPPER), width=0.15, linewidth=0.6, fill=NA) +'
 
             hline_geom = ""
             if needs_ref_zero:
                 hline_geom = f'  geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8) +'
 
             # Completely replace raw with Python-built skeleton — no LLM ggplot code
-            raw = f"""p <- ggplot() +
+            raw = f"""p <- ggplot(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}, group={groupby})) +
 {hline_geom}
+  geom_line(linewidth=1.1) +
+  geom_point(size=2.5) +
 {errorbar_geom}
-  geom_line(data=df_sum,  aes(x=VISIT, y=MEAN, group={groupby}, color={groupby}), linewidth=1.1) +
-  geom_point(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}), size=2.5) +
   {color_line} +
   {labs_line} +
   theme_classic() +
