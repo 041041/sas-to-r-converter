@@ -585,26 +585,16 @@ if (!is.na(.col_nm)) {{
   .ind  <- {ind_r}
   df$.cv. <- df[[.col_nm]]
   {cats_code}
-  # Match expected category labels (e.g. "Male") against actual coded
-  # values in the data (e.g. "M") — handles single-letter codes vs full
-  # words in either direction, plus exact (case-insensitive) matches.
-  .match_cat <- function(cv, cat) {{
-    cv  <- toupper(trimws(as.character(cv)))
-    cat <- toupper(trimws(as.character(cat)))
-    cv == cat |
-      (nchar(cv)==1  & nchar(cat) > 1 & substr(cat,1,1)==cv) |
-      (nchar(cat)==1 & nchar(cv)  > 1 & substr(cv,1,1)==cat)
-  }}
   .n_denom       <- df %>% group_by({groupby}) %>% summarise(N=n_distinct(USUBJID),.groups="drop")
   .n_denom_total <- n_distinct(df$USUBJID)
   {safe_name}_rows <- lapply(expected_cats, function(cat) {{
     tv <- df %>% group_by({groupby}) %>%
-      summarise(nc=sum(.match_cat(.cv.,cat),na.rm=T),.groups="drop") %>%
+      summarise(nc=sum(.cv.==cat,na.rm=T),.groups="drop") %>%
       left_join(.n_denom, by="{groupby}") %>%
       mutate(val=sprintf("%d (%.1f%%)",nc,100*nc/pmax(N,1))) %>%
       select({groupby},val) %>%
       pivot_wider(names_from={groupby},values_from=val,values_fill="0 (0.0%)")
-    nc_tot        <- sum(.match_cat(df$.cv.,cat),na.rm=T)
+    nc_tot        <- sum(df$.cv.==cat,na.rm=T)
     tv$Total      <- sprintf("%d (%.1f%%)",nc_tot,100*nc_tot/max(.n_denom_total,1))
     tv$Statistic  <- paste0(.ind,cat)
     tv$Parameter  <- "{param_name}"
@@ -1860,33 +1850,54 @@ Generate complete ggplot2 code now:"""
         raw = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', raw, flags=re.DOTALL).strip()
         raw = re.sub(r'^\s*library\s*\([^)]+\)\s*$', '', raw, flags=re.MULTILINE).strip()
 
-        # ── Strip wrong geom types for line figures ───────────────────────
+        # ── For line figures: build guaranteed skeleton, discard ALL LLM ggplot code ─
         if fig_type == "line":
-            # Remove geom_bar / geom_col / geom_area — wrong for line plots
-            raw = re.sub(r'\+?\s*geom_bar\s*\([^)]*\)', '', raw, flags=re.DOTALL)
-            raw = re.sub(r'\+?\s*geom_col\s*\([^)]*\)', '', raw, flags=re.DOTALL)
+            # Extract only color scale from LLM output — discard everything else
+            color_line = ""
+            for line in raw.split('\n'):
+                ls = line.strip()
+                if ls.startswith('scale_color_manual') or ls.startswith('scale_color_brewer'):
+                    color_line = ls.rstrip(' +,')
+                    break
+
+            # Default clinical color scale
+            if not color_line:
+                color_line = 'scale_color_manual(values=c("Placebo"="#E45252","Drug A 10mg"="#3A8FC8","Drug A"="#3A8FC8","Active Drug"="#2CA02C"))'
+
+            labs_line  = f'labs(title="{title}", x="Visit", y="Mean Change from Baseline", color="Treatment")'
+            theme_line = 'theme(legend.position=c(0.85, 0.95), legend.background=element_rect(fill="white", color="gray80", linewidth=0.3))'
+
+            errorbar_geom = ""
+            if bool(error_type):
+                errorbar_geom = f'  geom_errorbar(data=df_sum, aes(x=VISIT, ymin=LOWER, ymax=UPPER, color={groupby}), width=0.15, linewidth=0.6) +'
+
+            hline_geom = ""
+            if needs_ref_zero:
+                hline_geom = f'  geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8) +'
+
+            # Completely replace raw with Python-built skeleton — no LLM ggplot code
+            raw = f"""p <- ggplot() +
+{hline_geom}
+{errorbar_geom}
+  geom_line(data=df_sum,  aes(x=VISIT, y=MEAN, group={groupby}, color={groupby}), linewidth=1.1) +
+  geom_point(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}), size=2.5) +
+  {color_line} +
+  {labs_line} +
+  theme_classic() +
+  {theme_line}
+"""
+        else:
+            # Non-line figures: prepend injections and use LLM output
+            # Strip wrong geoms only for safety
+            raw = re.sub(r'\+?\s*geom_bar\s*\([^)]*\)',  '', raw, flags=re.DOTALL)
+            raw = re.sub(r'\+?\s*geom_col\s*\([^)]*\)',  '', raw, flags=re.DOTALL)
             raw = re.sub(r'\+?\s*geom_area\s*\([^)]*\)', '', raw, flags=re.DOTALL)
-            raw = raw.strip()
 
-        # Prepend visit ordering + error bar summary BEFORE LLM code
-        raw = visit_inject + "\n" + error_inject + "\n" + raw
+            if needs_ref_zero and "geom_hline" not in raw:
+                raw += '\np <- p + geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8)'
 
-        # ── Force-inject required geoms if LLM missed them ────────────────
-        # 1. geom_line — must be present for line figures
-        if needs_line and "geom_line" not in raw:
-            raw += f'\np <- p + geom_line(data=df_sum, aes(x=VISIT, y=MEAN, group={groupby}, color={groupby}), linewidth=1)'
-
-        # 2. geom_point
-        if needs_line and "geom_point" not in raw:
-            raw += f'\np <- p + geom_point(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}), size=2.5)'
-
-        # 3. geom_errorbar
-        if bool(error_type) and "geom_errorbar" not in raw and "df_sum" in raw:
-            raw += f'\np <- p + geom_errorbar(data=df_sum, aes(x=VISIT, ymin=LOWER, ymax=UPPER, color={groupby}), width=0.2)'
-
-        # 4. geom_hline reference line
-        if needs_ref_zero and "geom_hline" not in raw:
-            raw += '\np <- p + geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8)'
+        # Prepend visit ordering + error bar summary BEFORE everything
+        raw = visit_inject + "\n" + error_inject + "\n" + raw.strip()
 
         # Ensure last line assigns to p
         lines = [l for l in raw.strip().split('\n') if l.strip()]
@@ -2010,23 +2021,39 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             # Build / save data
             if state.get("adam_csv"):
                 df = pd.read_csv(io.StringIO(state["adam_csv"]))
+                # Drop rows where all visit columns are NA
+                visit_cols = [c for c in df.columns if c in ["VISIT","AVISIT","Visit"]]
+                for vc in visit_cols:
+                    df = df[df[vc].notna()]
             else:
+                # Get visit order from figure requirements
+                fig_reqs   = state.get("_fig_requirements", {})
+                visit_order = fig_reqs.get("visit_order", ["Baseline","Week 4","Week 8","Week 12"])
+                if not visit_order:
+                    visit_order = ["Baseline","Week 4","Week 8","Week 12"]
+                groupby = state.get("parsed_spec",{}).get("groupby_var","TRT01P") or "TRT01P"
+                trts    = ["Placebo","Drug A 10mg"]
+
                 import numpy as np
                 np.random.seed(42)
-                n = 20
-                visits = ["Baseline","Week 4","Week 8","Week 12"]
-                df = pd.DataFrame({
-                    "USUBJID": [f"S{i}" for i in range(1, n+1)],
-                    "TRT01P":  ["Placebo"]*10 + ["Drug A"]*10,
-                    "AVAL":    list(np.round(np.random.normal(50, 10, n), 1)),
-                    "BASE":    list(np.round(np.random.normal(48, 8,  n), 1)),
-                    "VISIT":   (visits * 5)[:n],
-                    "AVISIT":  (visits * 5)[:n],
-                    "MEAN":    list(np.round(np.random.normal(50, 8,  n), 1)),
-                    "AGE":     list(np.random.randint(30, 70, n)),
-                    "SEX":     ["Male","Female"] * 10,
-                })
-                df["CHG"] = df["AVAL"] - df["BASE"]
+                rows = []
+                for trt in trts:
+                    base_val = 0.0
+                    for v in visit_order:
+                        chg = 0.0 if v == "Baseline" else base_val + np.random.normal(-2, 1)
+                        base_val = chg
+                        rows.append({
+                            "USUBJID": f"{trt[:3]}_{v[:3]}_001",
+                            groupby:   trt,
+                            "TRT01P":  trt,
+                            "VISIT":   v,
+                            "AVISIT":  v,
+                            "AVAL":    round(50 + chg, 1),
+                            "CHG":     round(chg, 1),
+                            "MEAN":    round(chg, 1),
+                            "SE":      round(abs(np.random.normal(0.5, 0.1)), 2),
+                        })
+                df = pd.DataFrame(rows)
             df.to_csv(inp_path, index=False)
 
             # Strip ggsave / library() from generated code
@@ -3147,14 +3174,20 @@ b. Note: xx""",
                 with st.spinner("🤖 Applying enhancement..."):
                     raw = None
                     try:
-                        # _call_llm tries Gemini then Groq, raising a typed
-                        # exception only if BOTH fail — so we can show the
-                        # real reason instead of a generic "failed" message.
-                        raw = _call_llm(enhance_prompt)
-                    except LLMRateLimitError as e:
-                        st.warning(f"⚠️ Enhancement skipped — LLM rate limit reached. {e}")
-                    except Exception as e:
-                        st.error(f"⚠️ Enhancement failed: {e}")
+                        # Groq first (fast), Gemini fallback — same order as graph_builder
+                        res = _groq.chat.completions.create(
+                            model="llama-3.3-70b-versatile",
+                            messages=[{"role": "user", "content": enhance_prompt}],
+                            temperature=0
+                        )
+                        raw = res.choices[0].message.content
+                    except Exception:
+                        try:
+                            raw = _gemini.models.generate_content(
+                                model="gemini-2.0-flash", contents=enhance_prompt
+                            ).text
+                        except Exception:
+                            st.warning("⚠️ Enhancement failed — using base code.")
 
                     if raw:
                         raw = re.sub(r'```[rR]?\n?', '', raw)
