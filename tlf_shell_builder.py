@@ -1890,15 +1890,14 @@ Generate complete ggplot2 code now:"""
                 color_line = 'scale_color_manual(values=c("Placebo"="#E45252","Drug A 10mg"="#3A8FC8","Drug A"="#3A8FC8","Active Drug"="#2CA02C"))'
 
             labs_line  = f'labs(title="{title}", x="Visit", y="Mean Change from Baseline", color="Treatment")'
-            theme_line = 'theme(legend.position=c(0.85, 0.95), legend.background=element_rect(fill="white", color="gray80", linewidth=0.3))'
+            theme_line = 'theme(legend.position="right", legend.background=element_rect(fill="white", color="gray80", linewidth=0.3))'
 
             errorbar_geom = ""
             if bool(error_type):
                 errorbar_geom = f'  geom_errorbar(aes(ymin=LOWER, ymax=UPPER), width=0.15, linewidth=0.6, fill=NA) +'
 
-            hline_geom = ""
-            if needs_ref_zero:
-                hline_geom = f'  geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8) +'
+            # Always add reference line for line figures (clinical standard)
+            hline_geom = '  geom_hline(yintercept=0, linetype="dashed", color="gray50", linewidth=0.7) +'
 
             # Completely replace raw with Python-built skeleton — no LLM ggplot code
             raw = f"""p <- ggplot(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}, group={groupby})) +
