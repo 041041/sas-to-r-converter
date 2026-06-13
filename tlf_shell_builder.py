@@ -1799,17 +1799,39 @@ for (.vc in c("VISIT","AVISIT","Visit","visit")) {{
 .x_col  <- if ("VISIT"  %in% names(df)) "VISIT"  else if ("AVISIT" %in% names(df)) "AVISIT" else names(df)[2]
 .y_col  <- if ("CHG"    %in% names(df)) "CHG"    else if ("AVAL"   %in% names(df)) "AVAL"   else if ("MEAN" %in% names(df)) "MEAN" else names(df)[3]
 .g_col  <- if ("{groupby}" %in% names(df)) "{groupby}" else names(df)[1]
-df_sum  <- df %>%
-  group_by(.data[[.x_col]], .data[[.g_col]]) %>%
-  summarise(
-    MEAN   = mean(.data[[.y_col]], na.rm=TRUE),
-    SE     = sd(.data[[.y_col]], na.rm=TRUE) / sqrt(sum(!is.na(.data[[.y_col]]))),
-    .groups= "drop"
-  ) %>%
-  rename(VISIT=1, {groupby}=2) %>%
-  mutate(LOWER=MEAN-SE, UPPER=MEAN+SE)
+# Use pre-computed SE column if available (e.g. from uploaded summary data)
+if ("SE" %in% names(df) && "MEAN" %in% names(df)) {{
+  df_sum <- df %>%
+    group_by(.data[[.x_col]], .data[[.g_col]]) %>%
+    summarise(
+      MEAN = mean(MEAN, na.rm=TRUE),
+      SE   = mean(SE,   na.rm=TRUE),
+      .groups="drop"
+    ) %>%
+    rename(VISIT=1, {groupby}=2) %>%
+    mutate(LOWER=MEAN-SE, UPPER=MEAN+SE)
+}} else {{
+  df_sum <- df %>%
+    group_by(.data[[.x_col]], .data[[.g_col]]) %>%
+    summarise(
+      MEAN  = mean(.data[[.y_col]], na.rm=TRUE),
+      N     = sum(!is.na(.data[[.y_col]])),
+      SE    = if (sum(!is.na(.data[[.y_col]])) > 1)
+                sd(.data[[.y_col]], na.rm=TRUE) / sqrt(sum(!is.na(.data[[.y_col]])))
+              else 0,
+      .groups="drop"
+    ) %>%
+    rename(VISIT=1, {groupby}=2) %>%
+    mutate(LOWER=MEAN-SE, UPPER=MEAN+SE)
+}}
+# Guard: replace NA SE with 0 to prevent geom_errorbar rendering as rectangles
+df_sum$SE[is.na(df_sum$SE)]    <- 0
+df_sum$LOWER[is.na(df_sum$LOWER)] <- df_sum$MEAN[is.na(df_sum$LOWER)]
+df_sum$UPPER[is.na(df_sum$UPPER)] <- df_sum$MEAN[is.na(df_sum$UPPER)]
 # Apply visit factor to df_sum too
-if (is.factor(df[[.x_col]])) df_sum$VISIT <- factor(df_sum$VISIT, levels=levels(df[[.x_col]]))
+if (.x_col %in% names(df) && is.factor(df[[.x_col]])) {{
+  df_sum$VISIT <- factor(df_sum$VISIT, levels=levels(df[[.x_col]]))
+}}
 """
 
         prompt = f"""You are an expert clinical R programmer. Generate ggplot2 code for this clinical figure.
@@ -2036,23 +2058,23 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
 
                 import numpy as np
                 np.random.seed(42)
-                rows = []
+                n_subj  = 10  # subjects per treatment
+                rows    = []
                 for trt in trts:
-                    base_val = 0.0
-                    for v in visit_order:
-                        chg = 0.0 if v == "Baseline" else base_val + np.random.normal(-2, 1)
-                        base_val = chg
-                        rows.append({
-                            "USUBJID": f"{trt[:3]}_{v[:3]}_001",
-                            groupby:   trt,
-                            "TRT01P":  trt,
-                            "VISIT":   v,
-                            "AVISIT":  v,
-                            "AVAL":    round(50 + chg, 1),
-                            "CHG":     round(chg, 1),
-                            "MEAN":    round(chg, 1),
-                            "SE":      round(abs(np.random.normal(0.5, 0.1)), 2),
-                        })
+                    trt_effect = -3.0 if "Drug" in trt or "Active" in trt else -1.5
+                    for subj_i in range(n_subj):
+                        subj_id = f"{trt[:3]}{subj_i:03d}"
+                        for v_i, v in enumerate(visit_order):
+                            chg = 0.0 if v_i == 0 else trt_effect * v_i + np.random.normal(0, 0.8)
+                            rows.append({
+                                "USUBJID": subj_id,
+                                groupby:   trt,
+                                "TRT01P":  trt,
+                                "VISIT":   v,
+                                "AVISIT":  v,
+                                "AVAL":    round(50 + chg, 1),
+                                "CHG":     round(chg, 1),
+                            })
                 df = pd.DataFrame(rows)
             df.to_csv(inp_path, index=False)
 
