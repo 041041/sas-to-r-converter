@@ -3244,7 +3244,7 @@ b. Note: xx""",
                             "validation_result": "", "retry_count":       0,
                             "final_r_code":      "", "final_output":      "",
                             "detected_type":     "", "ai_instructions":   "",
-                            "llm_unavailable":   False,
+                            "llm_unavailable":   False, 
                         }
                         with st.spinner("⚙️ Running enhanced R..."):
                             _enh_state = node_execute(_enh_state)
