@@ -1782,10 +1782,13 @@ def node_generate_code(state: ShellTLFState) -> ShellTLFState:
         if visit_order:
             levels_r = "c(" + ", ".join(f'"{v}"' for v in visit_order) + ")"
             visit_inject = f"""
-# Enforce clinical visit order from shell spec
-.visit_levels <- {levels_r}
-for (.vc in c("VISIT","AVISIT","Visit","visit")) {{
-  if (.vc %in% names(df)) {{
+# Enforce clinical visit order — only if a visit column exists
+.visit_cols <- intersect(c("VISIT","AVISIT","Visit","visit"), names(df))
+if (length(.visit_cols) > 0) {{
+  .vc <- .visit_cols[1]
+  .visit_levels <- {levels_r}
+  .existing     <- intersect(.visit_levels, unique(as.character(df[[.vc]])))
+  if (length(.existing) > 0) {{
     df[[.vc]] <- factor(df[[.vc]], levels=.visit_levels)
   }}
 }}
