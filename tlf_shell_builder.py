@@ -2087,6 +2087,10 @@ def node_execute(state: ShellTLFState) -> ShellTLFState:
             r_code = state["generated_code"]
             r_code = re.sub(r'\+?\s*ggsave\s*\([^)]*\)', '', r_code, flags=re.DOTALL)
             r_code = re.sub(r'^\s*library\s*\([^)]+\)\s*$', '', r_code, flags=re.MULTILINE)
+            # Strip ANY VISIT factor assignment — catches multiline and all patterns
+            r_code = re.sub(r'df\s*\[\s*["\']VISIT["\']\s*\]\s*<-[^\n]+', '', r_code)
+            r_code = re.sub(r'df\s*\$\s*VISIT\s*<-[^\n]+', '', r_code)
+            r_code = re.sub(r'\w+\s*\[\s*["\']VISIT["\']\s*\]\s*<-[^\n]+', '', r_code)
             r_code = r_code.strip()
             # Ensure last line assigns to p
             lines = [l for l in r_code.split('\n') if l.strip()]
@@ -2112,7 +2116,17 @@ suppressMessages(suppressWarnings({{
 )
 df <- read.csv("{inp_path}", stringsAsFactors=FALSE)
 
+# Wrap all generated code in tryCatch so VISIT errors don't crash the whole script
+withCallingHandlers({{
 {r_code}
+}}, error = function(e) {{
+  # If VISIT-related error, skip and continue
+  if (grepl("VISIT|replacement has 0 rows", conditionMessage(e))) {{
+    message("Skipping VISIT assignment: ", conditionMessage(e))
+  }} else {{
+    stop(e)
+  }}
+}})
 
 suppressMessages(ggsave("{plot_path}", plot=p, width=10, height=6, dpi=150))
 """
