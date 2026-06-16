@@ -7,7 +7,7 @@ Same patterns as graph_builder.py: file upload OR paste, AI box, diff review,
 Gemini primary / Groq fallback, session-state prefixed ms_ to avoid collisions.
 ─────────────────────────────────────────────────────────────────────────────
 """
- 
+
 import os, re, io, subprocess, tempfile, traceback
 from typing import TypedDict, Optional
 import pandas as pd
@@ -1715,10 +1715,12 @@ def node_generate_code(state: ShellTLFState) -> ShellTLFState:
     has_adam    = bool(state.get("adam_csv"))
 
     adam_hint = ""
+    col_names_hint = ""
     if has_adam:
         try:
-            df_preview = pd.read_csv(io.StringIO(state["adam_csv"])).head(5).to_string()
-            adam_hint  = f"\nADaM dataset preview (first 5 rows):\n{df_preview}\n"
+            df_preview = pd.read_csv(io.StringIO(state["adam_csv"])).head(5)
+            col_names_hint = f"\nACTUAL COLUMN NAMES in data: {list(df_preview.columns)}\n"
+            adam_hint = col_names_hint + f"ADaM dataset preview (first 5 rows):\n{df_preview.to_string()}\n"
         except Exception:
             adam_hint = ""
 
@@ -1835,7 +1837,7 @@ if (!is.null(.x_col) && .x_col != .g_col) {{
 TITLE: {title}
 FIGURE TYPE: {fig_type}
 TREATMENT COLUMN: {groupby}
-
+{col_names_hint}
 REQUIREMENTS DETECTED FROM SHELL:
 - needs_line_geom:  {needs_line}
 - needs_error_bars: {bool(error_type)} ({error_type})
@@ -1846,18 +1848,21 @@ PRE-COMPUTED DATA AVAILABLE:
 - df      = raw data (already loaded, VISIT already factored in correct order)
 - df_sum  = summary with columns: VISIT, {groupby}, MEAN, SE, LOWER, UPPER {"(already computed)" if error_type else "(not computed — use df directly)"}
 
+CRITICAL: Only use column names that ACTUALLY EXIST in the data (listed above in ACTUAL COLUMN NAMES).
+Do NOT invent column names like MEAN_CHANGE, PCT_SUBJ, N_SUBJECTS etc. Use actual column names.
+
 MANDATORY RULES — all must be in output:
 1. Do NOT add library() or ggsave() or read.csv().
-2. Use theme_classic() + theme(legend.position="top right") for clinical look.
+2. Use theme_classic() for clinical look.
 3. MUST use df_sum as data source (not df) when error bars are needed.
 4. MUST include geom_line(data=df_sum, aes(x=VISIT, y=MEAN, group={groupby}, color={groupby}), linewidth=1)
 5. MUST include geom_point(data=df_sum, aes(x=VISIT, y=MEAN, color={groupby}), size=2)
 6. {"MUST include geom_errorbar(data=df_sum, aes(x=VISIT, ymin=LOWER, ymax=UPPER, color="+groupby+"), width=0.2)" if error_type else "No error bars needed."}
 7. {"MUST include geom_hline(yintercept=0, linetype='dashed', color='gray40', linewidth=0.8)" if needs_ref_zero else "No reference line needed."}
 8. MUST include labs(title="{title}", x="Visit", y="Mean Change from Baseline", color="Treatment")
-9. MUST include theme(legend.position=c(0.85, 0.95)) for top-right legend.
+9. MUST include theme(legend.position="right") for legend.
 10. DO NOT sort visits — VISIT is already a factor in correct order.
-11. NEVER write df$VISIT <- or df[["VISIT"]] <- or any assignment to a VISIT column. Visit ordering is handled externally.
+11. NEVER write df$VISIT <- or df[["VISIT"]] <- or any assignment to a VISIT column.
 12. Last line MUST assign plot to p: p <- ggplot(...) + ...
 13. Return ONLY R code. No markdown. No explanations.
 
@@ -2119,17 +2124,25 @@ suppressMessages(suppressWarnings({{
 }}))
 df <- read.csv("{inp_path}", stringsAsFactors=FALSE)
 
-# Safety: prevent any VISIT factor assignment from crashing non-visit figures
-# Override assignment to silently skip if result would be 0 rows
-.safe_visit_assign <- function(df, col, val) {{
-  tryCatch({{
-    if (length(val) == nrow(df)) df[[col]] <- val
-    df
-  }}, error=function(e) df)
-}}
-# Intercept df$VISIT <- ... pattern by pre-checking
-if (!"VISIT" %in% names(df)) df$VISIT <- NA_character_
+# Safety: pre-create VISIT/AVISIT if missing so factor assignments don't crash
+if (!"VISIT"  %in% names(df)) df$VISIT  <- NA_character_
 if (!"AVISIT" %in% names(df)) df$AVISIT <- NA_character_
+
+# Auto-detect common column names and create aliases so LLM code doesn't fail
+# on hallucinated column names
+.num_cols <- names(df)[sapply(df, is.numeric)]
+if (length(.num_cols) > 0) {{
+  .y_col <- .num_cols[1]
+  # Create aliases for common column names the LLM might reference
+  for (.alias in c("AVAL","CHG","PCHG","VALUE","MEAN","MEAN_CHANGE","PERCENT","PCT","N_SUBJ")) {{
+    if (!.alias %in% names(df)) df[[.alias]] <- df[[.y_col]]
+  }}
+}}
+# Create aliases for common grouping columns
+if (!"TRT01P"  %in% names(df) && "ARM"    %in% names(df)) df$TRT01P  <- df$ARM
+if (!"ARM"     %in% names(df) && "TRT01P" %in% names(df)) df$ARM     <- df$TRT01P
+if (!"AEBODSYS"%in% names(df) && "SOC"    %in% names(df)) df$AEBODSYS<- df$SOC
+if (!"AEDECOD" %in% names(df) && "PT"     %in% names(df)) df$AEDECOD <- df$PT
 
 {r_code}
 
