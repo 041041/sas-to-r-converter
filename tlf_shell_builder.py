@@ -7,7 +7,7 @@ Same patterns as graph_builder.py: file upload OR paste, AI box, diff review,
 Gemini primary / Groq fallback, session-state prefixed ms_ to avoid collisions.
 ─────────────────────────────────────────────────────────────────────────────
 """
-
+ 
 import os, re, io, subprocess, tempfile, traceback
 from typing import TypedDict, Optional
 import pandas as pd
