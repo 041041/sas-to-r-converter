@@ -750,6 +750,153 @@ cat(as_raw_html(tbl))
     return code
 
 
+def _build_bar_figure_r_code(spec: dict, has_adam: bool) -> str:
+    """Python template for bar chart figures — no LLM column hallucination."""
+    title    = spec.get("title","Bar Chart")
+    groupby  = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+    footnotes = spec.get("footnotes",[])
+    fn_caption = footnotes[0] if footnotes else ""
+
+    dummy = "" if has_adam else f"""
+set.seed(42)
+cats <- c("Gastrointestinal disorders","Nervous system disorders","Skin disorders","Cardiac disorders")
+df <- data.frame(
+  USUBJID  = paste0("S",1:40),
+  {groupby} = rep(c("Placebo","Drug A"),each=20),
+  AEBODSYS = sample(cats,40,replace=TRUE),
+  TRTEMFL  = "Y",
+  stringsAsFactors=FALSE
+)
+"""
+    return f"""{dummy}
+# Detect grouping and value columns
+.g_col <- if ("{groupby}" %in% names(df)) "{groupby}" else if ("TRT01P" %in% names(df)) "TRT01P" else names(df)[1]
+.cat_col <- if ("AEBODSYS" %in% names(df)) "AEBODSYS" else if ("CATEGORY" %in% names(df)) "CATEGORY" else names(df)[2]
+
+# Compute counts per category per treatment
+n_trt <- table(df[[.g_col]])
+df_bar <- as.data.frame(table(df[[.cat_col]], df[[.g_col]]))
+names(df_bar) <- c("Category","Treatment","N")
+df_bar <- merge(df_bar, data.frame(Treatment=names(n_trt), N_total=as.integer(n_trt)), by="Treatment")
+df_bar$PCT <- 100 * df_bar$N / df_bar$N_total
+df_bar$Category <- as.character(df_bar$Category)
+df_bar$Treatment <- as.character(df_bar$Treatment)
+
+p <- ggplot(df_bar, aes(x=reorder(Category, -PCT), y=PCT, fill=Treatment)) +
+  geom_col(position=position_dodge(0.8), width=0.7) +
+  labs(title="{title}", x="", y="Subjects (%)", fill="Treatment",
+       caption="{fn_caption}") +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle=30, hjust=1, size=10),
+    legend.position = "right"
+  ) +
+  scale_fill_manual(values=c("Placebo"="#4E9FC4","Drug A"="#E45252",
+                              "Drug A 10mg"="#E45252","Active Drug"="#2CA02C"))
+"""
+
+
+def _build_box_figure_r_code(spec: dict, has_adam: bool) -> str:
+    """Python template for box plot figures."""
+    title    = spec.get("title","Box Plot")
+    groupby  = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+    footnotes = spec.get("footnotes",[])
+    fn_caption = footnotes[0] if footnotes else ""
+
+    dummy = "" if has_adam else f"""
+set.seed(42)
+df <- data.frame(
+  USUBJID = paste0("S",1:30),
+  {groupby} = rep(c("Placebo","Drug A"),each=15),
+  AVAL    = c(rnorm(15,30,8), rnorm(15,42,10)),
+  stringsAsFactors=FALSE
+)
+"""
+    return f"""{dummy}
+.g_col <- if ("{groupby}" %in% names(df)) "{groupby}" else if ("TRT01P" %in% names(df)) "TRT01P" else names(df)[1]
+.y_col <- if ("AVAL" %in% names(df)) "AVAL" else if ("CHG" %in% names(df)) "CHG" else names(df)[sapply(df,is.numeric)][1]
+
+p <- ggplot(df, aes(x=.data[[.g_col]], y=.data[[.y_col]], fill=.data[[.g_col]])) +
+  geom_boxplot(width=0.5, outlier.shape=21, outlier.size=2) +
+  labs(title="{title}", x="Treatment", y=.y_col, fill="Treatment",
+       caption="{fn_caption}") +
+  theme_classic() +
+  theme(legend.position="none") +
+  scale_fill_manual(values=c("Placebo"="#4E9FC4","Drug A"="#E45252",
+                              "Drug A 10mg"="#E45252","Active Drug"="#2CA02C"))
+"""
+
+
+def _build_waterfall_figure_r_code(spec: dict, has_adam: bool) -> str:
+    """Python template for waterfall plot figures."""
+    title    = spec.get("title","Waterfall Plot")
+    groupby  = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+    footnotes = spec.get("footnotes",[])
+
+    dummy = "" if has_adam else f"""
+set.seed(42)
+df <- data.frame(
+  USUBJID = paste0("S",1:20),
+  {groupby} = c(rep("Placebo",8),rep("Drug A",12)),
+  PCHG    = c(runif(8,-20,40), runif(12,-80,15)),
+  stringsAsFactors=FALSE
+)
+"""
+    ref_lines = ""
+    if any(k in spec.get("title","").lower() for k in ["30","partial response"]):
+        ref_lines += '  geom_hline(yintercept=-30, linetype="dashed", color="gray40") +\n'
+    if any(k in spec.get("title","").lower() for k in ["20","progression"]):
+        ref_lines += '  geom_hline(yintercept=20, linetype="dashed", color="gray60") +\n'
+
+    return f"""{dummy}
+.g_col    <- if ("{groupby}" %in% names(df)) "{groupby}" else if ("TRT01P" %in% names(df)) "TRT01P" else names(df)[1]
+.pchg_col <- if ("PCHG" %in% names(df)) "PCHG" else if ("CHG" %in% names(df)) "CHG" else names(df)[sapply(df,is.numeric)][1]
+df <- df[order(df[[.pchg_col]]),]
+df$USUBJID <- factor(df$USUBJID, levels=df$USUBJID)
+
+p <- ggplot(df, aes(x=USUBJID, y=.data[[.pchg_col]], fill=.data[[.g_col]])) +
+  geom_col(width=0.8) +
+{ref_lines}  geom_hline(yintercept=0, color="black", linewidth=0.4) +
+  labs(title="{title}", x="Subject", y="Best % Change from Baseline", fill="Treatment") +
+  theme_classic() +
+  theme(axis.text.x=element_text(angle=90,hjust=1,size=7), legend.position="right") +
+  scale_fill_manual(values=c("Placebo"="#4E9FC4","Drug A"="#E45252",
+                              "Drug A 10mg"="#E45252","Active Drug"="#2CA02C"))
+"""
+
+
+def _build_scatter_figure_r_code(spec: dict, has_adam: bool) -> str:
+    """Python template for scatter plot figures."""
+    title    = spec.get("title","Scatter Plot")
+    groupby  = spec.get("groupby_var") or spec.get("groupby") or "TRT01P"
+    footnotes = spec.get("footnotes",[])
+
+    dummy = "" if has_adam else f"""
+set.seed(42)
+df <- data.frame(
+  USUBJID = paste0("S",1:30),
+  {groupby} = rep(c("Placebo","Drug A"),each=15),
+  BMIBL   = c(rnorm(15,25,4), rnorm(15,26,4)),
+  CHG     = c(rnorm(15,-1.5,0.8), rnorm(15,-4,1.2)),
+  stringsAsFactors=FALSE
+)
+"""
+    return f"""{dummy}
+.g_col <- if ("{groupby}" %in% names(df)) "{groupby}" else if ("TRT01P" %in% names(df)) "TRT01P" else names(df)[1]
+.x_col <- if ("BMIBL" %in% names(df)) "BMIBL" else if ("BASE" %in% names(df)) "BASE" else names(df)[sapply(df,is.numeric)][1]
+.y_col <- if ("CHG"   %in% names(df)) "CHG"   else if ("AVAL" %in% names(df)) "AVAL" else names(df)[sapply(df,is.numeric)][2]
+
+p <- ggplot(df, aes(x=.data[[.x_col]], y=.data[[.y_col]], color=.data[[.g_col]])) +
+  geom_point(size=2.5, alpha=0.8) +
+  geom_smooth(method="lm", se=FALSE, linewidth=0.8) +
+  labs(title="{title}", x=.x_col, y=.y_col, color="Treatment") +
+  theme_classic() +
+  theme(legend.position="right") +
+  scale_color_manual(values=c("Placebo"="#4E9FC4","Drug A"="#E45252",
+                               "Drug A 10mg"="#E45252","Active Drug"="#2CA02C"))
+"""
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # TEMPLATE: AE Summary (incidence by treatment)
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1910,13 +2057,19 @@ Generate complete ggplot2 code now:"""
   {theme_line}
 """
         else:
-            # Non-line figures: strip LLM visit factor assignments and wrong geoms
-            raw = re.sub(r'df\$VISIT\s*<-\s*factor\([^)]*\)',     '', raw)
-            raw = re.sub(r'df\[\["VISIT"\]\]\s*<-\s*factor\([^)]*\)', '', raw)
-            raw = re.sub(r'df\[\[.x_col\]\]\s*<-\s*factor\([^)]*\)', '', raw)
-            raw = re.sub(r'\+?\s*geom_bar\s*\([^)]*\)',  '', raw, flags=re.DOTALL)
-            raw = re.sub(r'\+?\s*geom_col\s*\([^)]*\)',  '', raw, flags=re.DOTALL)
-            raw = re.sub(r'\+?\s*geom_area\s*\([^)]*\)', '', raw, flags=re.DOTALL)
+            # Non-line figures: use Python templates — no LLM column hallucination
+            if fig_type == "bar":
+                raw = _build_bar_figure_r_code(spec, has_adam)
+            elif fig_type == "box":
+                raw = _build_box_figure_r_code(spec, has_adam)
+            elif fig_type == "waterfall":
+                raw = _build_waterfall_figure_r_code(spec, has_adam)
+            elif fig_type == "scatter":
+                raw = _build_scatter_figure_r_code(spec, has_adam)
+            else:
+                # Unknown figure type — use LLM but strip dangerous assignments
+                raw = re.sub(r'[^\n]*\$VISIT\s*<-[^\n]*', '', raw)
+                raw = re.sub(r'[^\n]*\[\[.VISIT.\]\]\s*<-[^\n]*', '', raw)
 
             if needs_ref_zero and "geom_hline" not in raw:
                 raw += '\np <- p + geom_hline(yintercept=0, linetype="dashed", color="gray40", linewidth=0.8)'
@@ -2124,25 +2277,36 @@ suppressMessages(suppressWarnings({{
 }}))
 df <- read.csv("{inp_path}", stringsAsFactors=FALSE)
 
-# Safety: pre-create VISIT/AVISIT if missing so factor assignments don't crash
+# Safety: pre-create VISIT/AVISIT if missing
 if (!"VISIT"  %in% names(df)) df$VISIT  <- NA_character_
 if (!"AVISIT" %in% names(df)) df$AVISIT <- NA_character_
 
-# Auto-detect common column names and create aliases so LLM code doesn't fail
-# on hallucinated column names
+# Auto-detect numeric column and create ALL common aliases
 .num_cols <- names(df)[sapply(df, is.numeric)]
 if (length(.num_cols) > 0) {{
   .y_col <- .num_cols[1]
-  # Create aliases for common column names the LLM might reference
-  for (.alias in c("AVAL","CHG","PCHG","VALUE","MEAN","MEAN_CHANGE","PERCENT","PCT","N_SUBJ")) {{
-    if (!.alias %in% names(df)) df[[.alias]] <- df[[.y_col]]
+  .y_vals <- df[[.y_col]]
+  # Short names
+  for (.a in c("AVAL","CHG","PCHG","VALUE","MEAN","PCT","N_SUBJ","PERCENT","SCORE")) {{
+    if (!.a %in% names(df)) df[[.a]] <- .y_vals
+  }}
+  # Long names the LLM commonly hallucinates
+  for (.a in c("MEAN_CHANGE","MEAN_VALUE","MEAN_SCORE","CHANGE_FROM_BASELINE",
+               "MEAN_CHANGE_FROM_BASELINE","PCT_SUBJECTS","PERCENT_SUBJECTS",
+               "N_SUBJECTS","NUM_SUBJECTS","INCIDENCE","INCIDENCE_PCT",
+               "RESPONSE_RATE","EFFECT_SIZE","DIFFERENCE")) {{
+    if (!.a %in% names(df)) df[[.a]] <- .y_vals
   }}
 }}
-# Create aliases for common grouping columns
-if (!"TRT01P"  %in% names(df) && "ARM"    %in% names(df)) df$TRT01P  <- df$ARM
-if (!"ARM"     %in% names(df) && "TRT01P" %in% names(df)) df$ARM     <- df$TRT01P
-if (!"AEBODSYS"%in% names(df) && "SOC"    %in% names(df)) df$AEBODSYS<- df$SOC
-if (!"AEDECOD" %in% names(df) && "PT"     %in% names(df)) df$AEDECOD <- df$PT
+# Treatment column aliases
+if (!"TRT01P"   %in% names(df) && "ARM"       %in% names(df)) df$TRT01P   <- df$ARM
+if (!"ARM"      %in% names(df) && "TRT01P"    %in% names(df)) df$ARM      <- df$TRT01P
+if (!"TREATMENT"%in% names(df) && "TRT01P"    %in% names(df)) df$TREATMENT<- df$TRT01P
+if (!"TRT"      %in% names(df) && "TRT01P"    %in% names(df)) df$TRT      <- df$TRT01P
+# AE column aliases
+if (!"AEBODSYS" %in% names(df) && "SOC"       %in% names(df)) df$AEBODSYS <- df$SOC
+if (!"AEDECOD"  %in% names(df) && "PT"        %in% names(df)) df$AEDECOD  <- df$PT
+if (!"SOC"      %in% names(df) && "AEBODSYS"  %in% names(df)) df$SOC      <- df$AEBODSYS
 
 {r_code}
 
