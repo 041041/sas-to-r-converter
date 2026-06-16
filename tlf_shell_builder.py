@@ -2283,20 +2283,17 @@ if (!"AVISIT" %in% names(df)) df$AVISIT <- NA_character_
 
 # Auto-detect numeric column and create ALL common aliases
 .num_cols <- names(df)[sapply(df, is.numeric)]
-if (length(.num_cols) > 0) {{
-  .y_col <- .num_cols[1]
-  .y_vals <- df[[.y_col]]
-  # Short names
-  for (.a in c("AVAL","CHG","PCHG","VALUE","MEAN","PCT","N_SUBJ","PERCENT","SCORE")) {{
-    if (!.a %in% names(df)) df[[.a]] <- .y_vals
-  }}
-  # Long names the LLM commonly hallucinates
-  for (.a in c("MEAN_CHANGE","MEAN_VALUE","MEAN_SCORE","CHANGE_FROM_BASELINE",
-               "MEAN_CHANGE_FROM_BASELINE","PCT_SUBJECTS","PERCENT_SUBJECTS",
-               "N_SUBJECTS","NUM_SUBJECTS","INCIDENCE","INCIDENCE_PCT",
-               "RESPONSE_RATE","EFFECT_SIZE","DIFFERENCE")) {{
-    if (!.a %in% names(df)) df[[.a]] <- .y_vals
-  }}
+.y_vals   <- if (length(.num_cols) > 0) df[[.num_cols[1]]] else rep(0L, nrow(df))
+# Short names
+for (.a in c("AVAL","CHG","PCHG","VALUE","MEAN","PCT","N_SUBJ","PERCENT","SCORE")) {{
+  if (!.a %in% names(df)) df[[.a]] <- .y_vals
+}}
+# Long names the LLM commonly hallucinates
+for (.a in c("MEAN_CHANGE","MEAN_VALUE","MEAN_SCORE","CHANGE_FROM_BASELINE",
+             "MEAN_CHANGE_FROM_BASELINE","PCT_SUBJECTS","PERCENT_SUBJECTS",
+             "N_SUBJECTS","NUM_SUBJECTS","INCIDENCE","INCIDENCE_PCT",
+             "RESPONSE_RATE","EFFECT_SIZE","DIFFERENCE")) {{
+  if (!.a %in% names(df)) df[[.a]] <- .y_vals
 }}
 # Treatment column aliases
 if (!"TRT01P"   %in% names(df) && "ARM"       %in% names(df)) df$TRT01P   <- df$ARM
