@@ -789,10 +789,13 @@ p <- ggplot(df_bar, aes(x=reorder(Category, -PCT), y=PCT, fill=Treatment)) +
   theme_classic() +
   theme(
     axis.text.x = element_text(angle=30, hjust=1, size=10),
-    legend.position = "right"
+    legend.position = "right",
+    plot.caption = element_text(hjust=1, size=9, color="gray40")
   ) +
   scale_fill_manual(values=c("Placebo"="#4E9FC4","Drug A"="#E45252",
-                              "Drug A 10mg"="#E45252","Active Drug"="#2CA02C"))
+                              "Drug A 10mg"="#E45252","Active Drug"="#2CA02C",
+                              "Arm A"="#E45252","Arm B"="#4E9FC4"))
+p <- p  # assign to p explicitly
 """
 
 
@@ -1924,7 +1927,10 @@ def node_generate_code(state: ShellTLFState) -> ShellTLFState:
         needs_ci        = any(k in shell_lower for k in ["95% ci","confidence interval","ci"])
         needs_ref_zero  = any(k in shell_lower for k in ["y=0","reference line","ref line","horizontal line at 0","dashed line at 0"])
         needs_line      = fig_type == "line" or any(k in shell_lower for k in ["connect","line","trend"])
-        error_type      = "SE" if needs_se else ("SD" if needs_sd else ("CI" if needs_ci else "SE" if fig_type=="line" else ""))
+        # Error bars only meaningful for line/time-series figures
+        error_type      = "" if fig_type not in ("line",) else (
+            "SE" if needs_se else ("SD" if needs_sd else ("CI" if needs_ci else "SE"))
+        )
 
         # ── Build visit order injection — runs BEFORE LLM code ───────────
         visit_inject = ""
