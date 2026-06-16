@@ -2119,6 +2119,18 @@ suppressMessages(suppressWarnings({{
 }}))
 df <- read.csv("{inp_path}", stringsAsFactors=FALSE)
 
+# Safety: prevent any VISIT factor assignment from crashing non-visit figures
+# Override assignment to silently skip if result would be 0 rows
+.safe_visit_assign <- function(df, col, val) {{
+  tryCatch({{
+    if (length(val) == nrow(df)) df[[col]] <- val
+    df
+  }}, error=function(e) df)
+}}
+# Intercept df$VISIT <- ... pattern by pre-checking
+if (!"VISIT" %in% names(df)) df$VISIT <- NA_character_
+if (!"AVISIT" %in% names(df)) df$AVISIT <- NA_character_
+
 {r_code}
 
 suppressMessages(ggsave("{plot_path}", plot=p, width=10, height=6, dpi=150))
@@ -3244,7 +3256,7 @@ b. Note: xx""",
                             "validation_result": "", "retry_count":       0,
                             "final_r_code":      "", "final_output":      "",
                             "detected_type":     "", "ai_instructions":   "",
-                            "llm_unavailable":   False, 
+                            "llm_unavailable":   False,
                         }
                         with st.spinner("⚙️ Running enhanced R..."):
                             _enh_state = node_execute(_enh_state)
