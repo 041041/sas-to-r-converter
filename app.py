@@ -331,7 +331,7 @@ def call_llm_api(step, df_cols, env_names=None, dialect="Base R"):
         )
         raw = res.choices[0].message.content
     except Exception:
-        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=prompt).text
+        raw = gemini_client.models.generate_content(model='gemini-3.6-flash', contents=prompt).text
     return clean_r_code(raw)
 
 def run_r_subprocess(r_code, input_df, env_dict=None):
@@ -437,7 +437,7 @@ def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
         )
         raw = res.choices[0].message.content
     except Exception:
-        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+        raw = gemini_client.models.generate_content(model='gemini-3.6-flash', contents=fix_prompt).text
     return clean_r_code(raw)
     
     fix_prompt = (
@@ -455,7 +455,7 @@ def fix_r_code_on_mismatch(r_code, step, mismatches, sas_df, r_df, dialect):
         )
         raw = res.choices[0].message.content
     except Exception:
-        raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+        raw = gemini_client.models.generate_content(model='gemini-3.6-flash', contents=fix_prompt).text
  
 def parse_datalines(step):
     """Extracts raw data from SAS datalines/cards block."""
@@ -568,7 +568,7 @@ def run_chain_pipeline(sas_code, uploaded_outputs, dialect, progress_bar=None, s
                         )
                         fixed_raw = res_fix.choices[0].message.content
                     except Exception:
-                        fixed_raw = gemini_client.models.generate_content(model='gemini-2.0-flash', contents=fix_prompt).text
+                        fixed_raw = gemini_client.models.generate_content(model='gemini-3.6-flash', contents=fix_prompt).text
                     r_code = clean_r_code(fixed_raw)
                     res_entry["r_code"] = r_code
                     res_entry["auto_fixed"] = True
